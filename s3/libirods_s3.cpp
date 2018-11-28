@@ -1,4 +1,3 @@
-// =-=-=-=-=-=-=-
 // Needed to support pread with > 2GB offsets
 #define _USE_FILE_OFFSET64
 
@@ -39,6 +38,7 @@
 #include <vector>
 #include <string>
 #include <ctime>
+#include <tuple>
 
 // =-=-=-=-=-=-=-
 // boost includes
@@ -82,6 +82,7 @@
 #include <string.h>
 
 static const std::string s3_default_hostname{"S3_DEFAULT_HOSTNAME"};
+static const std::string host_mode{"HOST_MODE"};
 static const std::string s3_auth_file{"S3_AUTH_FILE"};
 static const std::string s3_key_id{"S3_ACCESS_KEY_ID"};
 static const std::string s3_access_key{"S3_SECRET_ACCESS_KEY"};
@@ -128,7 +129,56 @@ static bool S3Initialized = false; // so we only initialize the s3 library once
 static std::vector<char *> g_hostname;
 static int g_hostnameIdx = 0;
 static boost::mutex g_hostnameIdxLock;
+
 S3ResponseProperties savedProperties;
+
+// gets the attached_mode and cacheless_mode from the host_mode_str
+// return value of 0 means host_mode_str was valid
+// return value of -1 means defaults were set because host_mode_str was invalid
+int get_booleans_from_host_mode(const std::string& host_mode_str, 
+        bool& attached_mode, bool& cacheless_mode) {
+
+    if ( host_mode_str == "archive_attached" ) {
+        attached_mode = true;
+        cacheless_mode = false;
+    } else if ( host_mode_str == "cacheless_attached" ) {
+        attached_mode = true;
+        cacheless_mode = true;
+    } else if ( host_mode_str == "cacheless_detached" ) {
+        attached_mode = false;
+        cacheless_mode = true;
+    } else {
+        attached_mode = true;
+        cacheless_mode = false;
+        return 1;
+    }
+    return 0;
+}
+
+static void get_modes_from_properties(irods::plugin_property_map& _prop_map, 
+        bool& attached_mode, bool& cacheless_mode) {
+
+    // defaults
+    attached_mode = true;
+    cacheless_mode = false;
+
+    std::string host_mode_str; 
+    irods::error ret = _prop_map.get< std::string >(host_mode, host_mode_str);
+
+    if( ret.ok() ) { 
+        if ( get_booleans_from_host_mode(host_mode_str, attached_mode, cacheless_mode) < 0 ) {
+
+            rodsLog(LOG_ERROR, "Invalid HOST_MODE for S3 plugin [%s].  Setting to default - archive_attached.",
+                    host_mode_str.c_str());
+            _prop_map.set<std::string>(host_mode, "archive_attached");
+        }
+
+    } else {
+        // host mode not set, use default
+        _prop_map.set<std::string>(host_mode, "archive_attached");
+    }
+}
+ 
 
 // Sleep for *at least* the given time, plus some up to 1s additional
 // The random addition ensures that threads don't all cluster up and retry
@@ -2356,6 +2406,9 @@ irods::error s3RedirectCreate(
         ret = _prop_map.get< std::string >( irods::RESOURCE_LOCATION, host_name );
         if((result = ASSERT_PASS(ret, "Failed to get location property.")).ok() ) {
 
+            bool attached_mode, cacheless_mode;
+            get_modes_from_properties(_prop_map, attached_mode, cacheless_mode); 
+
             // =-=-=-=-=-=-=-
             // if the status is down, vote no.
             if( INT_RESC_STATUS_DOWN == resc_status ) {
@@ -2363,8 +2416,8 @@ irods::error s3RedirectCreate(
             }
 
             // =-=-=-=-=-=-=-
-            // vote higher if we are on the same host
-            else if( _curr_host == host_name ) {
+            // vote higher if we are on the same host or if we are in detached mode
+            else if( _curr_host == host_name || !attached_mode ) {
                 _out_vote = 1.0;
             } else {
                 _out_vote = 0.5;
@@ -2575,12 +2628,16 @@ irods::error s3RedirectOpen(
         // get the resource host for comparison to curr host
         ret = _prop_map.get< std::string >( irods::RESOURCE_LOCATION, host_name );
         if((result = ASSERT_PASS(ret, "Failed to get the location property.")).ok() ) {
+
+            bool attached_mode, cacheless_mode;
+            get_modes_from_properties(_prop_map, attached_mode, cacheless_mode); 
+
             // =-=-=-=-=-=-=-
             // if the status is down, vote no.
             if( INT_RESC_STATUS_DOWN == resc_status ) {
                 _out_vote = 0.0;
             }
-            else if( _curr_host == host_name ) {
+            else if( _curr_host == host_name || !attached_mode ) {
                 // =-=-=-=-=-=-=-
                 // vote higher if we are on the same host
                 irods::error get_ret = register_archive_object(
@@ -2679,6 +2736,7 @@ irods::error s3FileRebalance(
 
 class s3_resource : public irods::resource {
 public:
+
     s3_resource( const std::string& _inst_name,
                  const std::string& _context ) :
         irods::resource( _inst_name, _context ) {
@@ -2722,7 +2780,19 @@ public:
 
 extern "C"
 irods::resource* plugin_factory( const std::string& _inst_name, const std::string& _context ) {
+
+    rodsLog(LOG_ERROR, "plugin_factory ran");
+    
     s3_resource* resc = new s3_resource(_inst_name, _context);
+
+    // default modes
+    bool attached_mode = true, cacheless_mode = false;
+
+    std::string host_mode_str;
+    irods::error ret = resc->get_property(host_mode , host_mode_str); 
+    if (ret.ok()) {
+        get_booleans_from_host_mode(host_mode, attached_mode, cacheless_mode);
+    }
 
     resc->add_operation(
         irods::RESOURCE_OP_CREATE,
