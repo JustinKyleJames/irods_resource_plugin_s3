@@ -67,6 +67,8 @@ add_library(
   irods_s3_plugin
   MODULE
   ${CMAKE_SOURCE_DIR}/s3/libirods_s3.cpp
+  ${CMAKE_SOURCE_DIR}/s3/s3_archive_operations.cpp
+  ${CMAKE_SOURCE_DIR}/s3/s3_cacheless_operations.cpp
   )
 target_include_directories(
   irods_s3_plugin
