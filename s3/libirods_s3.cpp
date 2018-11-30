@@ -32,6 +32,10 @@
 #include "irods_resource_backport.hpp"
 #include "irods_query.hpp"
 
+#include "s3fs/s3fs.h"
+#include "s3fs/curl.h"
+#include "s3fs/s3fs_auth.h"
+
 // =-=-=-=-=-=-=-
 // stl includes
 #include <iostream>
@@ -80,7 +84,12 @@
 #endif
 #include <sys/stat.h>
 
+// =-=-=-=-=-=-=-
+// other includes
 #include <string.h>
+#include <libxml/xpath.h>
+#include <libxml/xpathInternals.h>
+#include <libxml/tree.h>
 
 size_t g_retry_count{10};
 size_t g_retry_wait{1};
@@ -525,6 +534,7 @@ irods::error s3Init (
     irods::error result = SUCCESS();
 
     if (!S3Initialized) {
+
         // First, parse the default hostname (if present) into a list of
         // hostnames separated on the definition line by commas (,)
         std::string hostname_list;
@@ -2161,12 +2171,85 @@ public:
 
 }; // class s3_resource
 
+irods::error initialize_cacheless_mode(s3_resource* _resc) {
 
+    // this is taken from s3fs.cpp - main() with adjustments
+    
+    if (!_resc) {
+        std::string error_str = "null s3_resc provided to initialize_cacheless_mode";
+        rodsLog(LOG_ERROR, error_str.c_str());
+        return ERROR(S3_INIT_ERROR, error_str.c_str());
+    } 
+ 
+    // init xml2
+    xmlInitParser();
+
+    // Load SSE environment
+    if(!S3fsCurl::LoadEnvSse()) {
+        std::string error_str = "something wrong about SSE environment.";
+        rodsLog(LOG_ERROR, error_str.c_str());
+        return ERROR(S3_INIT_ERROR, error_str.c_str());
+    } 
+  
+    // ssl init
+    else if(!s3fs_init_global_ssl()){
+        std::string error_str = "could not initialize for ssl libraries.";
+        rodsLog(LOG_ERROR, error_str.c_str());
+        return ERROR(S3_INIT_ERROR, error_str.c_str());
+    }
+
+
+    // init curl
+    else if(!S3fsCurl::InitS3fsCurl("/etc/mime.types")){
+        s3fs_destroy_global_ssl();
+        std::string error_str =  "Could not initiate curl library.";
+        rodsLog(LOG_ERROR, error_str.c_str());
+        return ERROR(S3_INIT_ERROR, error_str.c_str());
+    }  
+    
+    // check bucket name for illegal characters
+    size_t found = bucket.find_first_of("/:\\;!@#$%^&*?|+=");
+    if(found != std::string::npos){
+        S3fsCurl::DestroyS3fsCurl();
+        s3fs_destroy_global_ssl();
+        std::string error_str =  "BUCKET %s -- bucket name contains an illegal character.";
+        rodsLog(LOG_ERROR, error_str.c_str());
+        return ERROR(S3_INIT_ERROR, error_str.c_str());
+    }
+
+    // get keys
+    std::string key_id, access_key;
+    irods::error ret = _resc->get_property<std::string>(s3_key_id, key_id);
+    if (!ret.ok()) {
+        S3fsCurl::DestroyS3fsCurl();
+        s3fs_destroy_global_ssl();
+        return ret;
+    }
+
+    ret = _resc->get_property<std::string>(s3_access_key, access_key);
+    if (!ret.ok()) {
+        S3fsCurl::DestroyS3fsCurl();
+        s3fs_destroy_global_ssl();
+        return ret;
+    }
+   
+    // save keys
+    if(!S3fsCurl::SetAccessKey(key_id.c_str(), access_key.c_str())){
+        S3fsCurl::DestroyS3fsCurl();
+        s3fs_destroy_global_ssl();
+        std::string error_str =  "failed to set internal data for access key/secret key.";
+        rodsLog(LOG_ERROR, error_str.c_str());
+        return ERROR(S3_INIT_ERROR, error_str.c_str());
+    }
+
+    return SUCCESS();
+
+
+}
 
 extern "C"
 irods::resource* plugin_factory( const std::string& _inst_name, const std::string& _context ) {
 
-    rodsLog(LOG_ERROR, "plugin_factory ran");
     
     s3_resource* resc = new s3_resource(_inst_name, _context);
 
@@ -2175,16 +2258,18 @@ irods::resource* plugin_factory( const std::string& _inst_name, const std::strin
 
     std::string host_mode_str;
     irods::error ret = resc->get_property(host_mode , host_mode_str); 
-    if (ret.ok()) {
-        get_booleans_from_host_mode(host_mode, attached_mode, cacheless_mode);
-    }
 
-    /*if (cacheless_mode) {
-        irods_s3_archive = irods_s3_cacheless; 
-    }*/ 
+    if (ret.ok()) {
+        get_booleans_from_host_mode(host_mode_str, attached_mode, cacheless_mode);
+    } 
 
     if (cacheless_mode) {
 
+        ret = initialize_cacheless_mode(resc);
+        if (!ret.ok()) {
+            // TODO what to do here
+        }
+        
         resc->add_operation(
             irods::RESOURCE_OP_CREATE,
             std::function<irods::error(irods::plugin_context&)>(

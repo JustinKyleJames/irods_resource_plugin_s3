@@ -3,6 +3,10 @@
 // local includes
 #include "s3_archive_operations.hpp"
 #include "libirods_s3.hpp"
+#include "s3fs/curl.h"
+#include "s3fs/cache.h"
+#include "s3fs/fdcache.h"
+#include "s3fs/s3fs.h"
 
 // =-=-=-=-=-=-=-
 // irods includes
@@ -21,12 +25,30 @@
 // boost includes
 #include <boost/lexical_cast.hpp>
 #include <boost/algorithm/string.hpp>
+#include <boost/format.hpp>
+
+#include <string>
 
 extern size_t g_retry_count;
 extern size_t g_retry_wait;
 
 extern S3ResponseProperties savedProperties;
 
+// common function for creation of a plain object
+/*static int create_file_object(const char* path)
+{
+    headers_t meta;
+    meta["Content-Type"]     = S3fsCurl::LookupMimeType(std::string(path));
+    //meta["x-amz-meta-uid"]   = str(uid);
+    //meta["x-amz-meta-gid"]   = str(gid);
+    //meta["x-amz-meta-mode"]  = str(mode);
+    //meta["x-amz-meta-mtime"] = str(time(NULL));
+  
+    S3fsCurl s3fscurl(true);
+    return s3fscurl.PutRequest(path, meta, -1);    // fd=-1 means for creating zero byte object.
+}*/
+
+        
 namespace irods_s3_cacheless {
 
     // =-=-=-=-=-=-=-
@@ -54,7 +76,30 @@ namespace irods_s3_cacheless {
     // interface for POSIX create
     irods::error s3FileCreatePlugin( irods::plugin_context& _ctx) {
 
-        return ERROR( SYS_NOT_SUPPORTED, __FUNCTION__ );
+        irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<
+            irods::file_object>(_ctx.fco());
+
+
+        const char *path = file_obj->logical_path().c_str(); 
+        int result = create_file_object(path);
+
+        StatCache::getStatCacheData()->DelStat(path);
+        if(result != 0){
+          return ERROR(S3_PUT_ERROR, boost::format("%s: create_file_object returned [%d]") % __FUNCTION__ % result);
+        }
+  
+        FdEntity*   ent; 
+        headers_t   meta;
+        get_object_attribute(path, NULL, &meta, true, NULL, true);    // no truncate cache
+        if(NULL == (ent = FdManager::get()->Open(path, &meta, 0, -1, false, true))){
+          StatCache::getStatCacheData()->DelStat(path);
+          return ERROR(S3_PUT_ERROR, __FUNCTION__);
+        }
+        //fi->fh = ent->GetFd();
+        S3FS_MALLOCTRIM(0);
+
+        return SUCCESS();
+
     }
 
     // =-=-=-=-=-=-=-
