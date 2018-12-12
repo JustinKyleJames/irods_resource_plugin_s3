@@ -57,13 +57,24 @@ rodsLog(LOG_ERROR, "%s:%d [path=%s]", __FUNCTION__, __LINE__, path.c_str());
 
         headers_t meta;
         meta["Content-Type"]     = S3fsCurl::LookupMimeType(path);
-        //meta["x-amz-meta-uid"]   = "999";
-        //meta["x-amz-meta-gid"]   = "999";
-        //meta["x-amz-meta-mode"]  = "33204";
+        meta["x-amz-meta-uid"]   = "999";
+        meta["x-amz-meta-gid"]   = "999";
+        meta["x-amz-meta-mode"]  = "33204";
         //meta["x-amz-meta-mtime"] = std::string(time(NULL));
 
         S3fsCurl s3fscurl(true);
         return s3fscurl.PutRequest(path.c_str(), meta, -1);    // fd=-1 means for creating zero byte object.
+    }
+
+    void flush_buffer(std::string& path, int fh) {
+        FdEntity* ent;
+        if (NULL != (ent = FdManager::get()->ExistOpen(path.c_str(), fh))) {
+            //ent->UpdateMtime();
+            ent->Flush(false);
+            FdManager::get()->Close(ent);
+        }
+        S3FS_MALLOCTRIM(0);
+        return;
     }
 
     // =-=-=-=-=-=-=-
@@ -115,15 +126,17 @@ rodsLog(LOG_ERROR, "%s:%d File create on %s, physical_path=%s", __FUNCTION__, __
         }
 
 
-        /*FdEntity*   ent;
+        FdEntity*   ent;
         headers_t   meta;
-        get_object_attribute(path, NULL, &meta, true, NULL, true);    // no truncate cache
-        if(NULL == (ent = FdManager::get()->Open(path, &meta, 0, -1, false, true))){
-          StatCache::getStatCacheData()->DelStat(path);
-          return -EIO;
+        get_object_attribute(path.c_str(), NULL, &meta, true, NULL, true);    // no truncate cache
+        if(NULL == (ent = FdManager::get()->Open(path.c_str(), &meta, 0, -1, false, true))){
+          StatCache::getStatCacheData()->DelStat(path.c_str());
+          return ERROR(S3_PUT_ERROR, (boost::format("Error in %s.  Code is EIO") % __FUNCTION__));
         }
-        fi->fh = ent->GetFd();
-        S3FS_MALLOCTRIM(0);*/
+
+        fco->file_descriptor(ent->GetFd());
+        //fi->fh = ent->GetFd();
+        S3FS_MALLOCTRIM(0);
 
         return SUCCESS();
     }
@@ -183,12 +196,42 @@ return SUCCESS();
 
     // =-=-=-=-=-=-=-
     // interface for POSIX Write
+    // static int s3fs_write(const char* path, const char* buf, size_t size, off_t offset, struct fuse_file_info* fi)
     irods::error s3FileWritePlugin( irods::plugin_context& _ctx,
                                     void*               _buf,
                                     int                 _len ) {
+
 rodsLog(LOG_ERROR, "%s:%d ----------------- ", __FUNCTION__, __LINE__);
-return SUCCESS();
-       return ERROR( SYS_NOT_SUPPORTED, __FUNCTION__ );
+
+        irods::error result = SUCCESS();
+
+        irods::file_object_ptr fco = boost::dynamic_pointer_cast< irods::file_object >( _ctx.fco() );
+        std::string path = fco->physical_path();
+
+        // TODO is offset always 0?
+        off_t offset = 0;
+        ssize_t res;
+
+        S3FS_PRN_DBG("[path=%s][size=%zu][offset=%jd][fd=%llu]", path.c_str(), _len, (intmax_t)offset, (unsigned long long)(fco->file_descriptor()));
+
+        FdEntity* ent;
+        if(NULL == (ent = FdManager::get()->ExistOpen(path.c_str(), static_cast<int>(fco->file_descriptor())))){
+          S3FS_PRN_ERR("could not find opened fd(%s)", path.c_str());
+          return ERROR(S3_PUT_ERROR, (boost::format("Error in %s.  Code is EIO") % __FUNCTION__));
+        }
+        if(ent->GetFd() != static_cast<int>(fco->file_descriptor())){
+          S3FS_PRN_WARN("different fd(%d - %llu)", ent->GetFd(), (unsigned long long)(fco->file_descriptor()));
+        }
+
+        if(0 > (res = ent->Write(static_cast<const char*>(_buf), offset, _len))){
+          S3FS_PRN_WARN("failed to write file(%s). result=%jd", path.c_str(), (intmax_t)res);
+        }
+        FdManager::get()->Close(ent);
+
+        flush_buffer(path, ent->GetFd());
+
+        result.code(res);
+        return result;
 
     }
 
@@ -196,10 +239,7 @@ return SUCCESS();
     // interface for POSIX Close
     irods::error s3FileClosePlugin(  irods::plugin_context& _ctx ) {
 rodsLog(LOG_ERROR, "%s:%d ----------------- ", __FUNCTION__, __LINE__);
-return SUCCESS();
-
-        return ERROR( SYS_NOT_SUPPORTED, __FUNCTION__ );
-
+        return SUCCESS();
     }
 
     // =-=-=-=-=-=-=-

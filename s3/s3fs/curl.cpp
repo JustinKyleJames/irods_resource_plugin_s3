@@ -2039,11 +2039,15 @@ bool S3fsCurl::RemakeHandle(void)
 //
 int S3fsCurl::RequestPerform(void)
 {
-  if(IS_S3FS_LOG_DBG()){
+  //if(IS_S3FS_LOG_DBG()){
     char* ptr_url = NULL;
     curl_easy_getinfo(hCurl, CURLINFO_EFFECTIVE_URL , &ptr_url);
     S3FS_PRN_DBG("connecting to URL %s", SAFESTRPTR(ptr_url));
-  }
+
+rodsLog(LOG_ERROR, "%s: %d url=%s", __FUNCTION__, __LINE__, ptr_url);
+  //}
+
+  curl_easy_setopt(hCurl, CURLOPT_VERBOSE, 1L);
 
   // 1 attempt + retries...
   for(int retrycnt = S3fsCurl::retries; 0 < retrycnt; retrycnt--){
