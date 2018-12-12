@@ -47,6 +47,8 @@
 #include "string_util.h"
 #include "curl.h"
 
+#include <rodsLog.h>
+
 using namespace std;
 
 //------------------------------------------------

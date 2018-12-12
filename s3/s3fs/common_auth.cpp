@@ -23,6 +23,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <string>
+#include <rodsLog.h>
 
 #include "s3fs_auth.h"
 #include "string_util.h"

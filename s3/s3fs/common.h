@@ -24,6 +24,8 @@
 #include <stdlib.h>
 #include "config.h"
 
+#include <rodsLog.h>
+
 //
 // Extended attribute
 //
@@ -112,7 +114,7 @@ enum s3fs_log_level{
 // [NOTE]
 // small trick for VA_ARGS
 //
-#define S3FS_PRN_EXIT(fmt, ...)   S3FS_LOW_LOGPRN_EXIT(fmt, ##__VA_ARGS__, "")
+/*#define S3FS_PRN_EXIT(fmt, ...)   S3FS_LOW_LOGPRN_EXIT(fmt, ##__VA_ARGS__, "")
 #define S3FS_PRN_CRIT(fmt, ...)   S3FS_LOW_LOGPRN(S3FS_LOG_CRIT, fmt, ##__VA_ARGS__, "")
 #define S3FS_PRN_ERR(fmt, ...)    S3FS_LOW_LOGPRN(S3FS_LOG_ERR,  fmt, ##__VA_ARGS__, "")
 #define S3FS_PRN_WARN(fmt, ...)   S3FS_LOW_LOGPRN(S3FS_LOG_WARN, fmt, ##__VA_ARGS__, "")
@@ -122,7 +124,20 @@ enum s3fs_log_level{
 #define S3FS_PRN_INFO1(fmt, ...)  S3FS_LOW_LOGPRN2(S3FS_LOG_INFO, 1, fmt, ##__VA_ARGS__, "")
 #define S3FS_PRN_INFO2(fmt, ...)  S3FS_LOW_LOGPRN2(S3FS_LOG_INFO, 2, fmt, ##__VA_ARGS__, "")
 #define S3FS_PRN_INFO3(fmt, ...)  S3FS_LOW_LOGPRN2(S3FS_LOG_INFO, 3, fmt, ##__VA_ARGS__, "")
-#define S3FS_PRN_CURL(fmt, ...)   S3FS_LOW_LOGPRN2(S3FS_LOG_CRIT, 0, fmt, ##__VA_ARGS__, "")
+#define S3FS_PRN_CURL(fmt, ...)   S3FS_LOW_LOGPRN2(S3FS_LOG_CRIT, 0, fmt, ##__VA_ARGS__, "")*/
+
+#define S3FS_PRN_EXIT(fmt, ...)   rodsLog(LOG_ERROR, fmt, ##__VA_ARGS__);
+#define S3FS_PRN_CRIT(fmt, ...)   rodsLog(LOG_ERROR, fmt, ##__VA_ARGS__);
+#define S3FS_PRN_ERR(fmt, ...)    rodsLog(LOG_ERROR, fmt, ##__VA_ARGS__);
+#define S3FS_PRN_WARN(fmt, ...)   rodsLog(LOG_WARNING, fmt, ##__VA_ARGS__);
+#define S3FS_PRN_DBG(fmt, ...)    rodsLog(LOG_DEBUG,  fmt, ##__VA_ARGS__);
+#define S3FS_PRN_INFO(fmt, ...)   rodsLog(LOG_NOTICE, fmt, ##__VA_ARGS__);
+#define S3FS_PRN_INFO0(fmt, ...)  rodsLog(LOG_NOTICE, fmt, ##__VA_ARGS__);
+#define S3FS_PRN_INFO1(fmt, ...)  rodsLog(LOG_NOTICE, fmt, ##__VA_ARGS__);
+#define S3FS_PRN_INFO2(fmt, ...)  rodsLog(LOG_NOTICE, fmt, ##__VA_ARGS__);
+#define S3FS_PRN_INFO3(fmt, ...)  rodsLog(LOG_NOTICE, fmt, ##__VA_ARGS__);
+#define S3FS_PRN_CURL(fmt, ...)   rodsLog(LOG_ERROR, fmt, ##__VA_ARGS__);
+
 
 //
 // Typedef

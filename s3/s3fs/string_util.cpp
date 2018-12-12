@@ -30,6 +30,8 @@
 #include "common.h"
 #include "string_util.h"
 
+#include <rodsLog.h>
+
 using namespace std;
 
 template <class T> std::string str(T value) {

@@ -30,6 +30,7 @@
 #include <map>
 #include <list>
 #include <vector>
+#include <rodsLog.h>
 
 #include "common.h"
 #include "addhead.h"

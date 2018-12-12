@@ -119,6 +119,8 @@ static boost::mutex g_hostnameIdxLock;
 
 S3ResponseProperties savedProperties;
 
+irods::error initialize_cacheless_mode(irods::plugin_property_map& _prop_map); 
+
 // gets the attached_mode and cacheless_mode from the host_mode_str
 // return value of 0 means host_mode_str was valid
 // return value of -1 means defaults were set because host_mode_str was invalid
@@ -265,9 +267,12 @@ static char *s3CalcMD5( int fd, off_t start, off_t length )
 // where we may be multithreaded
 const char *s3GetHostname()
 {
-    if (g_hostname.empty())
+    if (g_hostname.empty()) {
         return NULL; // Short-circuit default case
-    g_hostnameIdxLock.lock();
+    }
+    if (g_hostname.empty()) {
+        g_hostnameIdxLock.lock();
+    }
     char *ret = g_hostname[g_hostnameIdx];
     g_hostnameIdx = (g_hostnameIdx + 1) % g_hostname.size();
     g_hostnameIdxLock.unlock();
@@ -1782,10 +1787,21 @@ irods:: error s3StartOperation(irods::plugin_property_map& _prop_map)
     //ret = s3Init( _prop_map );
     //if((result = ASSERT_PASS(ret, "Failed to initialize the S3 library.")).ok()) {
     // Retrieve the auth info and set the appropriate fields in the property map
+     
     ret = s3ReadAuthInfo(_prop_map);
     result = ASSERT_PASS(ret, "Failed to read S3 auth info.");
-    //}
 
+    bool attached_mode = true, cacheless_mode = false;
+    get_modes_from_properties(_prop_map, attached_mode, cacheless_mode); 
+
+    if (cacheless_mode) {
+        ret = initialize_cacheless_mode(_prop_map);
+        if (!ret.ok()) {
+            rodsLog(LOG_ERROR, "init cacheless mode returned error %s", ret.result().c_str());
+            // TODO what to do here
+        }
+    }
+ 
     return result;
 }
 
@@ -2171,19 +2187,18 @@ public:
 
 }; // class s3_resource
 
-irods::error initialize_cacheless_mode(s3_resource* _resc) {
+irods::error initialize_cacheless_mode(irods::plugin_property_map& _prop_map) {
 
     // this is taken from s3fs.cpp - main() with adjustments
     
-    if (!_resc) {
-        std::string error_str = "null s3_resc provided to initialize_cacheless_mode";
-        rodsLog(LOG_ERROR, error_str.c_str());
-        return ERROR(S3_INIT_ERROR, error_str.c_str());
-    } 
- 
     // init xml2
     xmlInitParser();
 
+    irods::error ret = s3Init( _prop_map );
+    if (!ret.ok()) {
+        return PASS(ret);
+    }
+    
     // Load SSE environment
     if(!S3fsCurl::LoadEnvSse()) {
         std::string error_str = "something wrong about SSE environment.";
@@ -2219,14 +2234,14 @@ irods::error initialize_cacheless_mode(s3_resource* _resc) {
 
     // get keys
     std::string key_id, access_key;
-    irods::error ret = _resc->get_property<std::string>(s3_key_id, key_id);
+    ret = _prop_map.get< std::string >(s3_key_id, key_id);
     if (!ret.ok()) {
         S3fsCurl::DestroyS3fsCurl();
         s3fs_destroy_global_ssl();
         return ret;
     }
 
-    ret = _resc->get_property<std::string>(s3_access_key, access_key);
+    ret = _prop_map.get< std::string >(s3_access_key, access_key);
     if (!ret.ok()) {
         S3fsCurl::DestroyS3fsCurl();
         s3fs_destroy_global_ssl();
@@ -2240,6 +2255,26 @@ irods::error initialize_cacheless_mode(s3_resource* _resc) {
         std::string error_str =  "failed to set internal data for access key/secret key.";
         rodsLog(LOG_ERROR, error_str.c_str());
         return ERROR(S3_INIT_ERROR, error_str.c_str());
+    }
+    S3fsCurl::InitUserAgent();
+
+    std::string protocol; 
+    ret = _prop_map.get< std::string >(s3_proto, protocol);
+    if (!ret.ok()) {
+        S3fsCurl::DestroyS3fsCurl();
+        s3fs_destroy_global_ssl();
+        std::string error_str =  "S3_PROTO is not defined for resource.";
+        rodsLog(LOG_ERROR, error_str.c_str());
+        return ERROR(S3_INIT_ERROR, error_str.c_str());
+    }
+ 
+    service_path = "";
+    host = std::string(s3GetHostname());
+
+    if (s3fs_check_service() != EXIT_SUCCESS) {
+        S3fsCurl::DestroyS3fsCurl();
+        s3fs_destroy_global_ssl();
+        return ERROR(S3_INIT_ERROR, "failed in s3fs_check_service");
     }
 
     return SUCCESS();
@@ -2265,11 +2300,6 @@ irods::resource* plugin_factory( const std::string& _inst_name, const std::strin
 
     if (cacheless_mode) {
 
-        ret = initialize_cacheless_mode(resc);
-        if (!ret.ok()) {
-            // TODO what to do here
-        }
-        
         resc->add_operation(
             irods::RESOURCE_OP_CREATE,
             std::function<irods::error(irods::plugin_context&)>(

@@ -51,36 +51,94 @@ extern S3ResponseProperties savedProperties;
         
 namespace irods_s3_cacheless {
 
+    int create_file_object(std::string& path) 
+    {
+rodsLog(LOG_ERROR, "%s:%d [path=%s]", __FUNCTION__, __LINE__, path.c_str());
+
+        headers_t meta;
+        meta["Content-Type"]     = S3fsCurl::LookupMimeType(path);
+        //meta["x-amz-meta-uid"]   = "999";
+        //meta["x-amz-meta-gid"]   = "999";
+        //meta["x-amz-meta-mode"]  = "33204";
+        //meta["x-amz-meta-mtime"] = std::string(time(NULL));
+
+        S3fsCurl s3fscurl(true);
+        return s3fscurl.PutRequest(path.c_str(), meta, -1);    // fd=-1 means for creating zero byte object.
+    }
+
     // =-=-=-=-=-=-=-
     // interface for file registration
     irods::error s3RegisteredPlugin( irods::plugin_context& _ctx) {
-
+rodsLog(LOG_ERROR, "%s:%d ----------------- ", __FUNCTION__, __LINE__);
         return ERROR( SYS_NOT_SUPPORTED, __FUNCTION__ );
     }
 
     // =-=-=-=-=-=-=-
     // interface for file unregistration
     irods::error s3UnregisteredPlugin( irods::plugin_context& _ctx) {
-
+rodsLog(LOG_ERROR, "%s:%d ----------------- ", __FUNCTION__, __LINE__);
         return ERROR( SYS_NOT_SUPPORTED, __FUNCTION__ );
     }
 
     // =-=-=-=-=-=-=-
     // interface for file modification
     irods::error s3ModifiedPlugin( irods::plugin_context& _ctx) {
-
+rodsLog(LOG_ERROR, "%s:%d ----------------- ", __FUNCTION__, __LINE__);
         return ERROR( SYS_NOT_SUPPORTED, __FUNCTION__ );
     }
 
     // =-=-=-=-=-=-=-
     // interface for POSIX create
+
+    //static int s3fs_create(const char* path, mode_t mode, struct fuse_file_info* fi)
     irods::error s3FileCreatePlugin( irods::plugin_context& _ctx) {
+rodsLog(LOG_ERROR, "%s:%d ----------------- ", __FUNCTION__, __LINE__);
+
+        service_path = "";
+
+        irods::file_object_ptr fco = boost::dynamic_pointer_cast< irods::file_object >( _ctx.fco() );
+        //std::string path = s3_get_full_path_from_protocol(fco->physical_path(), _ctx.prop_map()) ;
+        std::string path = fco->physical_path();
+
+rodsLog(LOG_ERROR, "%s:%d File create on %s, physical_path=%s", __FUNCTION__, __LINE__, path.c_str(), fco->physical_path().c_str());
+
+        int result;
+
+        std::string bucket;
+        std::string key;
+        parseS3Path(fco->physical_path(), bucket, key);
+
+        result = create_file_object(path);
+        StatCache::getStatCacheData()->DelStat(path.c_str());
+        if(result != 0){
+          return ERROR(S3_PUT_ERROR, (boost::format("Error in %s.  Code is %d") % __FUNCTION__ % result).str());
+        }
+
+
+        /*FdEntity*   ent;
+        headers_t   meta;
+        get_object_attribute(path, NULL, &meta, true, NULL, true);    // no truncate cache
+        if(NULL == (ent = FdManager::get()->Open(path, &meta, 0, -1, false, true))){
+          StatCache::getStatCacheData()->DelStat(path);
+          return -EIO;
+        }
+        fi->fh = ent->GetFd();
+        S3FS_MALLOCTRIM(0);*/
+
+        return SUCCESS();
+    }
+/*
+    irods::error s3FileCreatePlugin_bu( irods::plugin_context& _ctx) {
+
+        irods::file_object_ptr fco = boost::dynamic_pointer_cast< irods::file_object >( _ctx.fco() );
+        std::string path = fco->physical_path();
+
+rodsLog(LOG_ERROR, "%s:%d File create on %s", __FUNCTION__, __LINE__, fco->physical_path().c_str());
 
         irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<
             irods::file_object>(_ctx.fco());
 
 
-        const char *path = file_obj->logical_path().c_str(); 
         int result = create_file_object(path);
 
         StatCache::getStatCacheData()->DelStat(path);
@@ -100,11 +158,13 @@ namespace irods_s3_cacheless {
 
         return SUCCESS();
 
-    }
+    }*/
 
     // =-=-=-=-=-=-=-
     // interface for POSIX Open
     irods::error s3FileOpenPlugin( irods::plugin_context& _ctx) {
+rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
+return SUCCESS();
 
         return ERROR( SYS_NOT_SUPPORTED, __FUNCTION__ );
     }
@@ -114,6 +174,8 @@ namespace irods_s3_cacheless {
     irods::error s3FileReadPlugin( irods::plugin_context& _ctx,
                                    void*               _buf,
                                    int                 _len ) {
+rodsLog(LOG_ERROR, "%s:%d ----------------- ", __FUNCTION__, __LINE__);
+return SUCCESS();
 
         return ERROR( SYS_NOT_SUPPORTED, __FUNCTION__ );
 
@@ -124,13 +186,17 @@ namespace irods_s3_cacheless {
     irods::error s3FileWritePlugin( irods::plugin_context& _ctx,
                                     void*               _buf,
                                     int                 _len ) {
-        return ERROR( SYS_NOT_SUPPORTED, __FUNCTION__ );
+rodsLog(LOG_ERROR, "%s:%d ----------------- ", __FUNCTION__, __LINE__);
+return SUCCESS();
+       return ERROR( SYS_NOT_SUPPORTED, __FUNCTION__ );
 
     }
 
     // =-=-=-=-=-=-=-
     // interface for POSIX Close
     irods::error s3FileClosePlugin(  irods::plugin_context& _ctx ) {
+rodsLog(LOG_ERROR, "%s:%d ----------------- ", __FUNCTION__, __LINE__);
+return SUCCESS();
 
         return ERROR( SYS_NOT_SUPPORTED, __FUNCTION__ );
 
@@ -139,7 +205,12 @@ namespace irods_s3_cacheless {
     // =-=-=-=-=-=-=-
     // interface for POSIX Unlink
     irods::error s3FileUnlinkPlugin(
+
         irods::plugin_context& _ctx) {
+rodsLog(LOG_ERROR, "%s:%d ----------------- ", __FUNCTION__, __LINE__);
+return SUCCESS();
+
+
         // =-=-=-=-=-=-=-
         // check incoming parameters
         irods::error ret = s3CheckParams( _ctx );
@@ -255,6 +326,7 @@ namespace irods_s3_cacheless {
         irods::plugin_context& _ctx,
         struct stat* _statbuf )
     {
+rodsLog(LOG_ERROR, "%s:%d ----------------- ", __FUNCTION__, __LINE__);
 
         irods::error result = SUCCESS();
 
@@ -343,6 +415,9 @@ namespace irods_s3_cacheless {
     // interface for POSIX Fstat
     irods::error s3FileFstatPlugin(  irods::plugin_context& _ctx,
                                      struct stat*        _statbuf ) {
+rodsLog(LOG_ERROR, "%s:%d ----------------- ", __FUNCTION__, __LINE__);
+return SUCCESS();
+
         return ERROR( SYS_NOT_SUPPORTED, "s3FileFstatPlugin" );
 
     } // s3FileFstatPlugin
@@ -352,6 +427,8 @@ namespace irods_s3_cacheless {
     irods::error s3FileLseekPlugin(  irods::plugin_context& _ctx,
                                      size_t              _offset,
                                      int                 _whence ) {
+rodsLog(LOG_ERROR, "%s:%d ----------------- ", __FUNCTION__, __LINE__);
+return SUCCESS();
 
         return ERROR( SYS_NOT_SUPPORTED, "s3FileLseekPlugin" );
 
@@ -360,6 +437,8 @@ namespace irods_s3_cacheless {
     // =-=-=-=-=-=-=-
     // interface for POSIX mkdir
     irods::error s3FileMkdirPlugin(  irods::plugin_context& _ctx ) {
+rodsLog(LOG_ERROR, "%s:%d ----------------- ", __FUNCTION__, __LINE__);
+return SUCCESS();
 
         return ERROR( SYS_NOT_SUPPORTED, "s3FileMkdirPlugin" );
 
@@ -368,6 +447,8 @@ namespace irods_s3_cacheless {
     // =-=-=-=-=-=-=-
     // interface for POSIX mkdir
     irods::error s3FileRmdirPlugin(  irods::plugin_context& _ctx ) {
+rodsLog(LOG_ERROR, "%s:%d ----------------- ", __FUNCTION__, __LINE__);
+return SUCCESS();
 
         return ERROR( SYS_NOT_SUPPORTED, "s3FileRmdirPlugin" );
     } // s3FileRmdirPlugin
@@ -375,6 +456,8 @@ namespace irods_s3_cacheless {
     // =-=-=-=-=-=-=-
     // interface for POSIX opendir
     irods::error s3FileOpendirPlugin( irods::plugin_context& _ctx ) {
+rodsLog(LOG_ERROR, "%s:%d ----------------- ", __FUNCTION__, __LINE__);
+return SUCCESS();
 
         return ERROR( SYS_NOT_SUPPORTED, "s3FileOpendirPlugin" );
     } // s3FileOpendirPlugin
@@ -382,6 +465,8 @@ namespace irods_s3_cacheless {
     // =-=-=-=-=-=-=-
     // interface for POSIX closedir
     irods::error s3FileClosedirPlugin( irods::plugin_context& _ctx) {
+rodsLog(LOG_ERROR, "%s:%d ----------------- ", __FUNCTION__, __LINE__);
+return SUCCESS();
 
         return ERROR( SYS_NOT_SUPPORTED, "s3FileClosedirPlugin" );
     } // s3FileClosedirPlugin
@@ -390,6 +475,8 @@ namespace irods_s3_cacheless {
     // interface for POSIX readdir
     irods::error s3FileReaddirPlugin( irods::plugin_context& _ctx,
                                       struct rodsDirent**     _dirent_ptr ) {
+rodsLog(LOG_ERROR, "%s:%d ----------------- ", __FUNCTION__, __LINE__);
+return SUCCESS();
 
         return ERROR( SYS_NOT_SUPPORTED, "s3FileReaddirPlugin" );
     } // s3FileReaddirPlugin
@@ -399,6 +486,8 @@ namespace irods_s3_cacheless {
     irods::error s3FileRenamePlugin( irods::plugin_context& _ctx,
                                      const char*         _new_file_name )
     {
+rodsLog(LOG_ERROR, "%s:%d ----------------- ", __FUNCTION__, __LINE__);
+return SUCCESS();
         irods::error result = SUCCESS();
         irods::error ret;
         std::string key_id;
@@ -442,6 +531,8 @@ namespace irods_s3_cacheless {
     irods::error s3FileTruncatePlugin(
         irods::plugin_context& _ctx )
     {
+rodsLog(LOG_ERROR, "%s:%d ----------------- ", __FUNCTION__, __LINE__);
+return SUCCESS();
         return ERROR( SYS_NOT_SUPPORTED, "s3FileTruncatePlugin" );
     } // s3FileTruncatePlugin
 
@@ -450,6 +541,9 @@ namespace irods_s3_cacheless {
     irods::error s3FileGetFsFreeSpacePlugin(
         irods::plugin_context& _ctx )
     {
+rodsLog(LOG_ERROR, "%s:%d ----------------- ", __FUNCTION__, __LINE__);
+return SUCCESS();
+ 
         return ERROR(SYS_NOT_SUPPORTED, "s3FileGetFsFreeSpacePlugin");
 
     } // s3FileGetFsFreeSpacePlugin
@@ -457,6 +551,9 @@ namespace irods_s3_cacheless {
     irods::error s3FileCopyPlugin( int mode, const char *srcFileName,
                                    const char *destFileName)
     {
+rodsLog(LOG_ERROR, "%s:%d ----------------- ", __FUNCTION__, __LINE__);
+return SUCCESS();
+ 
         return ERROR( SYS_NOT_SUPPORTED, "s3FileCopyPlugin" );
     }
 
@@ -469,7 +566,9 @@ namespace irods_s3_cacheless {
         irods::plugin_context& _ctx,
         const char*                               _cache_file_name )
     {
-        irods::error result = SUCCESS();
+rodsLog(LOG_ERROR, "%s:%d ----------------- ", __FUNCTION__, __LINE__);
+return SUCCESS();
+         irods::error result = SUCCESS();
 
         // =-=-=-=-=-=-=-
         // check incoming parameters
@@ -515,6 +614,7 @@ namespace irods_s3_cacheless {
         irods::plugin_context& _ctx,
         const char* _cache_file_name )
     {
+rodsLog(LOG_ERROR, "%s:%d ----------------- ", __FUNCTION__, __LINE__);
         irods::error result = SUCCESS();
         // =-=-=-=-=-=-=-
         // check incoming parameters

@@ -42,6 +42,8 @@ const std::string s3_region_name{"S3_REGIONNAME"};
 const std::string REPL_POLICY_KEY{"repl_policy"};
 const std::string REPL_POLICY_VAL{"reg_repl"};
 
+const char* s3GetHostname();
+
 
 typedef struct S3Auth {
     char accessKeyId[MAX_NAME_LEN];

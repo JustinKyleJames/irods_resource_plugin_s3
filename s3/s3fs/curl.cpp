@@ -1,4 +1,5 @@
 /*
+ *
  * s3fs - FUSE-based file system backed by Amazon S3
  *
  * Copyright(C) 2007 Randy Rizun <rrizun@gmail.com>
@@ -51,6 +52,8 @@
 #include "s3fs_auth.h"
 #include "addhead.h"
 #include "psemaphore.h"
+
+#include <boost/algorithm/string.hpp>  
 
 #include <rodsLog.h>
 
@@ -125,9 +128,9 @@ static string url_to_host(const std::string &url)
 
 static string get_bucket_host()
 {
-  if(!pathrequeststyle){
+  /*if(!pathrequeststyle){
     return bucket + "." + url_to_host(host);
-  }
+  }*/
   return url_to_host(host);
 }
 
@@ -2875,8 +2878,8 @@ int S3fsCurl::PutRequest(const char* tpath, headers_t& meta, int fd)
   struct stat st;
   FILE*       file = NULL;
 
+rodsLog(LOG_ERROR, "%s: %d host=[%s] tpath=[%s] ", __FUNCTION__, __LINE__, host.c_str(), tpath);
   S3FS_PRN_INFO3("[tpath=%s]", SAFESTRPTR(tpath));
-
   if(!tpath){
     return -1;
   }
@@ -2904,10 +2907,15 @@ int S3fsCurl::PutRequest(const char* tpath, headers_t& meta, int fd)
   }
   string resource;
   string turl;
+rodsLog(LOG_ERROR, "%s: %d tpath = %s", __FUNCTION__, __LINE__, tpath);
   MakeUrlResource(get_realpath(tpath).c_str(), resource, turl);
+rodsLog(LOG_ERROR, "%s: %d turl = %s", __FUNCTION__, __LINE__, turl.c_str());
 
+  // below sets url to <host>/<path>
   url             = prepare_url(turl.c_str());
+rodsLog(LOG_ERROR, "%s: %d url = %s", __FUNCTION__, __LINE__, url.c_str());
   path            = get_realpath(tpath);
+rodsLog(LOG_ERROR, "%s: %d path = %s", __FUNCTION__, __LINE__, path.c_str());
   requestHeaders  = NULL;
   responseHeaders.clear();
   bodydata        = new BodyData();
@@ -2967,6 +2975,10 @@ int S3fsCurl::PutRequest(const char* tpath, headers_t& meta, int fd)
   curl_easy_setopt(hCurl, CURLOPT_WRITEDATA, (void*)bodydata);
   curl_easy_setopt(hCurl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
   curl_easy_setopt(hCurl, CURLOPT_HTTPHEADER, requestHeaders);
+
+  // TODO remove
+  curl_easy_setopt(hCurl, CURLOPT_VERBOSE, 1L);
+
   if(file){
     curl_easy_setopt(hCurl, CURLOPT_INFILESIZE_LARGE, static_cast<curl_off_t>(st.st_size)); // Content-Length
     curl_easy_setopt(hCurl, CURLOPT_INFILE, file);
@@ -3085,6 +3097,7 @@ int S3fsCurl::CheckBucket(void)
 
   url             = prepare_url(turl.c_str());
   path            = get_realpath("/");
+rodsLog(LOG_ERROR, "%s:%d path=[%s]", __FUNCTION__, __LINE__, path.c_str());
   requestHeaders  = NULL;
   responseHeaders.clear();
   bodydata        = new BodyData();
@@ -4297,22 +4310,81 @@ string get_canonical_headers(const struct curl_slist* list, bool only_amz)
 // function for using global values
 bool MakeUrlResource(const char* realpath, string& resourcepath, string& url)
 {
+rodsLog(LOG_ERROR, "%s: %d service_path=[%s], bucket=[%s], realpath=[%s], host=[%s]", __FUNCTION__, __LINE__, service_path.c_str(), bucket.c_str(), realpath, host.c_str());
   if(!realpath){
     return false;
   }
   resourcepath = urlEncode(service_path + bucket + realpath);
   url          = host + resourcepath;
+rodsLog(LOG_ERROR, "%s: %d url = [%s]", __FUNCTION__, __LINE__, url.c_str());
   return true;
 }
 
 string prepare_url(const char* url)
 {
-  S3FS_PRN_INFO3("URL is %s", url);
+  return std::string(url);
+  //return std::string("http://" )+ std::string(url);
 
+rodsLog(LOG_ERROR, "%s: %d url=%s", __FUNCTION__, __LINE__, url);
   string uri;
   string host;
   string path;
   string url_str = string(url);
+  string token = string("/") + bucket;
+rodsLog(LOG_ERROR, "%s: %d token=%s", __FUNCTION__, __LINE__, token.c_str());
+  int bucket_pos = url_str.find(token);
+rodsLog(LOG_ERROR, "%s: %d bucket_pos=%d", __FUNCTION__, __LINE__, bucket_pos);
+  int bucket_length = token.size();
+rodsLog(LOG_ERROR, "%s: %d bucket_length=%d", __FUNCTION__, __LINE__, bucket_length);
+  int uri_length = 0;
+
+  if(!strncasecmp(url_str.c_str(), "https://", 8)){
+    uri_length = 8;
+  } else if(!strncasecmp(url_str.c_str(), "http://", 7)) {
+    uri_length = 7;
+  }
+  uri  = url_str.substr(0, uri_length);
+rodsLog(LOG_ERROR, "%s: %d uri=%s", __FUNCTION__, __LINE__, uri.c_str());
+
+  if(!pathrequeststyle){
+    host = bucket + "." + url_str.substr(uri_length, bucket_pos - uri_length).c_str();
+    path = url_str.substr((bucket_pos + bucket_length));
+  }else{
+    host = url_str.substr(uri_length, bucket_pos - uri_length).c_str();
+rodsLog(LOG_ERROR, "%s: %d host=%s", __FUNCTION__, __LINE__, host.c_str());
+    string part = url_str.substr((bucket_pos + bucket_length));
+rodsLog(LOG_ERROR, "%s: %d part=%s", __FUNCTION__, __LINE__, part.c_str());
+    if('/' != part[0]){
+      part = "/" + part;
+    }
+    path = "/" + bucket + part;
+rodsLog(LOG_ERROR, "%s: %d uri=%s bucket=%s host=%s part=%s", __FUNCTION__, __LINE__, uri.c_str(), bucket.c_str(), host.c_str(), part.c_str());
+  }
+
+  url_str = uri + host + path;
+
+  S3FS_PRN_INFO3("URL changed is %s", url_str.c_str());
+
+  return std::string("http://" )+ url_str;
+}
+
+
+/*string prepare_url(const char *url)
+{
+  S3FS_PRN_INFO3("URL is %s", url);
+
+  std::string url_lower = url;
+  boost::to_lower(url_lower);
+
+  return url_lower;
+}*/
+/*  
+  string uri;
+  string host;
+  string path;
+  string url_str = string(url);
+  return url_str;
+
   string token = string("/") + bucket;
   int bucket_pos = url_str.find(token);
   int bucket_length = token.size();
@@ -4343,6 +4415,7 @@ string prepare_url(const char* url)
 
   return url_str;
 }
+*/
 
 /*
 * Local variables:

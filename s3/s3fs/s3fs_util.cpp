@@ -43,16 +43,20 @@
 #include "s3fs.h"
 #include "s3fs_auth.h"
 
+#include <rodsLog.h>
+
 using namespace std;
 
 //-------------------------------------------------------------------
 // Global variables
 //-------------------------------------------------------------------
+// TODO delete
 std::string mount_prefix   = "";
 
 //-------------------------------------------------------------------
 // Utility
 //-------------------------------------------------------------------
+// TODO delete
 string get_realpath(const char *path) {
   string realpath = mount_prefix;
   realpath += path;

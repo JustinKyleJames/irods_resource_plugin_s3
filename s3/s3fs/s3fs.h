@@ -26,6 +26,7 @@
 
 int create_file_object(const char* path);
 int get_object_attribute(const char* path, struct stat* pstbuf, headers_t* pmeta = NULL, bool overcheck = true, bool* pisforce = NULL, bool add_no_truncate_cache = false);
+int s3fs_check_service(void);
 
 static const int64_t FIVE_GB = 5LL * 1024LL * 1024LL * 1024LL;
 

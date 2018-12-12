@@ -92,7 +92,7 @@ typedef std::map<std::string, kvmap_t>     bucketkvmap_t;
 //-------------------------------------------------------------------
 bool foreground                   = false;
 bool nomultipart                  = false;
-bool pathrequeststyle             = false;
+bool pathrequeststyle             = true;
 bool complement_stat              = false;
 std::string program_name;
 std::string service_path          = "/";
@@ -190,7 +190,7 @@ static bool parse_xattr_keyval(const std::string& xattrpair, string& key, PXATTR
 static size_t parse_xattrs(const std::string& strxattrs, xattrs_t& xattrs);
 static std::string build_xattrs(const xattrs_t& xattrs);
 static int s3fs_utility_mode(void);
-static int s3fs_check_service(void);
+//int s3fs_check_service(void);
 static int parse_passwd_file(bucketkvmap_t& resmap);
 static int check_for_aws_format(const kvmap_t& kvmap);
 static int check_passwd_file_perms(void);
@@ -960,14 +960,16 @@ static int do_create_bucket(void)
 // common function for creation of a plain object
 int create_file_object(const char* path)
 {
+rodsLog(LOG_ERROR, "%s: %d path = %s", __FUNCTION__, __LINE__, path);
     headers_t meta;
     meta["Content-Type"]     = S3fsCurl::LookupMimeType(std::string(path));
-    //meta["x-amz-meta-uid"]   = str(uid);
-    //meta["x-amz-meta-gid"]   = str(gid);
-    //meta["x-amz-meta-mode"]  = str(mode);
-    //meta["x-amz-meta-mtime"] = str(time(NULL));
+    meta["x-amz-meta-uid"]   = "999";
+    meta["x-amz-meta-gid"]   = "999";
+    meta["x-amz-meta-mode"]  = "33204";
+    meta["x-amz-meta-mtime"] = str(time(NULL));
   
     S3fsCurl s3fscurl(true);
+rodsLog(LOG_ERROR, "%s: %d meta.size = %d", __FUNCTION__, __LINE__, meta.size());
     return s3fscurl.PutRequest(path, meta, -1);    // fd=-1 means for creating zero byte object.
 }
 
@@ -3720,7 +3722,7 @@ static bool check_region_error(const char* pbody, string& expectregion)
   return true;
 }
 
-static int s3fs_check_service(void)
+int s3fs_check_service(void)
 {
   S3FS_PRN_INFO("check services.");
 

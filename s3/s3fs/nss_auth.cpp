@@ -37,6 +37,8 @@
 #include "common.h"
 #include "s3fs_auth.h"
 
+#include <rodsLog.h>
+
 using namespace std;
 
 //-------------------------------------------------------------------

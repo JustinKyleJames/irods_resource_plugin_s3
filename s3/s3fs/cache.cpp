@@ -35,6 +35,7 @@
 #include <vector>
 #include <algorithm>
 #include <list>
+#include <rodsLog.h>
 
 #include "cache.h"
 #include "s3fs.h"
