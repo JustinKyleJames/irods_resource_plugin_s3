@@ -677,4 +677,12 @@ rodsLog(LOG_ERROR, "%s:%d ----------------- ", __FUNCTION__, __LINE__);
 
     } // s3FileRebalance
 
+    irods::error s3FileNotifyPlugin( irods::plugin_context& _ctx, 
+        const std::string* str ) {
+rodsLog(LOG_ERROR, "%s:%d ----------------- ", __FUNCTION__, __LINE__);
+return SUCCESS();
+    } // s3FileNotifyPlugin
+
+
+
 }

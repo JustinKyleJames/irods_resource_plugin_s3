@@ -2410,6 +2410,12 @@ irods::resource* plugin_factory( const std::string& _inst_name, const std::strin
             std::function<irods::error(irods::plugin_context&)>(
                 irods_s3_cacheless::s3FileRebalance ) );
 
+        resc->add_operation<const std::string*>(
+            irods::RESOURCE_OP_NOTIFY,
+            std::function<irods::error(irods::plugin_context&, const std::string*)>(
+                irods_s3_cacheless::s3FileNotifyPlugin ) ); 
+
+
     } else {
 
         resc->add_operation(
