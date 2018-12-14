@@ -107,6 +107,16 @@ rodsLog(LOG_ERROR, "%s:%d ----------------- ", __FUNCTION__, __LINE__);
     irods::error s3FileCreatePlugin( irods::plugin_context& _ctx) {
 rodsLog(LOG_ERROR, "%s:%d ----------------- ", __FUNCTION__, __LINE__);
 
+        // =-=-=-=-=-=-=-
+        // check incoming parameters
+        irods::error ret = s3CheckParams( _ctx );
+        if(!ret.ok()) {
+            std::stringstream msg;
+            msg << __FUNCTION__ << " - Invalid parameters or physical path.";
+            return PASSMSG(msg.str(), ret);
+        }
+
+
         service_path = "";
 
         irods::file_object_ptr fco = boost::dynamic_pointer_cast< irods::file_object >( _ctx.fco() );
@@ -145,6 +155,16 @@ rodsLog(LOG_ERROR, "%s:%d ----------------- ", __FUNCTION__, __LINE__);
 
 rodsLog(LOG_ERROR, "%s:%d -------------------", __FUNCTION__, __LINE__);
 
+        // =-=-=-=-=-=-=-
+        // check incoming parameters
+        irods::error ret = s3CheckParams( _ctx );
+        if(!ret.ok()) {
+            std::stringstream msg;
+            msg << __FUNCTION__ << " - Invalid parameters or physical path.";
+            return PASSMSG(msg.str(), ret);
+        }
+
+
         irods::file_object_ptr fco = boost::dynamic_pointer_cast< irods::file_object >( _ctx.fco() );
         std::string path = fco->physical_path();
 
@@ -172,6 +192,16 @@ rodsLog(LOG_ERROR, "%s:%d -------------------", __FUNCTION__, __LINE__);
                                    int                 _len ) {
 
 rodsLog(LOG_ERROR, "%s:%d ----------------- ", __FUNCTION__, __LINE__);
+
+        // =-=-=-=-=-=-=-
+        // check incoming parameters
+        irods::error ret = s3CheckParams( _ctx );
+        if(!ret.ok()) {
+            std::stringstream msg;
+            msg << __FUNCTION__ << " - Invalid parameters or physical path.";
+            return PASSMSG(msg.str(), ret);
+        }
+
 
         irods::error result = SUCCESS();
 
@@ -223,6 +253,16 @@ rodsLog(LOG_ERROR, "%s:%d ----------------- ", __FUNCTION__, __LINE__);
                                     int                 _len ) {
 
 rodsLog(LOG_ERROR, "%s:%d ----------------- ", __FUNCTION__, __LINE__);
+
+        // =-=-=-=-=-=-=-
+        // check incoming parameters
+        irods::error ret = s3CheckParams( _ctx );
+        if(!ret.ok()) {
+            std::stringstream msg;
+            msg << __FUNCTION__ << " - Invalid parameters or physical path.";
+            return PASSMSG(msg.str(), ret);
+        }
+
 
         irods::error result = SUCCESS();
 
@@ -313,6 +353,15 @@ rodsLog(LOG_ERROR, "%s:%d ----------------- ", __FUNCTION__, __LINE__);
     {
 rodsLog(LOG_ERROR, "%s:%d ----------------- ", __FUNCTION__, __LINE__);
 
+        // =-=-=-=-=-=-=-
+        // check incoming parameters
+        irods::error ret = s3CheckParams( _ctx );
+        if(!ret.ok()) {
+            std::stringstream msg;
+            msg << __FUNCTION__ << " - Invalid parameters or physical path.";
+            return PASSMSG(msg.str(), ret);
+        }
+
         irods::file_object_ptr fco = boost::dynamic_pointer_cast< irods::file_object >( _ctx.fco() );
         std::string path = fco->physical_path();
 
@@ -364,6 +413,14 @@ return SUCCESS();
 
 rodsLog(LOG_ERROR, "%s:%d ----------------- ", __FUNCTION__, __LINE__);
 
+        // =-=-=-=-=-=-=-
+        // check incoming parameters
+        irods::error ret = s3CheckParams( _ctx );
+        if(!ret.ok()) {
+            std::stringstream msg;
+            msg << __FUNCTION__ << " - Invalid parameters or physical path.";
+            return PASSMSG(msg.str(), ret);
+        }
 
         // TODO create S3_FILE_SEEK_ERR 
         
@@ -444,6 +501,15 @@ return SUCCESS();
     {
 rodsLog(LOG_ERROR, "%s:%d ----------------- ", __FUNCTION__, __LINE__);
 
+        // =-=-=-=-=-=-=-
+        // check incoming parameters
+        irods::error ret = s3CheckParams( _ctx );
+        if(!ret.ok()) {
+            std::stringstream msg;
+            msg << __FUNCTION__ << " - Invalid parameters or physical path.";
+            return PASSMSG(msg.str(), ret);
+        }
+
         irods::file_object_ptr fco = boost::dynamic_pointer_cast< irods::file_object >( _ctx.fco() );
         std::string from = fco->physical_path();
 
@@ -519,44 +585,8 @@ return SUCCESS();
         const char*                               _cache_file_name )
     {
 rodsLog(LOG_ERROR, "%s:%d ----------------- ", __FUNCTION__, __LINE__);
-return SUCCESS();
-         irods::error result = SUCCESS();
-
-        // =-=-=-=-=-=-=-
-        // check incoming parameters
-        irods::error ret = s3CheckParams( _ctx );
-        if((result = ASSERT_PASS(ret, "Invalid parameters or physical path.")).ok()) {
-
-            struct stat statbuf;
-            std::string key_id;
-            std::string access_key;
-
-            irods::file_object_ptr object = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
-
-            ret = s3FileStatPlugin(_ctx, &statbuf);
-            if((result = ASSERT_PASS(ret, "Failed stating the file: \"%s\".",
-                                     object->physical_path().c_str())).ok()) {
-
-                if((result = ASSERT_ERROR((statbuf.st_mode & S_IFREG) != 0, S3_FILE_STAT_ERR, "Error stating the file: \"%s\".",
-                                          object->physical_path().c_str())).ok()) {
-
-                    if((result = ASSERT_ERROR(object->size() <= 0 || object->size() == static_cast<size_t>(statbuf.st_size), SYS_COPY_LEN_ERR,
-                                              "Error for file: \"%s\" inp data size: %ld does not match stat size: %ld.",
-                                              object->physical_path().c_str(), object->size(), statbuf.st_size)).ok()) {
-
-                        ret = s3GetAuthCredentials(_ctx.prop_map(), key_id, access_key);
-                        if((result = ASSERT_PASS(ret, "Failed to get S3 credential properties.")).ok()) {
-
-                            ret = s3GetFile( _cache_file_name, object->physical_path(), statbuf.st_size, key_id, access_key, _ctx.prop_map());
-                            result = ASSERT_PASS(ret, "Failed to copy the S3 object: \"%s\" to the cache: \"%s\".",
-                                                 object->physical_path().c_str(), _cache_file_name);
-                        }
-                    }
-                }
-            }
-        }
-        return result;
-    } // s3StageToCachePlugin
+        return ERROR(SYS_NOT_SUPPORTED, "s3StageToCachePlugin");
+    }
 
     // =-=-=-=-=-=-=-
     // s3SyncToArch - This routine is for testing the TEST_STAGE_FILE_TYPE.
@@ -567,80 +597,8 @@ return SUCCESS();
         const char* _cache_file_name )
     {
 rodsLog(LOG_ERROR, "%s:%d ----------------- ", __FUNCTION__, __LINE__);
-        irods::error result = SUCCESS();
-        // =-=-=-=-=-=-=-
-        // check incoming parameters
-        irods::error ret = s3CheckParams( _ctx );
-        if((result = ASSERT_PASS(ret, "Invalid parameters or physical path.")).ok()) {
-
-            struct stat statbuf;
-            int status;
-            std::string key_id;
-            std::string access_key;
-
-            irods::file_object_ptr object = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
-            status = stat(_cache_file_name, &statbuf);
-            int err_status = UNIX_FILE_STAT_ERR - errno;
-            if((result = ASSERT_ERROR(status >= 0, err_status, "Failed to stat cache file: \"%s\".",
-                                      _cache_file_name)).ok()) {
-
-                if((result = ASSERT_ERROR((statbuf.st_mode & S_IFREG) != 0, UNIX_FILE_STAT_ERR, "Cache file: \"%s\" is not a file.",
-                                          _cache_file_name)).ok()) {
-
-                    ret = s3GetAuthCredentials(_ctx.prop_map(), key_id, access_key);
-                    if((result = ASSERT_PASS(ret, "Failed to get S3 credential properties.")).ok()) {
-
-                        std::string default_hostname;
-                        ret = _ctx.prop_map().get< std::string >(
-                            s3_default_hostname,
-                            default_hostname );
-                        if( !ret.ok() ) {
-                            irods::log(ret);
-                        }
-
-                        // retrieve archive naming policy from resource plugin context
-                        std::string archive_naming_policy = CONSISTENT_NAMING; // default
-                        ret = _ctx.prop_map().get<std::string>(ARCHIVE_NAMING_POLICY_KW, archive_naming_policy); // get plugin context property
-                        if(!ret.ok()) {
-                            irods::log(ret);
-                        }
-                        boost::to_lower(archive_naming_policy);
-
-                        // if archive naming policy is decoupled
-                        // we use the object's reversed id as S3 key name prefix
-                        if (archive_naming_policy == DECOUPLED_NAMING) {
-                            // extract object name and bucket name from physical path
-                            std::vector< std::string > tokens;
-                            irods::string_tokenize(object->physical_path(), "/", tokens);
-                            std::string bucket_name = tokens.front();
-                            std::string object_name = tokens.back();
-
-                            // reverse object id
-                            std::string obj_id = boost::lexical_cast<std::string>(object->id());
-                            std::reverse(obj_id.begin(), obj_id.end());
-
-                            // make S3 key name
-                            std::ostringstream s3_key_name;
-                            s3_key_name << "/" << bucket_name << "/" << obj_id << "/" << object_name;
-
-                            // update physical path
-                            object->physical_path(s3_key_name.str());
-                        }
-
-                        ret = s3PutCopyFile(S3_PUTFILE, _cache_file_name, object->physical_path(), statbuf.st_size, key_id, access_key, _ctx.prop_map());
-                        result = ASSERT_PASS(ret, "Failed to copy the cache file: \"%s\" to the S3 object: \"%s\".",
-                                             _cache_file_name, object->physical_path().c_str());
-
-                    }
-                }
-            }
-        }
-        if( !result.ok() ) {
-            irods::log( result );
-        }
-        return result;
-    } // s3SyncToArchPlugin
-
+        return ERROR(SYS_NOT_SUPPORTED, "s3StageToCachePlugin");
+    }
 
     // =-=-=-=-=-=-=-
     // used to allow the resource to determine which host
