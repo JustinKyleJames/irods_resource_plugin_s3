@@ -129,6 +129,8 @@ class FdEntity
     off_t           mp_start;       // start position for no cached multipart(write method only)
     size_t          mp_size;        // size for no cached multipart(write method only)
 
+	size_t          offset;         // jjames - added for iRODS lseek 
+
   private:
     static int FillFile(int fd, unsigned char byte, size_t size, off_t start);
 
@@ -162,6 +164,9 @@ class FdEntity
     bool SetGId(gid_t gid);
     bool SetContentType(const char* path);
 
+    bool SetOffset(size_t offset);
+	bool GetOffset(size_t& offset);
+
     int Load(off_t start = 0, size_t size = 0);                 // size=0 means loading to end
     int NoCacheLoadAndPost(off_t start = 0, size_t size = 0);   // size=0 means loading to end
     int NoCachePreMultipartPost(void);
@@ -172,7 +177,7 @@ class FdEntity
     int Flush(bool force_sync = false) { return RowFlush(NULL, force_sync); }
 
     ssize_t Read(char* bytes, off_t start, size_t size, bool force_load = false);
-    ssize_t Write(const char* bytes, off_t start, size_t size);
+    ssize_t Write(const char* bytes, size_t start, size_t size);
 
     bool ReserveDiskSpace(size_t size);
     void CleanupCache();

@@ -27,8 +27,13 @@
 int create_file_object(const char* path);
 int get_object_attribute(const char* path, struct stat* pstbuf, headers_t* pmeta = NULL, bool overcheck = true, bool* pisforce = NULL, bool add_no_truncate_cache = false);
 int s3fs_check_service(void);
+int rename_large_object(const char* from, const char* to);
+int rename_object(const char* from, const char* to);
+int rename_object_nocopy(const char* from, const char* to);
 
 static const int64_t FIVE_GB = 5LL * 1024LL * 1024LL * 1024LL;
+extern bool nocopyapi;
+extern bool norenameapi;
 
 #include <fuse.h>
 

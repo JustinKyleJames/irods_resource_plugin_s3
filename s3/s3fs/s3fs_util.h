@@ -38,6 +38,8 @@ struct s3obj_entry{
 typedef std::map<std::string, struct s3obj_entry> s3obj_t;
 typedef std::list<std::string> s3obj_list_t;
 
+blkcnt_t get_blocks(off_t size);
+
 //
 // Class
 //

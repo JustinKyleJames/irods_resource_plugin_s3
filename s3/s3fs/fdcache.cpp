@@ -636,7 +636,7 @@ int FdEntity::FillFile(int fd, unsigned char byte, size_t size, off_t start)
 //------------------------------------------------
 FdEntity::FdEntity(const char* tpath, const char* cpath)
         : is_lock_init(false), refcnt(0), path(SAFESTRPTR(tpath)), cachepath(SAFESTRPTR(cpath)), mirrorpath(""),
-          fd(-1), pfile(NULL), is_modify(false), size_orgmeta(0), upload_id(""), mp_start(0), mp_size(0)
+          fd(-1), pfile(NULL), is_modify(false), size_orgmeta(0), upload_id(""), mp_start(0), mp_size(0), offset(0)
 {
   try{
     pthread_mutexattr_t attr;
@@ -724,6 +724,7 @@ void FdEntity::Close(void)
         mirrorpath.erase();
       }
     }
+	offset = 0;
   }
 }
 
@@ -1078,6 +1079,30 @@ bool FdEntity::GetSize(size_t& size)
   size = pagelist.Size();
   return true;
 }
+
+// SetOffset and GetOffset created to handle iRODS lseek
+bool FdEntity::SetOffset(size_t _offset)
+{
+  if(-1 == fd){
+    return false;
+  }
+  AutoLock auto_lock(&fdent_lock);
+
+  offset = _offset;
+  return true;
+}
+
+bool FdEntity::GetOffset(size_t& _offset)
+{
+  if(-1 == fd){
+    return false;
+  }
+  AutoLock auto_lock(&fdent_lock);
+
+  _offset = offset;
+  return true;
+}
+
 
 bool FdEntity::SetMode(mode_t mode)
 {
@@ -1595,64 +1620,95 @@ ssize_t FdEntity::Read(char* bytes, off_t start, size_t size, bool force_load)
 {
   S3FS_PRN_DBG("[path=%s][fd=%d][offset=%jd][size=%zu]", path.c_str(), fd, (intmax_t)start, size);
 
+rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
   if(-1 == fd){
+rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
     return -EBADF;
   }
+rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
   AutoLock auto_lock(&fdent_lock);
+rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
 
   if(force_load){
+rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
     pagelist.SetPageLoadedStatus(start, size, false);
+rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
   }
 
+rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
   ssize_t rsize;
+
+rodsLog(LOG_ERROR, "%s:%d total unloaded page size = %d", __FUNCTION__, __LINE__, pagelist.GetTotalUnloadedPageSize(start, size));
 
   // check disk space
   if(0 < pagelist.GetTotalUnloadedPageSize(start, size)){
+rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
     // load size(for prefetch)
     size_t load_size = size;
+rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
     if(static_cast<size_t>(start + size) < pagelist.Size()){
+rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
       size_t prefetch_max_size = max(size, static_cast<size_t>(S3fsCurl::GetMultipartSize() * S3fsCurl::GetMaxParallelCount()));
 
       if(static_cast<size_t>(start + prefetch_max_size) < pagelist.Size()){
+rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
         load_size = prefetch_max_size;
+rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
       }else{
+rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
         load_size = static_cast<size_t>(pagelist.Size() - start);
       }
+rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
     }
 
+rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
     if(!ReserveDiskSpace(load_size)){
+rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
       S3FS_PRN_WARN("could not reserve disk space for pre-fetch download");
+rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
       load_size = size;
+rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
       if(!ReserveDiskSpace(load_size)){
+rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
         S3FS_PRN_ERR("could not reserve disk space for pre-fetch download");
+rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
         return -ENOSPC;
       }
     }
 
     // Loading
     int result = 0;
+rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
     if(0 < size){
+rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
       result = Load(start, load_size);
     }
 
+rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
     FdManager::get()->FreeReservedDiskSpace(load_size);
 
+rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
     if(0 != result){
+rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
       S3FS_PRN_ERR("could not download. start(%jd), size(%zu), errno(%d)", (intmax_t)start, size, result);
       return -EIO;
     }
   }
   // Reading
+rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
   if(-1 == (rsize = pread(fd, bytes, size, start))){
+rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
     S3FS_PRN_ERR("pread failed. errno(%d)", errno);
+rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
     return -errno;
   }
+rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
   return rsize;
 }
 
-ssize_t FdEntity::Write(const char* bytes, off_t start, size_t size)
+ssize_t FdEntity::Write(const char* bytes, size_t start, size_t size)
 {
-  S3FS_PRN_DBG("[path=%s][fd=%d][offset=%jd][size=%zu]", path.c_str(), fd, (intmax_t)start, size);
+  S3FS_PRN_DBG("[path=%s][fd=%d][offset=%llu][size=%zu]", path.c_str(), fd, (size_t)start, size);
 
   if(-1 == fd){
     return -EBADF;

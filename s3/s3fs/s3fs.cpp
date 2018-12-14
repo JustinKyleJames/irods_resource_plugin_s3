@@ -53,6 +53,8 @@
 #include "s3fs_auth.h"
 #include "addhead.h"
 
+#include "irods_stacktrace.hpp"
+
 using namespace std;
 
 //-------------------------------------------------------------------
@@ -117,8 +119,8 @@ static std::string mountpoint;
 static std::string passwd_file    = "";
 static bool utility_mode          = false;
 static bool noxmlns               = false;
-static bool nocopyapi             = false;
-static bool norenameapi           = false;
+bool nocopyapi             = false;
+bool norenameapi           = false;
 static bool nonempty              = false;
 static bool allow_other           = false;
 static bool load_iamrole          = false;
@@ -174,10 +176,7 @@ static xmlChar* get_prefix(xmlDocPtr doc);
 static xmlChar* get_next_marker(xmlDocPtr doc);
 static char* get_object_name(xmlDocPtr doc, xmlNodePtr node, const char* path);
 static int put_headers(const char* path, headers_t& meta, bool is_copy);
-static int rename_large_object(const char* from, const char* to);
 static int create_directory_object(const char* path, mode_t mode, time_t time, uid_t uid, gid_t gid);
-static int rename_object(const char* from, const char* to);
-static int rename_object_nocopy(const char* from, const char* to);
 static int clone_directory_object(const char* from, const char* to);
 static int rename_directory(const char* from, const char* to);
 static int remote_mountpath_exists(const char* path);
@@ -1096,9 +1095,6 @@ static int s3fs_unlink(const char* path)
 
   S3FS_PRN_INFO("[path=%s]", path);
 
-  if(0 != (result = check_parent_object_access(path, W_OK | X_OK))){
-    return result;
-  }
   S3fsCurl s3fscurl;
   result = s3fscurl.DeleteRequest(path);
   FdManager::DeleteCacheFile(path);
@@ -1232,7 +1228,7 @@ static int s3fs_symlink(const char* from, const char* to)
   return result;
 }
 
-static int rename_object(const char* from, const char* to)
+int rename_object(const char* from, const char* to)
 {
   int result;
   string s3_realpath;
@@ -1240,6 +1236,7 @@ static int rename_object(const char* from, const char* to)
 
   S3FS_PRN_INFO1("[from=%s][to=%s]", from , to);
 
+/*
   if(0 != (result = check_parent_object_access(to, W_OK | X_OK))){
     // not permit writing "to" object parent dir.
     return result;
@@ -1247,7 +1244,7 @@ static int rename_object(const char* from, const char* to)
   if(0 != (result = check_parent_object_access(from, W_OK | X_OK))){
     // not permit removing "from" object parent dir.
     return result;
-  }
+  }*/
   if(0 != (result = get_object_attribute(from, NULL, &meta))){
     return result;
   }
@@ -1269,20 +1266,20 @@ static int rename_object(const char* from, const char* to)
   return result;
 }
 
-static int rename_object_nocopy(const char* from, const char* to)
+int rename_object_nocopy(const char* from, const char* to)
 {
   int result;
 
   S3FS_PRN_INFO1("[from=%s][to=%s]", from , to);
 
-  if(0 != (result = check_parent_object_access(to, W_OK | X_OK))){
+/*  if(0 != (result = check_parent_object_access(to, W_OK | X_OK))){
     // not permit writing "to" object parent dir.
     return result;
   }
   if(0 != (result = check_parent_object_access(from, W_OK | X_OK))){
     // not permit removing "from" object parent dir.
     return result;
-  }
+  }*/
 
   // open & load
   FdEntity* ent;
@@ -1315,7 +1312,7 @@ static int rename_object_nocopy(const char* from, const char* to)
   return result;
 }
 
-static int rename_large_object(const char* from, const char* to)
+int rename_large_object(const char* from, const char* to)
 {
   int         result;
   struct stat buf;
@@ -1362,7 +1359,7 @@ static int clone_directory_object(const char* from, const char* to)
   return result;
 }
 
-static int rename_directory(const char* from, const char* to)
+int rename_directory(const char* from, const char* to)
 {
   S3ObjList head;
   s3obj_list_t headlist;
@@ -2575,6 +2572,7 @@ static int append_objects_from_xml_ex(const char* path, xmlDocPtr doc, xmlXPathC
     return -1;
   }
   if(xmlXPathNodeSetIsEmpty(contents_xp->nodesetval)){
+rodsLog(LOG_ERROR, "%s: %d", __FUNCTION__, __LINE__);
     S3FS_PRN_DBG("contents_xp->nodesetval is empty.");
     S3FS_XMLXPATHFREEOBJECT(contents_xp);
     return 0;
@@ -2613,6 +2611,7 @@ static int append_objects_from_xml_ex(const char* path, xmlDocPtr doc, xmlXPathC
         xmlXPathObjectPtr ETag;
         if(NULL != (ETag = xmlXPathEvalExpression((xmlChar*)ex_etag, ctx))){
           if(xmlXPathNodeSetIsEmpty(ETag->nodesetval)){
+rodsLog(LOG_ERROR, "%s: %d", __FUNCTION__, __LINE__);
             S3FS_PRN_INFO("ETag->nodesetval is empty.");
           }else{
             xmlNodeSetPtr etag_nodes = ETag->nodesetval;
@@ -2748,6 +2747,9 @@ static xmlChar* get_base_exp(xmlDocPtr doc, const char* exp)
     return NULL;
   }
   if(xmlXPathNodeSetIsEmpty(marker_xp->nodesetval)){
+rodsLog(LOG_ERROR, "%s: %d", __FUNCTION__, __LINE__);
+std::cerr << irods::stacktrace().dump();
+
     S3FS_PRN_ERR("marker_xp->nodesetval is empty.");
     xmlXPathFreeObject(marker_xp);
     xmlXPathFreeContext(ctx);
@@ -3583,6 +3585,7 @@ static bool get_uncomp_mp_list(xmlDocPtr doc, uncomp_mp_list_t& list)
     return false;
   }
   if(xmlXPathNodeSetIsEmpty(upload_xp->nodesetval)){
+rodsLog(LOG_ERROR, "%s: %d", __FUNCTION__, __LINE__);
     S3FS_PRN_INFO("upload_xp->nodesetval is empty.");
     S3FS_XMLXPATHFREEOBJECT(upload_xp);
     S3FS_XMLXPATHFREECONTEXT(ctx);
