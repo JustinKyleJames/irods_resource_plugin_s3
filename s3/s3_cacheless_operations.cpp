@@ -29,6 +29,7 @@
 #include <boost/format.hpp>
 
 #include <string>
+#include <fcntl.h>
 
 extern size_t g_retry_count;
 extern size_t g_retry_wait;
@@ -72,7 +73,7 @@ rodsLog(LOG_ERROR, "%s:%d [path=%s]", __FUNCTION__, __LINE__, path.c_str());
         if (NULL != (ent = FdManager::get()->ExistOpen(path.c_str(), fh))) {
             //ent->UpdateMtime();
             ent->Flush(false);
-            FdManager::get()->Close(ent);
+            //FdManager::get()->Close(ent);
         }
         S3FS_MALLOCTRIM(0);
         return;
@@ -154,7 +155,7 @@ rodsLog(LOG_ERROR, "%s:%d ----------------- ", __FUNCTION__, __LINE__);
     irods::error s3FileOpenPlugin( irods::plugin_context& _ctx) {
 
 rodsLog(LOG_ERROR, "%s:%d -------------------", __FUNCTION__, __LINE__);
-
+ 
         // =-=-=-=-=-=-=-
         // check incoming parameters
         irods::error ret = s3CheckParams( _ctx );
@@ -164,18 +165,60 @@ rodsLog(LOG_ERROR, "%s:%d -------------------", __FUNCTION__, __LINE__);
             return PASSMSG(msg.str(), ret);
         }
 
+        bool needs_flush = false;
 
         irods::file_object_ptr fco = boost::dynamic_pointer_cast< irods::file_object >( _ctx.fco() );
         std::string path = fco->physical_path();
 
+        // clear stat for reading fresh stat.
+        // (if object stat is changed, we refresh it. then s3fs gets always
+        // stat when s3fs open the object).
+        StatCache::getStatCacheData()->DelStat(path.c_str());
+
+        int flags = fco->flags();
+
+        // get file size 
+        struct stat st;
+        headers_t meta;
+        int returnVal = //get_object_attribute(path.c_str(), &st, &meta);
+                    get_object_attribute(path.c_str(), &st, &meta, true, NULL, true);    // no truncate cache
+        if (0 != returnVal) {
+            StatCache::getStatCacheData()->DelStat(path.c_str());
+            return ERROR(S3_FILE_STAT_ERR, (boost::format("%s: - Failed to perform a stat of %s") % __FUNCTION__ % path.c_str()));
+        }
+
+rodsLog(LOG_ERROR, "%s:%d file size=%d, flags=%d", __FUNCTION__, __LINE__, st.st_size, flags);
+
+        if((unsigned int)flags & O_TRUNC){
+            if(0 != st.st_size){
+                st.st_size = 0; 
+                needs_flush = true;
+            }    
+        }
+        //if(!S_ISREG(st.st_mode) || S_ISLNK(st.st_mode)){
+        //    st.st_mtime = -1;
+        //}
+
+
         FdEntity*   ent;
-        headers_t   meta;
-        get_object_attribute(path.c_str(), NULL, &meta, true, NULL, true);    // no truncate cache
-        if(NULL == (ent = FdManager::get()->Open(path.c_str(), &meta, fco->size(), -1, false, true))){
+        //headers_t   meta;
+        //get_object_attribute(path.c_str(), NULL, &meta, true, NULL, true);    // no truncate cache
+        if(NULL == (ent = FdManager::get()->Open(path.c_str(), &meta, st.st_size, -1, false, true))){
           StatCache::getStatCacheData()->DelStat(path.c_str());
 
           // TODO create S3_OPEN_ERROR
           return ERROR(S3_FILE_STAT_ERR, (boost::format("%s:  Error opening %s.") % __FUNCTION__ % path.c_str()));
+        }
+
+        if (needs_flush){
+            if(0 != (returnVal = ent->RowFlush(path.c_str(), true))){
+                S3FS_PRN_ERR("could not upload file(%s): result=%d", path.c_str(), returnVal);
+                FdManager::get()->Close(ent);
+                StatCache::getStatCacheData()->DelStat(path.c_str());
+
+                // TODO create S3_OPEN_ERROR
+                return ERROR(S3_FILE_STAT_ERR, (boost::format("%s:  Error opening %s.") % __FUNCTION__ % path.c_str()));
+            }
         }
 
         // go ahead and save file descriptor to fco
@@ -210,11 +253,8 @@ rodsLog(LOG_ERROR, "%s:%d ----------------- ", __FUNCTION__, __LINE__);
 
         int fd = fco->file_descriptor(); 
 
-        size_t offset = 0;
         ssize_t retVal;
 
-        S3FS_PRN_DBG("[path=%s][size=%zu][offset=%jd][fd=%llu]", path.c_str(), _len, (intmax_t)offset, (unsigned long long)(fd));
-      
         FdEntity* ent;
         if(NULL == (ent = FdManager::get()->ExistOpen(path.c_str(), fd))) {
           S3FS_PRN_ERR("could not find opened fd(%d) for %s", fd, path.c_str());
@@ -223,6 +263,13 @@ rodsLog(LOG_ERROR, "%s:%d ----------------- ", __FUNCTION__, __LINE__);
         if(ent->GetFd() != fd){
           S3FS_PRN_WARN("different fd(%d - %llu)", ent->GetFd(), (unsigned long long)(fd));
         }
+
+        // read the offset from the cache
+        off_t offset = 0;
+        if (!(ent->GetOffset(offset))) {
+            return ERROR(S3_PUT_ERROR, (boost::format("%s: - Could not read offset for read (%llu)") % __FUNCTION__ % offset));
+        }
+        S3FS_PRN_DBG("[path=%s][size=%zu][offset=%jd][fd=%llu]", path.c_str(), _len, (intmax_t)offset, (unsigned long long)(fd));
       
         // check real file size
         // TODO file size is returning 0.  Not sure why.
@@ -238,7 +285,7 @@ rodsLog(LOG_ERROR, "%s:%d ----------------- ", __FUNCTION__, __LINE__);
           S3FS_PRN_WARN("failed to read file(%s). result=%jd", path.c_str(), (intmax_t)retVal);
           return ERROR(S3_GET_ERROR, (boost::format("%s: failed to read file(%s)") % __FUNCTION__ % path.c_str()));
         }
-        FdManager::get()->Close(ent);
+        //FdManager::get()->Close(ent);
       
         result.code(retVal);
         return result;
@@ -271,7 +318,6 @@ rodsLog(LOG_ERROR, "%s:%d ----------------- ", __FUNCTION__, __LINE__);
 
         int fd = fco->file_descriptor(); 
 
-        size_t offset = 0;
         ssize_t retVal;
 
         S3FS_PRN_DBG("[path=%s][size=%zu][fd=%llu]", path.c_str(), _len, (unsigned long long)(fd));
@@ -286,6 +332,7 @@ rodsLog(LOG_ERROR, "%s:%d ----------------- ", __FUNCTION__, __LINE__);
         }
 
         // read the offset from the cache
+        off_t offset = 0;
         if (!(ent->GetOffset(offset))) {
             return ERROR(S3_PUT_ERROR, (boost::format("%s: - Could not read offset for write (%llu)") % __FUNCTION__ % offset));
         }
@@ -294,7 +341,8 @@ rodsLog(LOG_ERROR, "%s:%d ----------------- ", __FUNCTION__, __LINE__);
         if(0 > (retVal = ent->Write(static_cast<const char*>(_buf), offset, _len))){
             S3FS_PRN_WARN("failed to write file(%s). result=%jd", path.c_str(), (intmax_t)retVal);
         }
-        FdManager::get()->Close(ent);
+        ent->SetOffset(offset + _len);
+        //FdManager::get()->Close(ent);
 
         // irods has no flush operation so have to manually flush at the end of the write
         flush_buffer(path, ent->GetFd());
@@ -308,6 +356,16 @@ rodsLog(LOG_ERROR, "%s:%d ----------------- ", __FUNCTION__, __LINE__);
     // interface for POSIX Close
     irods::error s3FileClosePlugin(  irods::plugin_context& _ctx ) {
 rodsLog(LOG_ERROR, "%s:%d ----------------- ", __FUNCTION__, __LINE__);
+
+        irods::file_object_ptr fco = boost::dynamic_pointer_cast< irods::file_object >( _ctx.fco() );
+        std::string path = fco->physical_path();
+
+        FdEntity*   ent;
+  
+        if(NULL != (ent = FdManager::get()->ExistOpen(path.c_str()))){
+            FdManager::get()->Close(ent);
+        }
+        S3FS_MALLOCTRIM(0);
         return SUCCESS();
     }
 
@@ -383,7 +441,7 @@ rodsLog(LOG_ERROR, "%s:%d ----------------- ", __FUNCTION__, __LINE__);
             if(ent->GetStats(tmpstbuf)){
               _statbuf->st_size = tmpstbuf.st_size;
             }
-            FdManager::get()->Close(ent);
+            //FdManager::get()->Close(ent);
           }
           _statbuf->st_blksize = 4096;
           _statbuf->st_blocks  = get_blocks(_statbuf->st_size);
@@ -408,7 +466,7 @@ return SUCCESS();
     // =-=-=-=-=-=-=-
     // interface for POSIX lseek
     irods::error s3FileLseekPlugin(  irods::plugin_context& _ctx,
-                                     size_t              _offset,
+                                     long long            _offset,
                                      int                 _whence ) {
 
 rodsLog(LOG_ERROR, "%s:%d ----------------- ", __FUNCTION__, __LINE__);
@@ -427,6 +485,12 @@ rodsLog(LOG_ERROR, "%s:%d ----------------- ", __FUNCTION__, __LINE__);
         irods::file_object_ptr fco = boost::dynamic_pointer_cast< irods::file_object >( _ctx.fco() );
         std::string path = fco->physical_path();
 
+        // TODO not sure why I need to do this
+        // clear stat for reading fresh stat.
+        // (if object stat is changed, we refresh it. then s3fs gets always
+        // stat when s3fs open the object).
+        StatCache::getStatCacheData()->DelStat(path.c_str());
+
         int fd = fco->file_descriptor(); 
 
         FdEntity* ent;
@@ -438,10 +502,42 @@ rodsLog(LOG_ERROR, "%s:%d ----------------- ", __FUNCTION__, __LINE__);
           S3FS_PRN_WARN("different fd(%d - %llu)", ent->GetFd(), (unsigned long long)(fd));
         }
 
-        if (!(ent->SetOffset(_offset))) {
-            return ERROR(S3_FILE_STAT_ERR, (boost::format("%s: - Setting seek failed (%llu)") % __FUNCTION__ % _offset));
-        }
+        // update the position based on the _offset and _whence
+        // note:  we have a valid fd so no need to check errors from GetOffset and SetOffset below
+        switch (_whence) {
+            case SEEK_SET:
+rodsLog(LOG_ERROR, "%s: %d - SEEK_SET called", __FUNCTION__, __LINE__);
+rodsLog(LOG_ERROR, "%s: %d - _offset=%d", __FUNCTION__, __LINE__, _offset);
+                ent->SetOffset(_offset);
+                break;
+            case SEEK_CUR:
+                off_t current_offset;
+                ent->GetOffset(current_offset);
+rodsLog(LOG_ERROR, "%s: %d - SEEK_CUR called", __FUNCTION__, __LINE__);
+rodsLog(LOG_ERROR, "%s: %d - current_offset=%lld, _offset=%lld", __FUNCTION__, __LINE__, current_offset, _offset);
+                ent->SetOffset(current_offset + _offset);
+                break;
+            case SEEK_END:
 
+                // need to do a stat to get the the file size to determine the end point
+                { 
+                    struct stat st;
+                    headers_t meta;
+                    int returnVal = get_object_attribute(path.c_str(), &st, &meta, true, NULL, true);    // no truncate cache
+                                    //get_object_attribute(path.c_str(), &st, &meta);
+                    if (0 != returnVal) {
+                        return ERROR(S3_FILE_STAT_ERR, (boost::format("%s: - Failed to perform a stat of %s") % __FUNCTION__ % path.c_str()));
+                    }
+
+rodsLog(LOG_ERROR, "%s: %d - SEEK_END called", __FUNCTION__, __LINE__);
+rodsLog(LOG_ERROR, "%s: %d - size=%lld, _offset=%lld", __FUNCTION__, __LINE__, st.st_size, _offset);
+                    ent->SetOffset(st.st_size + _offset);
+                    break;
+                }
+            default:
+                S3FS_PRN_ERR("invalid whence argument (%d) on lseek for object (%s)", _whence, path.c_str());
+                return ERROR(S3_FILE_STAT_ERR, (boost::format("%s: - Setting seek failed (%lld)") % __FUNCTION__ % _offset));
+        }
 
         return SUCCESS();
 
@@ -565,16 +661,6 @@ return SUCCESS();
         return ERROR(SYS_NOT_SUPPORTED, "s3FileGetFsFreeSpacePlugin");
 
     } // s3FileGetFsFreeSpacePlugin
-
-    irods::error s3FileCopyPlugin( int mode, const char *srcFileName,
-                                   const char *destFileName)
-    {
-rodsLog(LOG_ERROR, "%s:%d ----------------- ", __FUNCTION__, __LINE__);
-return SUCCESS();
- 
-        return ERROR( SYS_NOT_SUPPORTED, "s3FileCopyPlugin" );
-    }
-
 
     // =-=-=-=-=-=-=-
     // s3StageToCache - This routine is for testing the TEST_STAGE_FILE_TYPE.

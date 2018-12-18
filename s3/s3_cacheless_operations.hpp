@@ -61,7 +61,7 @@ namespace irods_s3_cacheless {
 
     // =-=-=-=-=-=-=-
     // interface for POSIX lseek
-    irods::error s3FileLseekPlugin(  irods::plugin_context& _ctx, size_t _offset, int _whence );
+    irods::error s3FileLseekPlugin(  irods::plugin_context& _ctx, long long _offset, int _whence );
 
     // =-=-=-=-=-=-=-
     // interface for POSIX mkdir

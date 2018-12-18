@@ -129,7 +129,7 @@ class FdEntity
     off_t           mp_start;       // start position for no cached multipart(write method only)
     size_t          mp_size;        // size for no cached multipart(write method only)
 
-	size_t          offset;         // jjames - added for iRODS lseek 
+	off_t           offset;         // jjames - added for iRODS lseek 
 
   private:
     static int FillFile(int fd, unsigned char byte, size_t size, off_t start);
@@ -164,8 +164,8 @@ class FdEntity
     bool SetGId(gid_t gid);
     bool SetContentType(const char* path);
 
-    bool SetOffset(size_t offset);
-	bool GetOffset(size_t& offset);
+    bool SetOffset(off_t offset);
+	bool GetOffset(off_t& offset);
 
     int Load(off_t start = 0, size_t size = 0);                 // size=0 means loading to end
     int NoCacheLoadAndPost(off_t start = 0, size_t size = 0);   // size=0 means loading to end

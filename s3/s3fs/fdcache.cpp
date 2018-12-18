@@ -1081,7 +1081,7 @@ bool FdEntity::GetSize(size_t& size)
 }
 
 // SetOffset and GetOffset created to handle iRODS lseek
-bool FdEntity::SetOffset(size_t _offset)
+bool FdEntity::SetOffset(off_t _offset)
 {
   if(-1 == fd){
     return false;
@@ -1092,7 +1092,7 @@ bool FdEntity::SetOffset(size_t _offset)
   return true;
 }
 
-bool FdEntity::GetOffset(size_t& _offset)
+bool FdEntity::GetOffset(off_t& _offset)
 {
   if(-1 == fd){
     return false;

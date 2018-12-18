@@ -2047,8 +2047,6 @@ int S3fsCurl::RequestPerform(void)
 rodsLog(LOG_ERROR, "%s: %d url=%s", __FUNCTION__, __LINE__, ptr_url);
   //}
 
-  curl_easy_setopt(hCurl, CURLOPT_VERBOSE, 1L);
-
   // 1 attempt + retries...
   for(int retrycnt = S3fsCurl::retries; 0 < retrycnt; retrycnt--){
     // Requests
@@ -2979,9 +2977,6 @@ rodsLog(LOG_ERROR, "%s: %d path = %s", __FUNCTION__, __LINE__, path.c_str());
   curl_easy_setopt(hCurl, CURLOPT_WRITEDATA, (void*)bodydata);
   curl_easy_setopt(hCurl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
   curl_easy_setopt(hCurl, CURLOPT_HTTPHEADER, requestHeaders);
-
-  // TODO remove
-  curl_easy_setopt(hCurl, CURLOPT_VERBOSE, 1L);
 
   if(file){
     curl_easy_setopt(hCurl, CURLOPT_INFILESIZE_LARGE, static_cast<curl_off_t>(st.st_size)); // Content-Length
