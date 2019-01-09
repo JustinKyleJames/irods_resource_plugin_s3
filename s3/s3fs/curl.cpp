@@ -104,7 +104,7 @@ static bool make_md5_from_string(const char* pstr, string& md5)
 
 static string url_to_host(const std::string &url)
 {
-  S3FS_PRN_INFO3("url is %s", url.c_str());
+  S3FS_PRN_DBG("url is %s", url.c_str());
 
   static const string http = "http://";
   static const string https = "https://";
@@ -294,7 +294,7 @@ CURL* CurlHandlerPool::GetHandler()
   pthread_mutex_unlock(&mLock);
 
   if (!h) {
-    S3FS_PRN_INFO("Pool empty: create new handler");
+    S3FS_PRN_DBG("Pool empty: create new handler");
     h = curl_easy_init();
   }
 
@@ -317,7 +317,7 @@ void CurlHandlerPool::ReturnHandler(CURL* h)
   pthread_mutex_unlock(&mLock);
 
   if (needCleanup) {
-    S3FS_PRN_INFO("Pool full: destroy the handler");
+    S3FS_PRN_DBG("Pool full: destroy the handler");
     curl_easy_cleanup(h);
   }
 }
@@ -473,7 +473,7 @@ bool S3fsCurl::InitShareCurl(void)
   CURLSHcode nSHCode;
 
   if(!S3fsCurl::is_dns_cache && !S3fsCurl::is_ssl_session_cache){
-    S3FS_PRN_INFO("Curl does not share DNS data.");
+    S3FS_PRN_DBG("Curl does not share DNS data.");
     return true;
   }
   if(S3fsCurl::hCurlShare){
@@ -1305,7 +1305,7 @@ int S3fsCurl::ParallelMultipartUploadRequest(const char* tpath, headers_t& meta,
   off_t          remaining_bytes;
   S3fsCurl       s3fscurl(true);
 
-  S3FS_PRN_INFO3("[tpath=%s][fd=%d]", SAFESTRPTR(tpath), fd);
+  S3FS_PRN_DBG("[tpath=%s][fd=%d]", SAFESTRPTR(tpath), fd);
 
   // duplicate fd
   if(-1 == (fd2 = dup(fd)) || 0 != lseek(fd2, 0, SEEK_SET)){
@@ -1406,7 +1406,7 @@ S3fsCurl* S3fsCurl::ParallelGetObjectRetryCallback(S3fsCurl* s3fscurl)
 
 int S3fsCurl::ParallelGetObjectRequest(const char* tpath, int fd, off_t start, ssize_t size)
 {
-  S3FS_PRN_INFO3("[tpath=%s][fd=%d]", SAFESTRPTR(tpath), fd);
+  S3FS_PRN_DBG("[tpath=%s][fd=%d]", SAFESTRPTR(tpath), fd);
 
   sse_type_t ssetype;
   string     ssevalue;
@@ -1516,7 +1516,7 @@ bool S3fsCurl::ParseIAMCredentialResponse(const char* response, iamcredmap_t& ke
 
 bool S3fsCurl::SetIAMCredentials(const char* response)
 {
-  S3FS_PRN_INFO3("IAM credential response = \"%s\"", response);
+  S3FS_PRN_DBG("IAM credential response = \"%s\"", response);
 
   iamcredmap_t keyval;
 
@@ -1578,7 +1578,7 @@ bool S3fsCurl::ParseIAMRoleFromMetaDataResponse(const char* response, string& ro
 
 bool S3fsCurl::SetIAMRoleFromMetaData(const char* response)
 {
-  S3FS_PRN_INFO3("IAM role name response = \"%s\"", response);
+  S3FS_PRN_DBG("IAM role name response = \"%s\"", response);
 
   string rolename;
 
@@ -1732,7 +1732,7 @@ bool S3fsCurl::CreateCurlHandle(bool force)
       S3FS_PRN_ERR("could not destroy handle.");
       return false;
     }
-    S3FS_PRN_INFO3("already has handle, so destroyed it.");
+    S3FS_PRN_DBG("already has handle, so destroyed it.");
   }
 
   if(NULL == (hCurl = sCurlPool->GetHandler())){
@@ -1844,7 +1844,7 @@ bool S3fsCurl::GetResponseCode(long& responseCode)
 //
 bool S3fsCurl::RemakeHandle(void)
 {
-  S3FS_PRN_INFO3("Retry request. [type=%d][url=%s][path=%s]", type, url.c_str(), path.c_str());
+  S3FS_PRN_DBG("Retry request. [type=%d][url=%s][path=%s]", type, url.c_str(), path.c_str());
 
   if(REQTYPE_UNSET == type){
     return false;
@@ -2044,7 +2044,6 @@ int S3fsCurl::RequestPerform(void)
     curl_easy_getinfo(hCurl, CURLINFO_EFFECTIVE_URL , &ptr_url);
     S3FS_PRN_DBG("connecting to URL %s", SAFESTRPTR(ptr_url));
 
-rodsLog(LOG_ERROR, "%s: %d url=%s", __FUNCTION__, __LINE__, ptr_url);
   //}
 
   // 1 attempt + retries...
@@ -2061,7 +2060,7 @@ rodsLog(LOG_ERROR, "%s: %d url=%s", __FUNCTION__, __LINE__, ptr_url);
           return -EIO;
         }
         if(400 > LastResponseCode){
-          S3FS_PRN_INFO3("HTTP response code %ld", LastResponseCode);
+          S3FS_PRN_DBG("HTTP response code %ld", LastResponseCode);
           return 0;
         }
         if(500 <= LastResponseCode){
@@ -2081,7 +2080,7 @@ rodsLog(LOG_ERROR, "%s: %d url=%s", __FUNCTION__, __LINE__, ptr_url);
             return -EPERM;
 
           case 404:
-            S3FS_PRN_INFO3("HTTP response code 404 was returned, returning ENOENT");
+            S3FS_PRN_DBG("HTTP response code 404 was returned, returning ENOENT");
             S3FS_PRN_DBG("Body Text: %s", (bodydata ? bodydata->str() : ""));
             return -ENOENT;
 
@@ -2164,13 +2163,13 @@ rodsLog(LOG_ERROR, "%s: %d url=%s", __FUNCTION__, __LINE__, ptr_url);
 
         first_pos = bucket.find_first_of(".");
         if(first_pos != string::npos){
-          S3FS_PRN_INFO("curl returned a CURL_PEER_FAILED_VERIFICATION error");
-          S3FS_PRN_INFO("security issue found: buckets with periods in their name are incompatible with http");
-          S3FS_PRN_INFO("This check can be over-ridden by using the -o ssl_verify_hostname=0");
-          S3FS_PRN_INFO("The certificate will still be checked but the hostname will not be verified.");
-          S3FS_PRN_INFO("A more secure method would be to use a bucket name without periods.");
+          S3FS_PRN_DBG("curl returned a CURL_PEER_FAILED_VERIFICATION error");
+          S3FS_PRN_DBG("security issue found: buckets with periods in their name are incompatible with http");
+          S3FS_PRN_DBG("This check can be over-ridden by using the -o ssl_verify_hostname=0");
+          S3FS_PRN_DBG("The certificate will still be checked but the hostname will not be verified.");
+          S3FS_PRN_DBG("A more secure method would be to use a bucket name without periods.");
         }else{
-          S3FS_PRN_INFO("my_curl_easy_perform: curlCode: %d -- %s", curlCode, curl_easy_strerror(curlCode));
+          S3FS_PRN_DBG("my_curl_easy_perform: curlCode: %d -- %s", curlCode, curl_easy_strerror(curlCode));
         }
         return -EIO;
         break;
@@ -2183,7 +2182,7 @@ rodsLog(LOG_ERROR, "%s: %d url=%s", __FUNCTION__, __LINE__, ptr_url);
         if(0 != curl_easy_getinfo(hCurl, CURLINFO_RESPONSE_CODE, &LastResponseCode)){
           return -EIO;
         }
-        S3FS_PRN_INFO3("HTTP response code =%ld", LastResponseCode);
+        S3FS_PRN_DBG("HTTP response code =%ld", LastResponseCode);
 
         // Let's try to retrieve the 
         if(404 == LastResponseCode){
@@ -2200,10 +2199,10 @@ rodsLog(LOG_ERROR, "%s: %d url=%s", __FUNCTION__, __LINE__, ptr_url);
         return -EIO;
         break;
     }
-    S3FS_PRN_INFO("### retrying...");
+    S3FS_PRN_DBG("### retrying...");
 
     if(!RemakeHandle()){
-      S3FS_PRN_INFO("Failed to reset handle and internal data for retrying.");
+      S3FS_PRN_DBG("Failed to reset handle and internal data for retrying.");
       return -EIO;
     }
   }
@@ -2407,7 +2406,7 @@ void S3fsCurl::insertV4Headers()
       break;
   }
 
-  S3FS_PRN_INFO3("computing signature [%s] [%s] [%s] [%s]", op.c_str(), server_path.c_str(), query_string.c_str(), payload_hash.c_str());
+  S3FS_PRN_DBG("computing signature [%s] [%s] [%s] [%s]", op.c_str(), server_path.c_str(), query_string.c_str(), payload_hash.c_str());
   string strdate;
   string date8601;
   get_date_sigv3(strdate, date8601);
@@ -2478,7 +2477,7 @@ void S3fsCurl::insertAuthHeaders()
 
 int S3fsCurl::DeleteRequest(const char* tpath)
 {
-  S3FS_PRN_INFO3("[tpath=%s]", SAFESTRPTR(tpath));
+  S3FS_PRN_DBG("[tpath=%s]", SAFESTRPTR(tpath));
 
   if(!tpath){
     return -1;
@@ -2514,7 +2513,7 @@ int S3fsCurl::DeleteRequest(const char* tpath)
 int S3fsCurl::GetIAMCredentials(void)
 {
   if (!S3fsCurl::is_ecs && !S3fsCurl::is_ibm_iam_auth) {
-    S3FS_PRN_INFO3("[IAM role=%s]", S3fsCurl::IAM_role.c_str());
+    S3FS_PRN_DBG("[IAM role=%s]", S3fsCurl::IAM_role.c_str());
 
     if(0 == S3fsCurl::IAM_role.size()) {
       S3FS_PRN_ERR("IAM role name is empty.");
@@ -2588,7 +2587,7 @@ int S3fsCurl::GetIAMCredentials(void)
 //
 bool S3fsCurl::LoadIAMRoleFromMetaData(void)
 {
-  S3FS_PRN_INFO3("Get IAM Role name");
+  S3FS_PRN_DBG("Get IAM Role name");
 
   // at first set type for handle
   type = REQTYPE_IAMROLE;
@@ -2664,7 +2663,7 @@ bool S3fsCurl::AddSseRequestHead(sse_type_t ssetype, string& ssevalue, bool is_o
 //
 bool S3fsCurl::PreHeadRequest(const char* tpath, const char* bpath, const char* savedpath, int ssekey_pos)
 {
-  S3FS_PRN_INFO3("[tpath=%s][bpath=%s][save=%s][sseckeypos=%d]", SAFESTRPTR(tpath), SAFESTRPTR(bpath), SAFESTRPTR(savedpath), ssekey_pos);
+  S3FS_PRN_DBG("[tpath=%s][bpath=%s][save=%s][sseckeypos=%d]", SAFESTRPTR(tpath), SAFESTRPTR(bpath), SAFESTRPTR(savedpath), ssekey_pos);
 
   if(!tpath){
     return false;
@@ -2715,7 +2714,7 @@ int S3fsCurl::HeadRequest(const char* tpath, headers_t& meta)
 {
   int result = -1;
 
-  S3FS_PRN_INFO3("[tpath=%s]", SAFESTRPTR(tpath));
+  S3FS_PRN_DBG("[tpath=%s]", SAFESTRPTR(tpath));
 
   // At first, try to get without SSE-C headers
   if(!PreHeadRequest(tpath) || 0 != (result = RequestPerform())){
@@ -2760,7 +2759,7 @@ int S3fsCurl::HeadRequest(const char* tpath, headers_t& meta)
 
 int S3fsCurl::PutHeadRequest(const char* tpath, headers_t& meta, bool is_copy)
 {
-  S3FS_PRN_INFO3("[tpath=%s]", SAFESTRPTR(tpath));
+  S3FS_PRN_DBG("[tpath=%s]", SAFESTRPTR(tpath));
 
   if(!tpath){
     return -1;
@@ -2846,7 +2845,7 @@ int S3fsCurl::PutHeadRequest(const char* tpath, headers_t& meta, bool is_copy)
   curl_easy_setopt(hCurl, CURLOPT_HTTPHEADER, requestHeaders);
   S3fsCurl::AddUserAgent(hCurl);                                // put User-Agent
 
-  S3FS_PRN_INFO3("copying... [path=%s]", tpath);
+  S3FS_PRN_DBG("copying... [path=%s]", tpath);
 
   int result = RequestPerform();
   if(0 == result){
@@ -2880,8 +2879,7 @@ int S3fsCurl::PutRequest(const char* tpath, headers_t& meta, int fd)
   struct stat st;
   FILE*       file = NULL;
 
-rodsLog(LOG_ERROR, "%s: %d host=[%s] tpath=[%s] ", __FUNCTION__, __LINE__, host.c_str(), tpath);
-  S3FS_PRN_INFO3("[tpath=%s]", SAFESTRPTR(tpath));
+  S3FS_PRN_DBG("[tpath=%s]", SAFESTRPTR(tpath));
   if(!tpath){
     return -1;
   }
@@ -2898,7 +2896,7 @@ rodsLog(LOG_ERROR, "%s: %d host=[%s] tpath=[%s] ", __FUNCTION__, __LINE__, host.
     b_infile = file;
   }else{
     // This case is creating zero byte object.(calling by create_file_object())
-    S3FS_PRN_INFO3("create zero byte file object.");
+    S3FS_PRN_DBG("create zero byte file object.");
   }
 
   if(!CreateCurlHandle(true)){
@@ -2909,15 +2907,11 @@ rodsLog(LOG_ERROR, "%s: %d host=[%s] tpath=[%s] ", __FUNCTION__, __LINE__, host.
   }
   string resource;
   string turl;
-rodsLog(LOG_ERROR, "%s: %d tpath = %s", __FUNCTION__, __LINE__, tpath);
   MakeUrlResource(get_realpath(tpath).c_str(), resource, turl);
-rodsLog(LOG_ERROR, "%s: %d turl = %s", __FUNCTION__, __LINE__, turl.c_str());
 
   // below sets url to <host>/<path>
   url             = prepare_url(turl.c_str());
-rodsLog(LOG_ERROR, "%s: %d url = %s", __FUNCTION__, __LINE__, url.c_str());
   path            = get_realpath(tpath);
-rodsLog(LOG_ERROR, "%s: %d path = %s", __FUNCTION__, __LINE__, path.c_str());
   requestHeaders  = NULL;
   responseHeaders.clear();
   bodydata        = new BodyData();
@@ -2986,7 +2980,7 @@ rodsLog(LOG_ERROR, "%s: %d path = %s", __FUNCTION__, __LINE__, path.c_str());
   }
   S3fsCurl::AddUserAgent(hCurl);                                // put User-Agent
 
-  S3FS_PRN_INFO3("uploading... [path=%s][fd=%d][size=%jd]", tpath, fd, (intmax_t)(-1 != fd ? st.st_size : 0));
+  S3FS_PRN_DBG("uploading... [path=%s][fd=%d][size=%jd]", tpath, fd, (intmax_t)(-1 != fd ? st.st_size : 0));
 
   int result = RequestPerform();
   delete bodydata;
@@ -3000,7 +2994,7 @@ rodsLog(LOG_ERROR, "%s: %d path = %s", __FUNCTION__, __LINE__, path.c_str());
 
 int S3fsCurl::PreGetObjectRequest(const char* tpath, int fd, off_t start, ssize_t size, sse_type_t ssetype, string& ssevalue)
 {
-  S3FS_PRN_INFO3("[tpath=%s][start=%jd][size=%jd]", SAFESTRPTR(tpath), (intmax_t)start, (intmax_t)size);
+  S3FS_PRN_DBG("[tpath=%s][start=%jd][size=%jd]", SAFESTRPTR(tpath), (intmax_t)start, (intmax_t)size);
 
   if(!tpath || -1 == fd || 0 > start || 0 > size){
     return -1;
@@ -3060,7 +3054,7 @@ int S3fsCurl::GetObjectRequest(const char* tpath, int fd, off_t start, ssize_t s
 {
   int result;
 
-  S3FS_PRN_INFO3("[tpath=%s][start=%jd][size=%jd]", SAFESTRPTR(tpath), (intmax_t)start, (intmax_t)size);
+  S3FS_PRN_DBG("[tpath=%s][start=%jd][size=%jd]", SAFESTRPTR(tpath), (intmax_t)start, (intmax_t)size);
 
   if(!tpath){
     return -1;
@@ -3075,7 +3069,7 @@ int S3fsCurl::GetObjectRequest(const char* tpath, int fd, off_t start, ssize_t s
     return result;
   }
 
-  S3FS_PRN_INFO3("downloading... [path=%s][fd=%d]", tpath, fd);
+  S3FS_PRN_DBG("downloading... [path=%s][fd=%d]", tpath, fd);
 
   result = RequestPerform();
   partdata.clear();
@@ -3085,7 +3079,7 @@ int S3fsCurl::GetObjectRequest(const char* tpath, int fd, off_t start, ssize_t s
 
 int S3fsCurl::CheckBucket(void)
 {
-  S3FS_PRN_INFO3("check a bucket.");
+  S3FS_PRN_DBG("check a bucket.");
 
   if(!CreateCurlHandle(true)){
     return -1;
@@ -3096,7 +3090,6 @@ int S3fsCurl::CheckBucket(void)
 
   url             = prepare_url(turl.c_str());
   path            = get_realpath("/");
-rodsLog(LOG_ERROR, "%s:%d path=[%s]", __FUNCTION__, __LINE__, path.c_str());
   requestHeaders  = NULL;
   responseHeaders.clear();
   bodydata        = new BodyData();
@@ -3121,7 +3114,7 @@ rodsLog(LOG_ERROR, "%s:%d path=[%s]", __FUNCTION__, __LINE__, path.c_str());
 
 int S3fsCurl::ListBucketRequest(const char* tpath, const char* query)
 {
-  S3FS_PRN_INFO3("[tpath=%s]", SAFESTRPTR(tpath));
+  S3FS_PRN_DBG("[tpath=%s]", SAFESTRPTR(tpath));
 
   if(!tpath){
     return -1;
@@ -3169,7 +3162,7 @@ int S3fsCurl::ListBucketRequest(const char* tpath, const char* query)
 //
 int S3fsCurl::PreMultipartPostRequest(const char* tpath, headers_t& meta, string& upload_id, bool is_copy)
 {
-  S3FS_PRN_INFO3("[tpath=%s]", SAFESTRPTR(tpath));
+  S3FS_PRN_DBG("[tpath=%s]", SAFESTRPTR(tpath));
 
   if(!tpath){
     return -1;
@@ -3279,7 +3272,7 @@ int S3fsCurl::PreMultipartPostRequest(const char* tpath, headers_t& meta, string
 
 int S3fsCurl::CompleteMultipartPostRequest(const char* tpath, string& upload_id, etaglist_t& parts)
 {
-  S3FS_PRN_INFO3("[tpath=%s][parts=%zu]", SAFESTRPTR(tpath), parts.size());
+  S3FS_PRN_DBG("[tpath=%s][parts=%zu]", SAFESTRPTR(tpath), parts.size());
 
   if(!tpath){
     return -1;
@@ -3351,7 +3344,7 @@ int S3fsCurl::CompleteMultipartPostRequest(const char* tpath, string& upload_id,
 
 int S3fsCurl::MultipartListRequest(string& body)
 {
-  S3FS_PRN_INFO3("list request(multipart)");
+  S3FS_PRN_DBG("list request(multipart)");
 
   if(!CreateCurlHandle(true)){
     return -1;
@@ -3394,7 +3387,7 @@ int S3fsCurl::MultipartListRequest(string& body)
 
 int S3fsCurl::AbortMultipartUpload(const char* tpath, string& upload_id)
 {
-  S3FS_PRN_INFO3("[tpath=%s]", SAFESTRPTR(tpath));
+  S3FS_PRN_DBG("[tpath=%s]", SAFESTRPTR(tpath));
 
   if(!tpath){
     return -1;
@@ -3441,7 +3434,7 @@ int S3fsCurl::AbortMultipartUpload(const char* tpath, string& upload_id)
 
 int S3fsCurl::UploadMultipartPostSetup(const char* tpath, int part_num, const string& upload_id)
 {
-  S3FS_PRN_INFO3("[tpath=%s][start=%jd][size=%jd][part=%d]", SAFESTRPTR(tpath), (intmax_t)(partdata.startpos), (intmax_t)(partdata.size), part_num);
+  S3FS_PRN_DBG("[tpath=%s][start=%jd][size=%jd][part=%d]", SAFESTRPTR(tpath), (intmax_t)(partdata.startpos), (intmax_t)(partdata.size), part_num);
 
   if(-1 == partdata.fd || -1 == partdata.startpos || -1 == partdata.size){
     return -1;
@@ -3515,7 +3508,7 @@ int S3fsCurl::UploadMultipartPostRequest(const char* tpath, int part_num, const 
 {
   int result;
 
-  S3FS_PRN_INFO3("[tpath=%s][start=%jd][size=%jd][part=%d]", SAFESTRPTR(tpath), (intmax_t)(partdata.startpos), (intmax_t)(partdata.size), part_num);
+  S3FS_PRN_DBG("[tpath=%s][start=%jd][size=%jd][part=%d]", SAFESTRPTR(tpath), (intmax_t)(partdata.startpos), (intmax_t)(partdata.size), part_num);
 
   // setup
   if(0 != (result = S3fsCurl::UploadMultipartPostSetup(tpath, part_num, upload_id))){
@@ -3539,7 +3532,7 @@ int S3fsCurl::UploadMultipartPostRequest(const char* tpath, int part_num, const 
 
 int S3fsCurl::CopyMultipartPostRequest(const char* from, const char* to, int part_num, string& upload_id, headers_t& meta)
 {
-  S3FS_PRN_INFO3("[from=%s][to=%s][part=%d]", SAFESTRPTR(from), SAFESTRPTR(to), part_num);
+  S3FS_PRN_DBG("[from=%s][to=%s][part=%d]", SAFESTRPTR(from), SAFESTRPTR(to), part_num);
 
   if(!from || !to){
     return -1;
@@ -3591,7 +3584,7 @@ int S3fsCurl::CopyMultipartPostRequest(const char* from, const char* to, int par
   S3fsCurl::AddUserAgent(hCurl);                                // put User-Agent
 
   // request
-  S3FS_PRN_INFO3("copying... [from=%s][to=%s][part=%d]", from, to, part_num);
+  S3FS_PRN_DBG("copying... [from=%s][to=%s][part=%d]", from, to, part_num);
 
   int result = RequestPerform();
   if(0 == result){
@@ -3666,7 +3659,7 @@ int S3fsCurl::MultipartHeadRequest(const char* tpath, off_t size, headers_t& met
   etaglist_t     list;
   stringstream   strrange;
 
-  S3FS_PRN_INFO3("[tpath=%s]", SAFESTRPTR(tpath));
+  S3FS_PRN_DBG("[tpath=%s]", SAFESTRPTR(tpath));
 
   if(0 != (result = PreMultipartPostRequest(tpath, meta, upload_id, is_copy))){
     return result;
@@ -3704,7 +3697,7 @@ int S3fsCurl::MultipartUploadRequest(const char* tpath, headers_t& meta, int fd,
   off_t          remaining_bytes;
   off_t          chunk;
 
-  S3FS_PRN_INFO3("[tpath=%s][fd=%d]", SAFESTRPTR(tpath), fd);
+  S3FS_PRN_DBG("[tpath=%s][fd=%d]", SAFESTRPTR(tpath), fd);
 
   // duplicate fd
   if(-1 == (fd2 = dup(fd)) || 0 != lseek(fd2, 0, SEEK_SET)){
@@ -3757,7 +3750,7 @@ int S3fsCurl::MultipartUploadRequest(const char* tpath, headers_t& meta, int fd,
 
 int S3fsCurl::MultipartUploadRequest(const string& upload_id, const char* tpath, int fd, off_t offset, size_t size, etaglist_t& list)
 {
-  S3FS_PRN_INFO3("[upload_id=%s][tpath=%s][fd=%d][offset=%jd][size=%jd]", upload_id.c_str(), SAFESTRPTR(tpath), fd, (intmax_t)offset, (intmax_t)size);
+  S3FS_PRN_DBG("[upload_id=%s][tpath=%s][fd=%d][offset=%jd][size=%jd]", upload_id.c_str(), SAFESTRPTR(tpath), fd, (intmax_t)offset, (intmax_t)size);
 
   // duplicate fd
   int fd2;
@@ -3799,7 +3792,7 @@ int S3fsCurl::MultipartRenameRequest(const char* from, const char* to, headers_t
   etaglist_t     list;
   stringstream   strrange;
 
-  S3FS_PRN_INFO3("[from=%s][to=%s]", SAFESTRPTR(from), SAFESTRPTR(to));
+  S3FS_PRN_DBG("[from=%s][to=%s]", SAFESTRPTR(from), SAFESTRPTR(to));
 
   string srcresource;
   string srcurl;
@@ -4061,7 +4054,7 @@ int S3fsMultiCurl::MultiRead(void)
 
 int S3fsMultiCurl::Request(void)
 {
-  S3FS_PRN_INFO3("[count=%zu]", cMap_all.size());
+  S3FS_PRN_DBG("[count=%zu]", cMap_all.size());
 
   // Make request list.
   //
@@ -4309,13 +4302,11 @@ string get_canonical_headers(const struct curl_slist* list, bool only_amz)
 // function for using global values
 bool MakeUrlResource(const char* realpath, string& resourcepath, string& url)
 {
-rodsLog(LOG_ERROR, "%s: %d service_path=[%s], bucket=[%s], realpath=[%s], host=[%s]", __FUNCTION__, __LINE__, service_path.c_str(), bucket.c_str(), realpath, host.c_str());
   if(!realpath){
     return false;
   }
   resourcepath = urlEncode(service_path + bucket + realpath);
   url          = host + resourcepath;
-rodsLog(LOG_ERROR, "%s: %d url = [%s]", __FUNCTION__, __LINE__, url.c_str());
   return true;
 }
 
@@ -4324,17 +4315,13 @@ string prepare_url(const char* url)
   return std::string(url);
   //return std::string("http://" )+ std::string(url);
 
-rodsLog(LOG_ERROR, "%s: %d url=%s", __FUNCTION__, __LINE__, url);
   string uri;
   string host;
   string path;
   string url_str = string(url);
   string token = string("/") + bucket;
-rodsLog(LOG_ERROR, "%s: %d token=%s", __FUNCTION__, __LINE__, token.c_str());
   int bucket_pos = url_str.find(token);
-rodsLog(LOG_ERROR, "%s: %d bucket_pos=%d", __FUNCTION__, __LINE__, bucket_pos);
   int bucket_length = token.size();
-rodsLog(LOG_ERROR, "%s: %d bucket_length=%d", __FUNCTION__, __LINE__, bucket_length);
   int uri_length = 0;
 
   if(!strncasecmp(url_str.c_str(), "https://", 8)){
@@ -4343,26 +4330,22 @@ rodsLog(LOG_ERROR, "%s: %d bucket_length=%d", __FUNCTION__, __LINE__, bucket_len
     uri_length = 7;
   }
   uri  = url_str.substr(0, uri_length);
-rodsLog(LOG_ERROR, "%s: %d uri=%s", __FUNCTION__, __LINE__, uri.c_str());
 
   if(!pathrequeststyle){
     host = bucket + "." + url_str.substr(uri_length, bucket_pos - uri_length).c_str();
     path = url_str.substr((bucket_pos + bucket_length));
   }else{
     host = url_str.substr(uri_length, bucket_pos - uri_length).c_str();
-rodsLog(LOG_ERROR, "%s: %d host=%s", __FUNCTION__, __LINE__, host.c_str());
     string part = url_str.substr((bucket_pos + bucket_length));
-rodsLog(LOG_ERROR, "%s: %d part=%s", __FUNCTION__, __LINE__, part.c_str());
     if('/' != part[0]){
       part = "/" + part;
     }
     path = "/" + bucket + part;
-rodsLog(LOG_ERROR, "%s: %d uri=%s bucket=%s host=%s part=%s", __FUNCTION__, __LINE__, uri.c_str(), bucket.c_str(), host.c_str(), part.c_str());
   }
 
   url_str = uri + host + path;
 
-  S3FS_PRN_INFO3("URL changed is %s", url_str.c_str());
+  S3FS_PRN_DBG("URL changed is %s", url_str.c_str());
 
   return std::string("http://" )+ url_str;
 }
@@ -4370,7 +4353,7 @@ rodsLog(LOG_ERROR, "%s: %d uri=%s bucket=%s host=%s part=%s", __FUNCTION__, __LI
 
 /*string prepare_url(const char *url)
 {
-  S3FS_PRN_INFO3("URL is %s", url);
+  S3FS_PRN_DBG("URL is %s", url);
 
   std::string url_lower = url;
   boost::to_lower(url_lower);
@@ -4410,7 +4393,7 @@ rodsLog(LOG_ERROR, "%s: %d uri=%s bucket=%s host=%s part=%s", __FUNCTION__, __LI
 
   url_str = uri + host + path;
 
-  S3FS_PRN_INFO3("URL changed is %s", url_str.c_str());
+  S3FS_PRN_DBG("URL changed is %s", url_str.c_str());
 
   return url_str;
 }

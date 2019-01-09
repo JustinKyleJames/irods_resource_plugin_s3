@@ -129,8 +129,6 @@ class FdEntity
     off_t           mp_start;       // start position for no cached multipart(write method only)
     size_t          mp_size;        // size for no cached multipart(write method only)
 
-	off_t           offset;         // jjames - added for iRODS lseek 
-
   private:
     static int FillFile(int fd, unsigned char byte, size_t size, off_t start);
 
@@ -163,9 +161,6 @@ class FdEntity
     bool SetUId(uid_t uid);
     bool SetGId(gid_t gid);
     bool SetContentType(const char* path);
-
-    bool SetOffset(off_t offset);
-	bool GetOffset(off_t& offset);
 
     int Load(off_t start = 0, size_t size = 0);                 // size=0 means loading to end
     int NoCacheLoadAndPost(off_t start = 0, size_t size = 0);   // size=0 means loading to end
@@ -236,6 +231,44 @@ class FdManager
     bool Close(FdEntity* ent);
     bool ChangeEntityToTempPath(FdEntity* ent, const char* path);
     void CleanupCacheDir();
+};
+
+//------------------------------------------------
+// class FileOffsetManager 
+//------------------------------------------------
+
+struct FdOffsetPair {
+	int fd;         // the file descriptor stored in FdManager::fd
+	off_t offset;   // the offset
+};
+
+class FileOffsetManager 
+{
+  private:
+    static FileOffsetManager singleton;
+	static int fd_counter;
+    static pthread_mutex_t file_offset_manager_lock;
+    static bool            is_lock_init;
+
+	// maps irods_fd -> (FdManager::fd and offset)
+	static std::map<int, FdOffsetPair> offset_map; 
+  public:
+    FileOffsetManager();
+    ~FileOffsetManager();
+
+    // Reference singleton
+    static FileOffsetManager * get(void) { return &singleton; }
+
+	// returns the file descriptor that will be saved in iRODS
+    static int create_entry(int fd);
+ 
+	static bool delete_entry(int irods_fd);
+	static bool setOffset(int irods_fd, off_t offset);
+	static bool getOffset(int irods_fd, off_t& offset);
+	static bool setFd(int irods_fd, int fd);
+	static bool getFd(int irods_fd, int& fd);
+	static bool adjustOffset(int irods_fd, off_t delta);
+
 };
 
 #endif // FD_CACHE_H_

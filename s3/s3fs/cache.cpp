@@ -354,7 +354,7 @@ bool StatCache::AddStat(std::string& key, headers_t& meta, bool forcedir, bool n
   if(!no_truncate && CacheSize< 1){
     return true;
   }
-  S3FS_PRN_INFO3("add stat cache entry[path=%s]", key.c_str());
+  S3FS_PRN_DBG("add stat cache entry[path=%s]", key.c_str());
 
   pthread_mutex_lock(&StatCache::stat_cache_lock);
 
@@ -427,7 +427,7 @@ bool StatCache::AddNoObjectCache(string& key)
   if(CacheSize < 1){
     return true;
   }
-  S3FS_PRN_INFO3("add no object cache entry[path=%s]", key.c_str());
+  S3FS_PRN_DBG("add no object cache entry[path=%s]", key.c_str());
 
   pthread_mutex_lock(&StatCache::stat_cache_lock);
 
@@ -563,7 +563,7 @@ bool StatCache::DelStat(const char* key)
   if(!key){
     return false;
   }
-  S3FS_PRN_INFO3("delete stat cache entry[path=%s]", key);
+  S3FS_PRN_DBG("delete stat cache entry[path=%s]", key);
 
   pthread_mutex_lock(&StatCache::stat_cache_lock);
 

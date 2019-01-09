@@ -1797,8 +1797,7 @@ irods:: error s3StartOperation(irods::plugin_property_map& _prop_map)
     if (cacheless_mode) {
         ret = initialize_cacheless_mode(_prop_map);
         if (!ret.ok()) {
-            rodsLog(LOG_ERROR, "init cacheless mode returned error %s", ret.result().c_str());
-            // TODO what to do here
+            return ERROR(S3_INIT_ERROR, (boost::format("init cacheless mode returned error %s") % ret.result().c_str()));
         }
     }
  
@@ -2267,6 +2266,16 @@ irods::error initialize_cacheless_mode(irods::plugin_property_map& _prop_map) {
         rodsLog(LOG_ERROR, error_str.c_str());
         return ERROR(S3_INIT_ERROR, error_str.c_str());
     }
+
+    S3SignatureVersion signature_version = s3GetSignatureVersion(_prop_map);
+
+    if (signature_version == S3SignatureV4) {
+        S3fsCurl::SetSignatureV4(true);
+    } else {
+        S3fsCurl::SetSignatureV4(false);
+    }
+
+
  
     service_path = "";
     host = std::string(s3GetHostname());

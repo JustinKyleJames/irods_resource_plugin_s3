@@ -636,7 +636,7 @@ int FdEntity::FillFile(int fd, unsigned char byte, size_t size, off_t start)
 //------------------------------------------------
 FdEntity::FdEntity(const char* tpath, const char* cpath)
         : is_lock_init(false), refcnt(0), path(SAFESTRPTR(tpath)), cachepath(SAFESTRPTR(cpath)), mirrorpath(""),
-          fd(-1), pfile(NULL), is_modify(false), size_orgmeta(0), upload_id(""), mp_start(0), mp_size(0), offset(0)
+          fd(-1), pfile(NULL), is_modify(false), size_orgmeta(0), upload_id(""), mp_start(0), mp_size(0)
 {
   try{
     pthread_mutexattr_t attr;
@@ -724,7 +724,6 @@ void FdEntity::Close(void)
         mirrorpath.erase();
       }
     }
-	offset = 0;
   }
 }
 
@@ -981,7 +980,7 @@ bool FdEntity::OpenAndLoadAll(headers_t* pmeta, size_t* size, bool force_load)
 {
   int result;
 
-  S3FS_PRN_INFO3("[path=%s][fd=%d]", path.c_str(), fd);
+  S3FS_PRN_DBG("[path=%s][fd=%d]", path.c_str(), fd);
 
   if(-1 == fd){
     if(0 != Open(pmeta)){
@@ -1026,7 +1025,7 @@ bool FdEntity::GetStats(struct stat& st)
 
 int FdEntity::SetMtime(time_t time)
 {
-  S3FS_PRN_INFO3("[path=%s][fd=%d][time=%jd]", path.c_str(), fd, (intmax_t)time);
+  S3FS_PRN_DBG("[path=%s][fd=%d][time=%jd]", path.c_str(), fd, (intmax_t)time);
 
   if(-1 == time){
     return 0;
@@ -1080,30 +1079,6 @@ bool FdEntity::GetSize(size_t& size)
   return true;
 }
 
-// SetOffset and GetOffset created to handle iRODS lseek
-bool FdEntity::SetOffset(off_t _offset)
-{
-  if(-1 == fd){
-    return false;
-  }
-  AutoLock auto_lock(&fdent_lock);
-
-  offset = _offset;
-  return true;
-}
-
-bool FdEntity::GetOffset(off_t& _offset)
-{
-  if(-1 == fd){
-    return false;
-  }
-  AutoLock auto_lock(&fdent_lock);
-
-  _offset = offset;
-  return true;
-}
-
-
 bool FdEntity::SetMode(mode_t mode)
 {
   AutoLock auto_lock(&fdent_lock);
@@ -1137,7 +1112,7 @@ bool FdEntity::SetContentType(const char* path)
 
 bool FdEntity::SetAllStatus(bool is_loaded)
 {
-  S3FS_PRN_INFO3("[path=%s][fd=%d][%s]", path.c_str(), fd, is_loaded ? "loaded" : "unloaded");
+  S3FS_PRN_DBG("[path=%s][fd=%d][%s]", path.c_str(), fd, is_loaded ? "loaded" : "unloaded");
 
   if(-1 == fd){
     return false;
@@ -1243,7 +1218,7 @@ int FdEntity::NoCacheLoadAndPost(off_t start, size_t size)
 {
   int result = 0;
 
-  S3FS_PRN_INFO3("[path=%s][fd=%d][offset=%jd][size=%jd]", path.c_str(), fd, (intmax_t)start, (intmax_t)size);
+  S3FS_PRN_DBG("[path=%s][fd=%d][offset=%jd][size=%jd]", path.c_str(), fd, (intmax_t)start, (intmax_t)size);
 
   if(-1 == fd){
     return -EBADF;
@@ -1465,7 +1440,7 @@ int FdEntity::RowFlush(const char* tpath, bool force_sync)
 {
   int result = 0;
 
-  S3FS_PRN_INFO3("[tpath=%s][path=%s][fd=%d]", SAFESTRPTR(tpath), path.c_str(), fd);
+  S3FS_PRN_DBG("[tpath=%s][path=%s][fd=%d]", SAFESTRPTR(tpath), path.c_str(), fd);
 
   if(-1 == fd){
     return -EBADF;
@@ -1620,89 +1595,59 @@ ssize_t FdEntity::Read(char* bytes, off_t start, size_t size, bool force_load)
 {
   S3FS_PRN_DBG("[path=%s][fd=%d][offset=%jd][size=%zu]", path.c_str(), fd, (intmax_t)start, size);
 
-rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
   if(-1 == fd){
-rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
     return -EBADF;
   }
-rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
   AutoLock auto_lock(&fdent_lock);
-rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
 
   if(force_load){
-rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
     pagelist.SetPageLoadedStatus(start, size, false);
-rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
   }
 
-rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
   ssize_t rsize;
 
-rodsLog(LOG_ERROR, "%s:%d total unloaded page size = %d", __FUNCTION__, __LINE__, pagelist.GetTotalUnloadedPageSize(start, size));
 
   // check disk space
   if(0 < pagelist.GetTotalUnloadedPageSize(start, size)){
-rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
     // load size(for prefetch)
     size_t load_size = size;
-rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
     if(static_cast<size_t>(start + size) < pagelist.Size()){
-rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
       size_t prefetch_max_size = max(size, static_cast<size_t>(S3fsCurl::GetMultipartSize() * S3fsCurl::GetMaxParallelCount()));
 
       if(static_cast<size_t>(start + prefetch_max_size) < pagelist.Size()){
-rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
         load_size = prefetch_max_size;
-rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
       }else{
-rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
         load_size = static_cast<size_t>(pagelist.Size() - start);
       }
-rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
     }
 
-rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
     if(!ReserveDiskSpace(load_size)){
-rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
       S3FS_PRN_WARN("could not reserve disk space for pre-fetch download");
-rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
       load_size = size;
-rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
       if(!ReserveDiskSpace(load_size)){
-rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
         S3FS_PRN_ERR("could not reserve disk space for pre-fetch download");
-rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
         return -ENOSPC;
       }
     }
 
     // Loading
     int result = 0;
-rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
     if(0 < size){
-rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
       result = Load(start, load_size);
     }
 
-rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
     FdManager::get()->FreeReservedDiskSpace(load_size);
 
-rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
     if(0 != result){
-rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
       S3FS_PRN_ERR("could not download. start(%jd), size(%zu), errno(%d)", (intmax_t)start, size, result);
       return -EIO;
     }
   }
   // Reading
-rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
   if(-1 == (rsize = pread(fd, bytes, size, start))){
-rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
     S3FS_PRN_ERR("pread failed. errno(%d)", errno);
-rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
     return -errno;
   }
-rodsLog(LOG_ERROR, "%s:%d", __FUNCTION__, __LINE__);
   return rsize;
 }
 
@@ -1875,7 +1820,7 @@ bool FdManager::DeleteCacheDirectory(void)
 
 int FdManager::DeleteCacheFile(const char* path)
 {
-  S3FS_PRN_INFO3("[path=%s]", SAFESTRPTR(path));
+  S3FS_PRN_DBG("[path=%s]", SAFESTRPTR(path));
 
   if(!path){
     return -EIO;
@@ -2075,7 +2020,7 @@ FdManager::~FdManager()
 
 FdEntity* FdManager::GetFdEntity(const char* path, int existfd)
 {
-  S3FS_PRN_INFO3("[path=%s][fd=%d]", SAFESTRPTR(path), existfd);
+  S3FS_PRN_DBG("[path=%s][fd=%d]", SAFESTRPTR(path), existfd);
 
   if(!path || '\0' == path[0]){
     return NULL;
@@ -2129,6 +2074,9 @@ FdEntity* FdManager::Open(const char* path, headers_t* pmeta, ssize_t size, time
         }
       }
     }
+
+	// TODO delete this
+	//iter = fent.end();
 
     if(fent.end() != iter){
       // found
@@ -2266,7 +2214,7 @@ bool FdManager::ChangeEntityToTempPath(FdEntity* ent, const char* path)
 
 void FdManager::CleanupCacheDir()
 {
-  S3FS_PRN_INFO("cache cleanup requested");
+  S3FS_PRN_DBG("cache cleanup requested");
 
   if(!FdManager::IsCacheDir()){
     return;
@@ -2275,9 +2223,9 @@ void FdManager::CleanupCacheDir()
   AutoLock auto_lock_no_wait(&FdManager::cache_cleanup_lock, true);
 
   if(auto_lock_no_wait.isLockAcquired()){
-    S3FS_PRN_INFO("cache cleanup started");
+    S3FS_PRN_DBG("cache cleanup started");
     CleanupCacheDirInternal("");
-    S3FS_PRN_INFO("cache cleanup ended");
+    S3FS_PRN_DBG("cache cleanup ended");
   }else{
     // wait for other thread to finish cache cleanup
     AutoLock auto_lock(&FdManager::cache_cleanup_lock);
@@ -2345,6 +2293,192 @@ void FdManager::FreeReservedDiskSpace(size_t size)
   AutoLock auto_lock(&FdManager::reserved_diskspace_lock);
   free_disk_space -= size;
 }
+
+//------------------------------------------------
+// FileOffsetManager class variable
+//------------------------------------------------
+FileOffsetManager           FileOffsetManager::singleton;
+int                         FileOffsetManager::fd_counter = 0;
+pthread_mutex_t             FileOffsetManager::file_offset_manager_lock;
+bool                        FileOffsetManager::is_lock_init;
+std::map<int, FdOffsetPair> FileOffsetManager::offset_map; 
+
+//------------------------------------------------
+// FileOffsetManager methods
+//------------------------------------------------
+
+// TODO handle wrapping of fd_counter
+
+FileOffsetManager::FileOffsetManager()  {
+
+    if(this == get()){
+		fd_counter = 0;
+        try{
+            pthread_mutex_init(&file_offset_manager_lock, NULL);
+            is_lock_init = true;
+        }catch(exception& e){
+            is_lock_init = false;
+            S3FS_PRN_CRIT("failed to init mutex for FileOffsetManager");
+        }
+    }else{
+        assert(false);
+    }
+}
+
+FileOffsetManager::~FileOffsetManager() {
+
+    if(this == get()){
+  
+        offset_map.clear();
+    
+        if(is_lock_init){
+            try{
+                pthread_mutex_destroy(&file_offset_manager_lock);
+            }catch(exception& e){
+                S3FS_PRN_CRIT("failed to destroy mutex in ~FileOffsetManager");
+            }
+            is_lock_init = false;
+        }
+    }else{
+        assert(false);
+    }
+}
+
+// takes in FdManager file descriptor and returns irods file descriptor 
+int FileOffsetManager::create_entry(int fd) {
+     
+    AutoLock auto_lock(&file_offset_manager_lock);
+
+	FdOffsetPair fd_offset_pair;
+	fd_offset_pair.fd = fd;
+	fd_offset_pair.offset = 0;
+
+	FileOffsetManager::offset_map.insert(std::pair<int, FdOffsetPair>(++fd_counter, fd_offset_pair));
+	return fd_counter;
+}
+
+// delete entry from offset_map
+bool FileOffsetManager::delete_entry(int irods_fd) {
+     
+    AutoLock auto_lock(&file_offset_manager_lock);
+   
+    auto iter = offset_map.find(irods_fd);
+
+	if (iter == offset_map.end()) {
+		return false;
+    }
+
+	offset_map.erase(iter);
+
+	return true;
+
+}
+
+bool FileOffsetManager::setOffset(int irods_fd, off_t _offset) {
+
+    if(0 > irods_fd){
+        return false;
+    }
+    AutoLock auto_lock(&file_offset_manager_lock);
+
+	auto iter = offset_map.find(irods_fd);
+ 
+    // make sure fd is in map	
+    if(iter == offset_map.end()) {
+		return false;
+    }
+
+	FdOffsetPair fd_offset_pair;
+	fd_offset_pair.fd = iter->second.fd;
+	fd_offset_pair.offset = _offset;
+
+	iter->second = fd_offset_pair;
+    return true;
+}
+
+bool FileOffsetManager::getOffset(int irods_fd, off_t& _offset) {
+
+    if(0 > irods_fd) {
+       return false;
+    }
+    AutoLock auto_lock(&file_offset_manager_lock);
+
+	auto iter = offset_map.find(irods_fd);
+
+    // make sure fd is in map	
+    if(iter == offset_map.end()) {
+		return false;
+    }
+ 
+    _offset = iter->second.offset;
+    return true;
+}
+
+bool FileOffsetManager::adjustOffset(int irods_fd, off_t delta) {
+
+    if(0 > irods_fd){
+        return false;
+    }
+  
+  	AutoLock auto_lock(&file_offset_manager_lock);
+
+	auto iter = offset_map.find(irods_fd);
+
+    // make sure fd is in map	
+    if(iter == offset_map.end()) {
+		return false;
+    }
+
+ 	FdOffsetPair fd_offset_pair;
+	fd_offset_pair.fd = iter->second.fd;
+	fd_offset_pair.offset = iter->second.offset + delta;
+
+	iter->second = fd_offset_pair;
+    return true;
+}
+
+bool FileOffsetManager::setFd(int irods_fd, int fd) {
+
+    if(0 > irods_fd){
+        return false;
+    }
+    AutoLock auto_lock(&file_offset_manager_lock);
+
+	auto iter = offset_map.find(irods_fd);
+ 
+    // make sure fd is in map	
+    if(iter == offset_map.end()) {
+		return false;
+    }
+
+	FdOffsetPair fd_offset_pair;
+	fd_offset_pair.fd = fd;
+	fd_offset_pair.offset = iter->second.offset;
+
+	iter->second = fd_offset_pair;
+    return true;
+
+}
+
+bool FileOffsetManager::getFd(int irods_fd, int& fd) {
+
+    if(0 > irods_fd) {
+       return false;
+    }
+    AutoLock auto_lock(&file_offset_manager_lock);
+
+	auto iter = offset_map.find(irods_fd);
+
+    // make sure fd is in map	
+    if(iter == offset_map.end()) {
+		return false;
+    }
+ 
+    fd = iter->second.fd;
+    return true;
+
+}
+
 
 /*
 * Local variables:
