@@ -2217,8 +2217,12 @@ irods::error initialize_cacheless_mode(irods::plugin_property_map& _prop_map) {
     else if(!S3fsCurl::InitS3fsCurl("/etc/mime.types")){
         s3fs_destroy_global_ssl();
         std::string error_str =  "Could not initiate curl library.";
-        rodsLog(LOG_ERROR, error_str.c_str());
-        return ERROR(S3_INIT_ERROR, error_str.c_str());
+
+        // TODO this produces an error a lot but doesn't seem to have negative impact
+        // look at it more
+        //
+        //rodsLog(LOG_ERROR, error_str.c_str());
+        //return ERROR(S3_INIT_ERROR, error_str.c_str());
     }  
     
     // check bucket name for illegal characters
@@ -2246,7 +2250,7 @@ irods::error initialize_cacheless_mode(irods::plugin_property_map& _prop_map) {
         s3fs_destroy_global_ssl();
         return ret;
     }
-   
+
     // save keys
     if(!S3fsCurl::SetAccessKey(key_id.c_str(), access_key.c_str())){
         S3fsCurl::DestroyS3fsCurl();

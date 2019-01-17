@@ -261,7 +261,10 @@ class FileOffsetManager
 
 	// returns the file descriptor that will be saved in iRODS
     static int create_entry(int fd);
- 
+
+    // returns true iff fd (s3fs file descriptor) exists	
+    static bool fd_exists(int fd); 
+
 	static bool delete_entry(int irods_fd);
 	static bool setOffset(int irods_fd, off_t offset);
 	static bool getOffset(int irods_fd, off_t& offset);

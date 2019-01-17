@@ -2357,6 +2357,18 @@ int FileOffsetManager::create_entry(int fd) {
 	return fd_counter;
 }
 
+// check if entry exists with s3fs file descriptor 
+bool FileOffsetManager::fd_exists(int fd) {
+	// TODO make it more efficient
+    for (auto iter = offset_map.begin(); iter != offset_map.end(); ++iter) {
+		if (iter->second.fd == fd) {
+			return true;
+	    }
+	}
+	return false;
+}	
+
+
 // delete entry from offset_map
 bool FileOffsetManager::delete_entry(int irods_fd) {
      

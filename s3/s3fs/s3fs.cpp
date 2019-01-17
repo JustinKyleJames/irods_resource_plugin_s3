@@ -959,7 +959,6 @@ static int do_create_bucket(void)
 // common function for creation of a plain object
 int create_file_object(const char* path)
 {
-rodsLog(LOG_ERROR, "%s: %d path = %s", __FUNCTION__, __LINE__, path);
     headers_t meta;
     meta["Content-Type"]     = S3fsCurl::LookupMimeType(std::string(path));
     meta["x-amz-meta-uid"]   = "999";
@@ -968,7 +967,6 @@ rodsLog(LOG_ERROR, "%s: %d path = %s", __FUNCTION__, __LINE__, path);
     meta["x-amz-meta-mtime"] = str(time(NULL));
   
     S3fsCurl s3fscurl(true);
-rodsLog(LOG_ERROR, "%s: %d meta.size = %d", __FUNCTION__, __LINE__, meta.size());
     return s3fscurl.PutRequest(path, meta, -1);    // fd=-1 means for creating zero byte object.
 }
 
@@ -1245,7 +1243,8 @@ int rename_object(const char* from, const char* to)
     // not permit removing "from" object parent dir.
     return result;
   }*/
-  if(0 != (result = get_object_attribute(from, NULL, &meta))){
+
+  if(0 != (result = get_object_attribute(from, nullptr, &meta))){
     return result;
   }
   s3_realpath = get_realpath(from);
@@ -1320,7 +1319,7 @@ int rename_large_object(const char* from, const char* to)
 
   S3FS_PRN_DBG("[from=%s][to=%s]", from , to);
 
-  if(0 != (result = check_parent_object_access(to, W_OK | X_OK))){
+  /*if(0 != (result = check_parent_object_access(to, W_OK | X_OK))){
     // not permit writing "to" object parent dir.
     return result;
   }
@@ -1330,7 +1329,7 @@ int rename_large_object(const char* from, const char* to)
   }
   if(0 != (result = get_object_attribute(from, &buf, &meta, false))){
     return result;
-  }
+  }*/
 
   S3fsCurl s3fscurl(true);
   if(0 != (result = s3fscurl.MultipartRenameRequest(from, to, meta, buf.st_size))){
@@ -2572,7 +2571,6 @@ static int append_objects_from_xml_ex(const char* path, xmlDocPtr doc, xmlXPathC
     return -1;
   }
   if(xmlXPathNodeSetIsEmpty(contents_xp->nodesetval)){
-rodsLog(LOG_ERROR, "%s: %d", __FUNCTION__, __LINE__);
     S3FS_PRN_DBG("contents_xp->nodesetval is empty.");
     S3FS_XMLXPATHFREEOBJECT(contents_xp);
     return 0;
@@ -2611,7 +2609,6 @@ rodsLog(LOG_ERROR, "%s: %d", __FUNCTION__, __LINE__);
         xmlXPathObjectPtr ETag;
         if(NULL != (ETag = xmlXPathEvalExpression((xmlChar*)ex_etag, ctx))){
           if(xmlXPathNodeSetIsEmpty(ETag->nodesetval)){
-rodsLog(LOG_ERROR, "%s: %d", __FUNCTION__, __LINE__);
             S3FS_PRN_DBG("ETag->nodesetval is empty.");
           }else{
             xmlNodeSetPtr etag_nodes = ETag->nodesetval;
@@ -2724,7 +2721,7 @@ static int append_objects_from_xml(const char* path, xmlDocPtr doc, S3ObjList& h
 
 static xmlChar* get_base_exp(xmlDocPtr doc, const char* exp)
 {
-std::cerr << irods::stacktrace().dump();
+//std::cerr << irods::stacktrace().dump();
   xmlXPathObjectPtr  marker_xp;
   string xmlnsurl;
   string exp_string;
@@ -2748,10 +2745,9 @@ std::cerr << irods::stacktrace().dump();
     return NULL;
   }
   if(xmlXPathNodeSetIsEmpty(marker_xp->nodesetval)){
-rodsLog(LOG_ERROR, "%s: %d", __FUNCTION__, __LINE__);
-std::cerr << irods::stacktrace().dump();
+//std::cerr << irods::stacktrace().dump();
 
-    S3FS_PRN_ERR("marker_xp->nodesetval is empty.");
+    S3FS_PRN_DBG("marker_xp->nodesetval is empty.");
     xmlXPathFreeObject(marker_xp);
     xmlXPathFreeContext(ctx);
     return NULL;
@@ -3586,7 +3582,6 @@ static bool get_uncomp_mp_list(xmlDocPtr doc, uncomp_mp_list_t& list)
     return false;
   }
   if(xmlXPathNodeSetIsEmpty(upload_xp->nodesetval)){
-rodsLog(LOG_ERROR, "%s: %d", __FUNCTION__, __LINE__);
     S3FS_PRN_DBG("upload_xp->nodesetval is empty.");
     S3FS_XMLXPATHFREEOBJECT(upload_xp);
     S3FS_XMLXPATHFREECONTEXT(ctx);

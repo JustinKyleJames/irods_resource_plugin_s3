@@ -377,10 +377,11 @@ namespace irods_s3_cacheless {
         if(0 > (retVal = ent->Write(static_cast<const char*>(_buf), offset, _len))){
             S3FS_PRN_WARN("failed to write file(%s). result=%jd", path.c_str(), (intmax_t)retVal);
         }
+        // TODO just uncommented this
         //FdManager::get()->Close(ent);
 
         // irods has no flush operation so have to manually flush at the end of the write
-        flush_buffer(path, ent->GetFd());
+        //flush_buffer(path, ent->GetFd());
 
         FileOffsetManager::get()->adjustOffset(irods_fd, _len);
 
@@ -403,11 +404,15 @@ namespace irods_s3_cacheless {
 
         FileOffsetManager::get()->delete_entry(irods_fd);
 
+
         FdEntity*   ent;
  
-        // TODO only close if only one is open 
-        if(NULL != (ent = FdManager::get()->ExistOpen(path.c_str()))){
+        // we are finished with only close if only one is open 
+        if(NULL != (ent = FdManager::get()->ExistOpen(path.c_str())) && !FileOffsetManager::get()->fd_exists(ent->GetFd())){
             FdManager::get()->Close(ent);
+
+            // iRODS does not have a flush operation so manually flush here
+            flush_buffer(path, ent->GetFd());
         }
         S3FS_MALLOCTRIM(0);
         result.code(0);
@@ -639,9 +644,14 @@ namespace irods_s3_cacheless {
         int result;
       
         S3FS_PRN_DBG("[from=%s][to=%s]", from.c_str(), _new_file_name);
-      
-        if(0 != (result = get_object_attribute(from.c_str(), &buf, NULL))) {
-            return ERROR(S3_FILE_STAT_ERR, (boost::format("%s: - Failed to state file (%s) during move to (%s)") % __FUNCTION__ % from.c_str(), _new_file_name));
+
+        struct stat st;
+        headers_t meta;
+        int returnVal = //get_object_attribute(path.c_str(), &st, &meta);
+                    get_object_attribute(from.c_str(), &st, &meta, true, NULL, true);    // no truncate cache
+ 
+        if(0 != returnVal) {
+            return ERROR(S3_FILE_STAT_ERR, (boost::format("%s: - Failed to stat file (%s) during move to (%s)") % __FUNCTION__ % from.c_str(), _new_file_name));
         }
 
         // files larger than 5GB must be modified via the multipart interface
@@ -669,6 +679,7 @@ namespace irods_s3_cacheless {
     irods::error s3FileTruncatePlugin(
         irods::plugin_context& _ctx )
     {
+rodsLog(LOG_NOTICE, "%s:%d", __FUNCTION__, __LINE__);
         return SUCCESS();
     } // s3FileTruncatePlugin
 
