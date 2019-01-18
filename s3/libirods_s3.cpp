@@ -1794,6 +1794,13 @@ irods:: error s3StartOperation(irods::plugin_property_map& _prop_map)
     bool attached_mode = true, cacheless_mode = false;
     get_modes_from_properties(_prop_map, attached_mode, cacheless_mode); 
 
+    if (!attached_mode) {
+        char resource_location[MAX_NAME_LEN];
+        gethostname(resource_location, MAX_NAME_LEN);
+rodsLog(LOG_NOTICE, "setting resource location to %s", resource_location); 
+        _prop_map.set<std::string>(irods::RESOURCE_LOCATION, resource_location);
+    }
+
     if (cacheless_mode) {
         ret = initialize_cacheless_mode(_prop_map);
         if (!ret.ok()) {
@@ -1902,7 +1909,7 @@ irods::error s3RedirectCreate(
 
             // =-=-=-=-=-=-=-
             // vote higher if we are on the same host or if we are in detached mode
-            else if( _curr_host == host_name || !attached_mode ) {
+            else if( _curr_host == host_name) { // || !attached_mode ) {
                 _out_vote = 1.0;
             } else {
                 _out_vote = 0.5;
@@ -2122,7 +2129,7 @@ irods::error s3RedirectOpen(
             if( INT_RESC_STATUS_DOWN == resc_status ) {
                 _out_vote = 0.0;
             }
-            else if( _curr_host == host_name || !attached_mode ) {
+            else if( _curr_host == host_name) { // || !attached_mode ) {
                 // =-=-=-=-=-=-=-
                 // vote higher if we are on the same host
                 irods::error get_ret = register_archive_object(
@@ -2214,26 +2221,17 @@ irods::error initialize_cacheless_mode(irods::plugin_property_map& _prop_map) {
 
 
     // init curl
-    else if(!S3fsCurl::InitS3fsCurl("/etc/mime.types")){
-        s3fs_destroy_global_ssl();
-        std::string error_str =  "Could not initiate curl library.";
-
-        // TODO this produces an error a lot but doesn't seem to have negative impact
-        // look at it more
-        //
-        //rodsLog(LOG_ERROR, error_str.c_str());
-        //return ERROR(S3_INIT_ERROR, error_str.c_str());
-    }  
+    S3fsCurl::InitS3fsCurl("/etc/mime.types");
     
     // check bucket name for illegal characters
-    size_t found = bucket.find_first_of("/:\\;!@#$%^&*?|+=");
+    /*size_t found = bucket.find_first_of("/:\\;!@#$%^&*?|+=");
     if(found != std::string::npos){
         S3fsCurl::DestroyS3fsCurl();
         s3fs_destroy_global_ssl();
         std::string error_str =  "BUCKET %s -- bucket name contains an illegal character.";
         rodsLog(LOG_ERROR, error_str.c_str());
         return ERROR(S3_INIT_ERROR, error_str.c_str());
-    }
+    }*/
 
     // get keys
     std::string key_id, access_key;
@@ -2261,14 +2259,21 @@ irods::error initialize_cacheless_mode(irods::plugin_property_map& _prop_map) {
     }
     S3fsCurl::InitUserAgent();
 
-    std::string protocol; 
-    ret = _prop_map.get< std::string >(s3_proto, protocol);
+    ret = _prop_map.get< std::string >(s3_proto, s3_protocol_str);
     if (!ret.ok()) {
         S3fsCurl::DestroyS3fsCurl();
         s3fs_destroy_global_ssl();
         std::string error_str =  "S3_PROTO is not defined for resource.";
         rodsLog(LOG_ERROR, error_str.c_str());
         return ERROR(S3_INIT_ERROR, error_str.c_str());
+    }
+
+    if (boost::iequals(s3_protocol_str, "https")) {
+        s3_protocol_str = "https";
+    } else if (boost::iequals(s3_protocol_str, "http")) {
+        s3_protocol_str = "http";
+    } else {
+        s3_protocol_str = "";
     }
 
     S3SignatureVersion signature_version = s3GetSignatureVersion(_prop_map);
@@ -2280,15 +2285,9 @@ irods::error initialize_cacheless_mode(irods::plugin_property_map& _prop_map) {
     }
 
 
- 
+
     service_path = "";
     host = std::string(s3GetHostname());
-
-    if (s3fs_check_service() != EXIT_SUCCESS) {
-        S3fsCurl::DestroyS3fsCurl();
-        s3fs_destroy_global_ssl();
-        return ERROR(S3_INIT_ERROR, "failed in s3fs_check_service");
-    }
 
     return SUCCESS();
 

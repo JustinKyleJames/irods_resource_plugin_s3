@@ -120,6 +120,7 @@ namespace irods_s3_cacheless {
 
         int result;
 
+        // TODO this doesn't really do anything
         std::string bucket;
         std::string key;
         parseS3Path(fco->physical_path(), bucket, key);

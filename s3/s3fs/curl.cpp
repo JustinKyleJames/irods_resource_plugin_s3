@@ -1685,7 +1685,7 @@ bool S3fsCurl::ResetHandle(void)
   curl_easy_setopt(hCurl, CURLOPT_PROGRESSFUNCTION, S3fsCurl::CurlProgress);
   curl_easy_setopt(hCurl, CURLOPT_PROGRESSDATA, hCurl);
   // curl_easy_setopt(hCurl, CURLOPT_FORBID_REUSE, 1);
-
+  
   if(type != REQTYPE_IAMCRED && type != REQTYPE_IAMROLE){
     // REQTYPE_IAMCRED and REQTYPE_IAMROLE are always HTTP
     if(0 == S3fsCurl::ssl_verify_hostname){
@@ -2876,6 +2876,7 @@ int S3fsCurl::PutHeadRequest(const char* tpath, headers_t& meta, bool is_copy)
 
 int S3fsCurl::PutRequest(const char* tpath, headers_t& meta, int fd)
 {
+rodsLog(LOG_NOTICE, "**** tpath=%s ****", tpath);
   struct stat st;
   FILE*       file = NULL;
 
@@ -2915,6 +2916,8 @@ int S3fsCurl::PutRequest(const char* tpath, headers_t& meta, int fd)
   requestHeaders  = NULL;
   responseHeaders.clear();
   bodydata        = new BodyData();
+
+rodsLog(LOG_NOTICE, "**** turl=%s, url=%s, path=%s", turl.c_str(), url.c_str(), path.c_str());
 
   // Make request headers
   string strMD5;
@@ -4307,6 +4310,15 @@ bool MakeUrlResource(const char* realpath, string& resourcepath, string& url)
   }
   resourcepath = urlEncode(service_path + bucket + realpath);
   url          = host + resourcepath;
+
+  // if s3_protocol_str is set to either https or http, add this to url
+  // otherwise leave it alone and let curl figure it out
+  if (s3_protocol_str == "https") {
+	  url = "https://" + url;
+  } else if (s3_protocol_str == "http") {
+	  url = "http://" + url;
+  }
+
   return true;
 }
 
