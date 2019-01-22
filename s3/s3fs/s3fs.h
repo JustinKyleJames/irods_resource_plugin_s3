@@ -35,14 +35,7 @@ static const int64_t FIVE_GB = 5LL * 1024LL * 1024LL * 1024LL;
 extern bool nocopyapi;
 extern bool norenameapi;
 
-#include <fuse.h>
-
-#define S3FS_FUSE_EXIT() { \
-  struct fuse_context* pcxt = fuse_get_context(); \
-  if(pcxt){ \
-    fuse_exit(pcxt->fuse); \
-  } \
-}
+//#include <fuse.h>
 
 //
 // s3fs use many small allocated chunk in heap area for

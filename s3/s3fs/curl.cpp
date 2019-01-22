@@ -43,6 +43,9 @@
 #include <algorithm>
 #include <list>
 #include <vector>
+#include <sys/types.h>
+#include <sys/stat.h>
+
 
 #include "common.h"
 #include "curl.h"
@@ -781,7 +784,6 @@ size_t S3fsCurl::WriteMemoryCallback(void* ptr, size_t blockSize, size_t numBloc
 
   if(!body->Append(ptr, blockSize, numBlocks)){
     S3FS_PRN_CRIT("BodyData.Append() returned false.");
-    S3FS_FUSE_EXIT();
     return -1;
   }
   return (blockSize * numBlocks);
@@ -2876,7 +2878,6 @@ int S3fsCurl::PutHeadRequest(const char* tpath, headers_t& meta, bool is_copy)
 
 int S3fsCurl::PutRequest(const char* tpath, headers_t& meta, int fd)
 {
-rodsLog(LOG_NOTICE, "**** tpath=%s ****", tpath);
   struct stat st;
   FILE*       file = NULL;
 
@@ -2916,8 +2917,6 @@ rodsLog(LOG_NOTICE, "**** tpath=%s ****", tpath);
   requestHeaders  = NULL;
   responseHeaders.clear();
   bodydata        = new BodyData();
-
-rodsLog(LOG_NOTICE, "**** turl=%s, url=%s, path=%s", turl.c_str(), url.c_str(), path.c_str());
 
   // Make request headers
   string strMD5;

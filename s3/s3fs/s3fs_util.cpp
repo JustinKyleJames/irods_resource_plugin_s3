@@ -325,14 +325,12 @@ MVNODE *create_mvnode(const char *old_path, const char *new_path, bool is_dir, b
   p = (MVNODE *) malloc(sizeof(MVNODE));
   if (p == NULL) {
     printf("create_mvnode: could not allocation memory for p\n");
-    S3FS_FUSE_EXIT();
     return NULL;
   }
 
   if(NULL == (p_old_path = strdup(old_path))){
     free(p);
     printf("create_mvnode: could not allocation memory for p_old_path\n");
-    S3FS_FUSE_EXIT();
     return NULL;
   }
 
@@ -340,7 +338,6 @@ MVNODE *create_mvnode(const char *old_path, const char *new_path, bool is_dir, b
     free(p);
     free(p_old_path);
     printf("create_mvnode: could not allocation memory for p_new_path\n");
-    S3FS_FUSE_EXIT();
     return NULL;
   }
 

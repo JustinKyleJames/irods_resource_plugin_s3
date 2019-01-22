@@ -39,6 +39,7 @@
 #include <map>
 #include <list>
 #include <vector>
+#include <utime.h>
 
 #include "common.h"
 #include "fdcache.h"
@@ -537,7 +538,6 @@ bool PageList::Serialize(CacheFileStat& file, bool is_output)
     char* ptmp;
     if(NULL == (ptmp = (char*)calloc(st.st_size + 1, sizeof(char)))){
       S3FS_PRN_CRIT("could not allocate memory.");
-      S3FS_FUSE_EXIT();
       return false;
     }
     // read from file

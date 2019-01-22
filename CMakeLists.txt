@@ -54,7 +54,7 @@ set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -stdlib=libc++ -Wl,-
 add_compile_options(-nostdinc++ -Wall -Wextra -Werror)
 add_compile_options(-Wno-unused-parameter) # Until fix of irods_re_plugin.hpp
 add_compile_options(-Wno-unneeded-internal-declaration) # Until fix of https://github.com/irods/irods/issues/3396
-link_libraries(c++abi fuse curl xml2 crypto pthread)
+link_libraries(c++abi curl xml2 crypto pthread)
 include_directories(${IRODS_EXTERNALS_FULLPATH_CLANG}/include/c++/v1)
 
 set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)

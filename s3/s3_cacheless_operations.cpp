@@ -100,7 +100,6 @@ namespace irods_s3_cacheless {
     // =-=-=-=-=-=-=-
     // interface for POSIX create
 
-    //static int s3fs_create(const char* path, mode_t mode, struct fuse_file_info* fi)
     irods::error s3FileCreatePlugin( irods::plugin_context& _ctx) {
 
         // =-=-=-=-=-=-=-
@@ -178,6 +177,7 @@ namespace irods_s3_cacheless {
 
         // get file size 
         struct stat st;
+
         headers_t meta;
         int returnVal = //get_object_attribute(path.c_str(), &st, &meta);
                     get_object_attribute(path.c_str(), &st, &meta, true, NULL, true);    // no truncate cache
@@ -192,10 +192,6 @@ namespace irods_s3_cacheless {
                 needs_flush = true;
             }    
         }
-        //if(!S_ISREG(st.st_mode) || S_ISLNK(st.st_mode)){
-        //    st.st_mtime = -1;
-        //}
-
 
         FdEntity*   ent;
         //headers_t   meta;
@@ -329,7 +325,6 @@ namespace irods_s3_cacheless {
 
     // =-=-=-=-=-=-=-
     // interface for POSIX Write
-    // static int s3fs_write(const char* path, const char* buf, size_t size, off_t offset, struct fuse_file_info* fi)
     irods::error s3FileWritePlugin( irods::plugin_context& _ctx,
                                     void*               _buf,
                                     int                 _len ) {
@@ -646,17 +641,13 @@ namespace irods_s3_cacheless {
       
         S3FS_PRN_DBG("[from=%s][to=%s]", from.c_str(), _new_file_name);
 
-        struct stat st;
-        headers_t meta;
-        int returnVal = //get_object_attribute(path.c_str(), &st, &meta);
-                    get_object_attribute(from.c_str(), &st, &meta, true, NULL, true);    // no truncate cache
- 
-        if(0 != returnVal) {
+        ret = s3FileStatPlugin(_ctx, &buf);
+        if(!ret.ok()) {
             return ERROR(S3_FILE_STAT_ERR, (boost::format("%s: - Failed to stat file (%s) during move to (%s)") % __FUNCTION__ % from.c_str(), _new_file_name));
         }
 
         // files larger than 5GB must be modified via the multipart interface
-        if(!nomultipart && buf.st_size >= FIVE_GB) {
+        if(!nomultipart && ((long long)buf.st_size >= (long long)FIVE_GB)) {
             result = rename_large_object(from.c_str(), _new_file_name);
         } else {
             if(!nocopyapi && !norenameapi){
@@ -670,6 +661,7 @@ namespace irods_s3_cacheless {
         if (result != 0) { 
             return ERROR(S3_FILE_COPY_ERR, (boost::format("%s: - Failed to rename file from (%s) to (%s) result = %d") % __FUNCTION__ % from.c_str() % _new_file_name % result));
         }
+
 
         return SUCCESS();
 
