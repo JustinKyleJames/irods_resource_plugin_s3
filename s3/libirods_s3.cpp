@@ -35,6 +35,7 @@
 #include "s3fs/s3fs.h"
 #include "s3fs/curl.h"
 #include "s3fs/s3fs_auth.h"
+#include "s3fs/fdcache.h"
 
 // =-=-=-=-=-=-=-
 // stl includes
@@ -1814,6 +1815,7 @@ irods:: error s3StartOperation(irods::plugin_property_map& _prop_map)
             return ERROR(S3_INIT_ERROR, error_str.c_str());
         }
     
+        FdManager::SetCacheDir("/var/lib/irods/cachedir");
     
         // init curl
         S3fsCurl::InitS3fsCurl("/etc/mime.types");

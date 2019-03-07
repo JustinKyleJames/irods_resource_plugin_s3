@@ -1,7 +1,7 @@
 
 // =-=-=-=-=-=-=-
 // local includes
-#include "s3_archive_operations.hpp"
+#include "s3_cacheless_operations.hpp"
 #include "libirods_s3.hpp"
 #include "s3fs/curl.h"
 #include "s3fs/cache.h"
@@ -30,6 +30,7 @@
 #include <boost/lexical_cast.hpp>
 #include <boost/algorithm/string.hpp>
 #include <boost/format.hpp>
+#include <boost/algorithm/string.hpp>
 
 // =-=-=-=-=-=-=-
 // other includes
@@ -38,6 +39,7 @@
 #include <libxml/xpath.h>
 #include <libxml/xpathInternals.h>
 #include <libxml/tree.h>
+#include <unistd.h>
 
 
 extern size_t g_retry_count;
@@ -47,25 +49,25 @@ extern S3ResponseProperties savedProperties;
 
 namespace irods_s3_cacheless {
 
-    irods::error set_s3_configuration_from_context(irods::plugin_property_map& _prop_map) {
-
+    irods::error set_s3_configuration_from_context(irods::plugin_context& _ctx) {
+        irods::file_object_ptr fco = boost::dynamic_pointer_cast< irods::file_object >( _ctx.fco() );
         // this is taken from s3fs.cpp - main() with adjustments
         
-        irods::error ret = s3Init( _prop_map );
+        irods::error ret = s3Init( _ctx.prop_map() );
         if (!ret.ok()) {
             return PASS(ret);
         }
         
         // get keys
         std::string key_id, access_key;
-        ret = _prop_map.get< std::string >(s3_key_id, key_id);
+        ret = _ctx.prop_map().get< std::string >(s3_key_id, key_id);
         if (!ret.ok()) {
             S3fsCurl::DestroyS3fsCurl();
             s3fs_destroy_global_ssl();
             return ret;
         }
     
-        ret = _prop_map.get< std::string >(s3_access_key, access_key);
+        ret = _ctx.prop_map().get< std::string >(s3_access_key, access_key);
         if (!ret.ok()) {
             S3fsCurl::DestroyS3fsCurl();
             s3fs_destroy_global_ssl();
@@ -82,7 +84,7 @@ namespace irods_s3_cacheless {
         }
         S3fsCurl::InitUserAgent();
     
-        ret = _prop_map.get< std::string >(s3_proto, s3_protocol_str);
+        ret = _ctx.prop_map().get< std::string >(s3_proto, s3_protocol_str);
         if (!ret.ok()) {
             S3fsCurl::DestroyS3fsCurl();
             s3fs_destroy_global_ssl();
@@ -99,7 +101,7 @@ namespace irods_s3_cacheless {
             s3_protocol_str = "";
         }
     
-        S3SignatureVersion signature_version = s3GetSignatureVersion(_prop_map);
+        S3SignatureVersion signature_version = s3GetSignatureVersion(_ctx.prop_map());
     
         if (signature_version == S3SignatureV4) {
             S3fsCurl::SetSignatureV4(true);
@@ -109,14 +111,19 @@ namespace irods_s3_cacheless {
     
         // set multipart size
         //    Note:  SetMultipartSize takes value in MB so need to convert back from bytes to MB.
-        S3fsCurl::SetMultipartSize(s3GetMPUChunksize(_prop_map) / (1024ULL * 1024ULL));
+        S3fsCurl::SetMultipartSize(s3GetMPUChunksize(_ctx.prop_map()) / (1024ULL * 1024ULL));
     
         // set number of simultaneous threads
-        S3fsCurl::SetMaxParallelCount(s3GetMPUThreads(_prop_map));
+        S3fsCurl::SetMaxParallelCount(s3GetMPUThreads(_ctx.prop_map()));
     
         service_path = "";
         host = std::string(s3GetHostname());
-    
+
+        // set bucket name
+        //std::string key_not_used;
+        //parseS3Path(fco->physical_path(), bucket, key_not_used);
+
+
         return SUCCESS();
     }
 
@@ -168,6 +175,7 @@ namespace irods_s3_cacheless {
 
     irods::error s3FileCreatePlugin( irods::plugin_context& _ctx) {
 
+rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
         // =-=-=-=-=-=-=-
         // check incoming parameters
         irods::error ret = s3CheckParams( _ctx );
@@ -177,7 +185,7 @@ namespace irods_s3_cacheless {
             return PASSMSG(msg.str(), ret);
         }
 
-        ret = set_s3_configuration_from_context(_ctx.prop_map());
+        ret = set_s3_configuration_from_context(_ctx);
         if (!ret.ok()) {
             return ERROR(S3_INIT_ERROR, (boost::format("init cacheless mode returned error %s") % ret.result().c_str()));
         }
@@ -224,6 +232,7 @@ namespace irods_s3_cacheless {
     // interface for POSIX Open
     irods::error s3FileOpenPlugin( irods::plugin_context& _ctx) {
 
+rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
         // =-=-=-=-=-=-=-
         // check incoming parameters
         irods::error ret = s3CheckParams( _ctx );
@@ -233,7 +242,7 @@ namespace irods_s3_cacheless {
             return PASSMSG(msg.str(), ret);
         }
 
-        ret = set_s3_configuration_from_context(_ctx.prop_map());
+        ret = set_s3_configuration_from_context(_ctx);
         if (!ret.ok()) {
             return ERROR(S3_INIT_ERROR, (boost::format("init cacheless mode returned error %s") % ret.result().c_str()));
         }
@@ -316,7 +325,7 @@ namespace irods_s3_cacheless {
             return PASSMSG(msg.str(), ret);
         }
 
-        ret = set_s3_configuration_from_context(_ctx.prop_map());
+        ret = set_s3_configuration_from_context(_ctx);
         if (!ret.ok()) {
             return ERROR(S3_INIT_ERROR, (boost::format("init cacheless mode returned error %s") % ret.result().c_str()));
         }
@@ -406,6 +415,7 @@ namespace irods_s3_cacheless {
                                     void*               _buf,
                                     int                 _len ) {
 
+rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
         // =-=-=-=-=-=-=-
         // check incoming parameters
         irods::error ret = s3CheckParams( _ctx );
@@ -415,7 +425,7 @@ namespace irods_s3_cacheless {
             return PASSMSG(msg.str(), ret);
         }
 
-        ret = set_s3_configuration_from_context(_ctx.prop_map());
+        ret = set_s3_configuration_from_context(_ctx);
         if (!ret.ok()) {
             return ERROR(S3_INIT_ERROR, (boost::format("init cacheless mode returned error %s") % ret.result().c_str()));
         }
@@ -471,6 +481,7 @@ namespace irods_s3_cacheless {
     // interface for POSIX Close
     irods::error s3FileClosePlugin(  irods::plugin_context& _ctx ) {
 
+rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
         irods::error result = SUCCESS();
 
         irods::file_object_ptr fco = boost::dynamic_pointer_cast< irods::file_object >( _ctx.fco() );
@@ -510,7 +521,7 @@ namespace irods_s3_cacheless {
             return PASSMSG(msg.str(), ret);
         }
 
-        ret = set_s3_configuration_from_context(_ctx.prop_map());
+        ret = set_s3_configuration_from_context(_ctx);
         if (!ret.ok()) {
             return ERROR(S3_INIT_ERROR, (boost::format("init cacheless mode returned error %s") % ret.result().c_str()));
         }
@@ -549,7 +560,7 @@ namespace irods_s3_cacheless {
             return PASSMSG(msg.str(), ret);
         }
 
-        ret = set_s3_configuration_from_context(_ctx.prop_map());
+        ret = set_s3_configuration_from_context(_ctx);
         if (!ret.ok()) {
             return ERROR(S3_INIT_ERROR, (boost::format("init cacheless mode returned error %s") % ret.result().c_str()));
         }
@@ -598,6 +609,7 @@ namespace irods_s3_cacheless {
                                      long long            _offset,
                                      int                 _whence ) {
 
+rodsLog(LOG_NOTICE, "%s:%d (%s) [offset=%lld][_whence=%d][SEEK_SET=%d][SEEK_CUR=%d][SEEK_END=%d]", __FILE__, __LINE__, __FUNCTION__, _offset, _whence, SEEK_SET, SEEK_CUR, SEEK_END);
 
         // =-=-=-=-=-=-=-
         // check incoming parameters
@@ -656,6 +668,8 @@ namespace irods_s3_cacheless {
                     if (0 != returnVal) {
                         return ERROR(S3_FILE_STAT_ERR, (boost::format("%s: - Failed to perform a stat of %s") % __FUNCTION__ % path.c_str()));
                     }
+
+rodsLog(LOG_NOTICE, "%s:%d (%s) setting offset to [st.st_size=%zu][_offset=%jd][result=%jd]", __FILE__, __LINE__, __FUNCTION__, st.st_size, _whence, st.st_size + _whence);
 
                     FileOffsetManager::get()->setOffset(irods_fd, st.st_size + _offset);
                     //ent->SetOffset(st.st_size + _offset);
@@ -722,7 +736,7 @@ namespace irods_s3_cacheless {
             return PASSMSG(msg.str(), ret);
         }
 
-        ret = set_s3_configuration_from_context(_ctx.prop_map());
+        ret = set_s3_configuration_from_context(_ctx);
         if (!ret.ok()) {
             return ERROR(S3_INIT_ERROR, (boost::format("init cacheless mode returned error %s") % ret.result().c_str()));
         }

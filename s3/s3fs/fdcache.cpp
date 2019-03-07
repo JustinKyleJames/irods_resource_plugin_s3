@@ -72,6 +72,7 @@ static const int MAX_MULTIPART_CNT = 10 * 1000;  // S3 multipart max count
 bool CacheFileStat::MakeCacheFileStatPath(const char* path, string& sfile_path, bool is_create_dir)
 {
   // make stat dir top path( "/<cache_dir>/.<bucket_name>.stat" )
+  FdManager::SetCacheDir("/var/lib/irods/cachedir"); 
   string top_path = FdManager::GetCacheDir();
   top_path       += "/.";
   top_path       += bucket;
@@ -98,6 +99,7 @@ bool CacheFileStat::CheckCacheFileStatTopDir(void)
     return true;
   }
   // make stat dir top path( "/<cache_dir>/.<bucket_name>.stat" )
+  FdManager::SetCacheDir("/var/lib/irods/cachedir"); 
   string top_path = FdManager::GetCacheDir();
   top_path       += "/.";
   top_path       += bucket;
@@ -134,6 +136,7 @@ bool CacheFileStat::DeleteCacheFileStat(const char* path)
 //
 bool CacheFileStat::DeleteCacheFileStatDirectory(void)
 {
+  FdManager::SetCacheDir("/var/lib/irods/cachedir"); 
   string top_path = FdManager::GetCacheDir();
 
   if(top_path.empty() || bucket.empty()){
@@ -1812,7 +1815,7 @@ size_t          FdManager::free_disk_space = 0;
 // FdManager class methods
 //------------------------------------------------
 bool FdManager::SetCacheDir(const char* dir)
-{
+{ 
   if(!dir || '\0' == dir[0]){
     cache_dir = "";
   }else{
