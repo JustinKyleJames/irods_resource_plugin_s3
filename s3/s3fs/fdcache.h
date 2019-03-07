@@ -67,7 +67,8 @@ struct fdpage
   off_t next(void) const { return (offset + bytes); }
   off_t end(void) const { return (0 < bytes ? offset + bytes - 1 : 0); }
 };
-typedef std::list<struct fdpage*> fdpage_list_t;
+typedef std::list<struct fdpage> fdpage_list_t;
+typedef std::list<struct fdpage> fdpage_list_non_shared_t;
 
 class FdEntity;
 
@@ -79,7 +80,8 @@ class PageList
   friend class FdEntity;    // only one method access directly pages.
 
   private:
-    fdpage_list_t pages;
+    fdpage_list_t *pages = nullptr;
+	std::string path;
 
   private:
     void Clear(void);
