@@ -443,6 +443,8 @@ namespace irods_s3_cacheless {
           return result;
         }
 
+rodsLog(LOG_NOTICE, "%s:%d (%s) [realsize=%zu]", __FILE__, __LINE__, __FUNCTION__, realsize);
+
         // read the file size into st.st_size to mimic posix read semantics
         struct stat st;
         headers_t meta;
