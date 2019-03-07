@@ -251,6 +251,11 @@ void PageList::FreeList(fdpage_list_t& list)
   list.clear();
 }
 
+void PageList::FreeList(fdpage_list_non_shared_t& list)
+{
+  list.clear();
+}
+
 PageList::PageList(size_t size, bool is_loaded)
 {
   Init(size, is_loaded);
@@ -271,10 +276,15 @@ void PageList::Clear(void)
 
 bool PageList::Init(size_t size, bool is_loaded)
 {
+
   Clear();
 
+  auto segment = SharedMemorySegment::get_segment();
+  boost::interprocess::named_upgradable_mutex named_mtx(boost::interprocess::open_or_create, cacheless_s3_shared_memory_mutex_name.c_str());
+  void_allocator alloc_inst (segment->get_segment_manager());
+
   if (pages == nullptr) {
-      pages = new fdpage_list_t();
+      pages = segment->find_or_construct<fdpage_list_t>(path.c_str())(alloc_inst);
   }
 
   fdpage page(0, size, is_loaded);
@@ -2033,6 +2043,9 @@ FdManager::FdManager()
       pthread_mutex_init(&FdManager::cache_cleanup_lock, NULL);
       pthread_mutex_init(&FdManager::reserved_diskspace_lock, NULL);
       FdManager::is_lock_init = true;
+
+	  // just to keep the segment open until the FdManager is completely destructed
+      segment = SharedMemorySegment::get_segment();
     }catch(exception& e){
       FdManager::is_lock_init = false;
       S3FS_PRN_CRIT("failed to init mutex");
@@ -2347,6 +2360,11 @@ int                         FileOffsetManager::fd_counter = 0;
 pthread_mutex_t             FileOffsetManager::file_offset_manager_lock;
 bool                        FileOffsetManager::is_lock_init;
 std::map<int, FdOffsetPair> FileOffsetManager::offset_map; 
+
+//------------------------------------------------
+// SharedMemorySegment class variable
+//------------------------------------------------
+std::shared_ptr<boost::interprocess::managed_shared_memory> SharedMemorySegment::segment;
 
 //------------------------------------------------
 // FileOffsetManager methods

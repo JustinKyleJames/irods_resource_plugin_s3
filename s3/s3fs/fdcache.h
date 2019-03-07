@@ -42,6 +42,23 @@
 // processes that are sharing the same file 
 //------------------------------------------------
 
+//------------------------------------------------
+// fdpage & PageList
+//------------------------------------------------
+// page block information
+struct fdpage
+{
+  off_t  offset;
+  size_t bytes;
+  bool   loaded;
+
+  fdpage(off_t start = 0, size_t size = 0, bool is_loaded = false)
+           : offset(start), bytes(size), loaded(is_loaded) {}
+
+  off_t next(void) const { return (offset + bytes); }
+  off_t end(void) const { return (0 < bytes ? offset + bytes - 1 : 0); }
+};
+
 // typedefs for:
 //  * file_to_pid_map_t map<string, vector<int> > in shared memory 
 //  * page_list_t in shared memory
@@ -50,6 +67,8 @@ typedef boost::interprocess::managed_shared_memory::segment_manager             
 typedef boost::interprocess::allocator<void, segment_manager_t>                           void_allocator;
 typedef boost::interprocess::allocator<int, segment_manager_t>                            int_allocator;
 typedef boost::interprocess::vector<int, int_allocator>                                   int_vector;
+//typedef boost::interprocess::allocator<int_vector, segment_manager_t>                     int_vector_allocator;
+//typedef boost::interprocess::vector<int_vector, int_vector_allocator>                     int_vector_vector;
 typedef boost::interprocess::allocator<char, segment_manager_t>                           char_allocator;
 typedef boost::interprocess::basic_string<char, std::char_traits<char>, char_allocator>   char_string;
 typedef std::pair<const char_string, int_vector>                                          map_value_type;
@@ -57,6 +76,13 @@ typedef std::pair<char_string, int_vector>                                      
 typedef boost::interprocess::allocator<map_value_type, segment_manager_t>                 map_value_type_allocator;
 typedef boost::interprocess::map< char_string, int_vector 
            , std::less<char_string>, map_value_type_allocator>                            file_to_pid_map_t;
+
+typedef boost::interprocess::allocator<fdpage, segment_manager_t>                         fdpage_allocator;
+typedef boost::interprocess::list<struct fdpage, fdpage_allocator>                        fdpage_list_t;
+
+// a page list that is not in shared memory
+typedef std::list<struct fdpage> fdpage_list_non_shared_t;
+
 
 
 const std::string cacheless_s3_shared_memory_name = "cacheless_s3_shared_memory";
@@ -89,25 +115,6 @@ class CacheFileStat
     int GetFd(void) const { return fd; }
 };
 
-//------------------------------------------------
-// fdpage & PageList
-//------------------------------------------------
-// page block information
-struct fdpage
-{
-  off_t  offset;
-  size_t bytes;
-  bool   loaded;
-
-  fdpage(off_t start = 0, size_t size = 0, bool is_loaded = false)
-           : offset(start), bytes(size), loaded(is_loaded) {}
-
-  off_t next(void) const { return (offset + bytes); }
-  off_t end(void) const { return (0 < bytes ? offset + bytes - 1 : 0); }
-};
-typedef std::list<struct fdpage> fdpage_list_t;
-typedef std::list<struct fdpage> fdpage_list_non_shared_t;
-
 class FdEntity;
 
 //
@@ -128,6 +135,7 @@ class PageList
 
   public:
     static void FreeList(fdpage_list_t& list);
+    static void FreeList(fdpage_list_non_shared_t& list);
 
     explicit PageList(size_t size = 0, bool is_loaded = false);
     ~PageList();
@@ -140,7 +148,7 @@ class PageList
     bool SetPageLoadedStatus(off_t start, size_t size, bool is_loaded = true, bool is_compress = true);
     bool FindUnloadedPage(off_t start, off_t& resstart, size_t& ressize) const;
     size_t GetTotalUnloadedPageSize(off_t start = 0, size_t size = 0) const;    // size=0 is checking to end of list
-    int GetUnloadedPages(fdpage_list_t& unloaded_list, off_t start = 0, size_t size = 0) const;  // size=0 is checking to end of list
+    int GetUnloadedPages(fdpage_list_non_shared_t& unloaded_list, off_t start = 0, size_t size = 0) const;  // size=0 is checking to end of list
 
     bool Serialize(CacheFileStat& file, bool is_output);
     void Dump(void);
@@ -204,6 +212,8 @@ class FdEntity
     bool SetGId(gid_t gid);
     bool SetContentType(const char* path);
 
+	PageList* getPageList() { return &pagelist;  }
+
     int Load(off_t start = 0, size_t size = 0);                 // size=0 means loading to end
     int NoCacheLoadAndPost(off_t start = 0, size_t size = 0);   // size=0 means loading to end
     int NoCachePreMultipartPost(void);
@@ -237,6 +247,9 @@ class FdManager
     static size_t          free_disk_space; // limit free disk space
 
     fdent_map_t            fent;
+
+	// just to keep the segment open until the FdManager is completely destructed
+    std::shared_ptr<boost::interprocess::managed_shared_memory> segment; 
 
   private:
     static uint64_t GetFreeDiskSpace(const char* path);
@@ -315,6 +328,20 @@ class FileOffsetManager
 	static bool adjustOffset(int irods_fd, off_t delta);
 
 };
+
+class SharedMemorySegment {
+ private:
+    static std::shared_ptr<boost::interprocess::managed_shared_memory> segment;
+ public:
+
+    static std::shared_ptr<boost::interprocess::managed_shared_memory> get_segment() {
+        if (segment.get() == nullptr) {
+            segment = std::make_shared<boost::interprocess::managed_shared_memory>(boost::interprocess::open_or_create, cacheless_s3_shared_memory_name.c_str(), 65536);
+        }
+        return segment;
+    }
+};
+  
 
 #endif // FD_CACHE_H_
 

@@ -461,10 +461,12 @@ rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
         size_t realsize;
         if(!ent->GetSize(realsize) || realsize <= 0){
           S3FS_PRN_DBG("file size is 0, so break to read.");
-          FdManager::get()->Close(ent);
+          //FdManager::get()->Close(ent);
           result.code(0);
           return result;
         }
+
+rodsLog(LOG_NOTICE, "%s:%d (%s) [realsize=%zu]", __FILE__, __LINE__, __FUNCTION__, realsize);
 
         // read the file size into st.st_size to mimic posix read semantics
         // TODO check performance of this.
