@@ -23,6 +23,46 @@
 #include <sys/statvfs.h>
 #include "curl.h"
 
+// boost includes for shared memory
+#include <boost/interprocess/managed_shared_memory.hpp>
+#include <boost/interprocess/containers/map.hpp>
+#include <boost/interprocess/containers/vector.hpp>
+#include <boost/interprocess/containers/list.hpp>
+#include <boost/interprocess/allocators/allocator.hpp>
+#include <boost/interprocess/managed_shared_memory.hpp>
+#include <boost/interprocess/containers/string.hpp>
+#include <boost/interprocess/sync/named_mutex.hpp>
+#include <boost/interprocess/sync/named_upgradable_mutex.hpp>
+#include <boost/algorithm/string.hpp>
+
+#include <memory>
+
+//------------------------------------------------
+// Shared memory code to keep track of multiple 
+// processes that are sharing the same file 
+//------------------------------------------------
+
+// typedefs for:
+//  * file_to_pid_map_t map<string, vector<int> > in shared memory 
+//  * page_list_t in shared memory
+
+typedef boost::interprocess::managed_shared_memory::segment_manager                       segment_manager_t;
+typedef boost::interprocess::allocator<void, segment_manager_t>                           void_allocator;
+typedef boost::interprocess::allocator<int, segment_manager_t>                            int_allocator;
+typedef boost::interprocess::vector<int, int_allocator>                                   int_vector;
+typedef boost::interprocess::allocator<char, segment_manager_t>                           char_allocator;
+typedef boost::interprocess::basic_string<char, std::char_traits<char>, char_allocator>   char_string;
+typedef std::pair<const char_string, int_vector>                                          map_value_type;
+typedef std::pair<char_string, int_vector>                                                movable_to_map_value_type;
+typedef boost::interprocess::allocator<map_value_type, segment_manager_t>                 map_value_type_allocator;
+typedef boost::interprocess::map< char_string, int_vector 
+           , std::less<char_string>, map_value_type_allocator>                            file_to_pid_map_t;
+
+
+const std::string cacheless_s3_shared_memory_name = "cacheless_s3_shared_memory";
+const std::string cacheless_s3_shared_memory_mutex_name = "cacheless_s3_shared_memory_mutex";
+
+
 //------------------------------------------------
 // CacheFileStat
 //------------------------------------------------

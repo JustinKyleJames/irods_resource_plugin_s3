@@ -225,6 +225,52 @@ rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
 
         S3FS_MALLOCTRIM(0);
 
+        // add pid to shared memory
+        int pid = getpid();
+
+        boost::interprocess::managed_shared_memory segment(boost::interprocess::open_or_create, cacheless_s3_shared_memory_name.c_str(), 65536);
+        boost::interprocess::named_upgradable_mutex named_mtx(boost::interprocess::open_or_create, cacheless_s3_shared_memory_mutex_name.c_str());
+        void_allocator alloc_inst (segment.get_segment_manager());
+
+        named_mtx.lock();
+
+        file_to_pid_map_t *pid_map = segment.find_or_construct<file_to_pid_map_t>
+            ("FileToPidMap")(std::less<char_string>(), alloc_inst);
+
+        char_string key_object(alloc_inst);
+        key_object = path.c_str();
+        auto pid_map_iter = pid_map->find(key_object);
+        if (pid_map_iter != pid_map->end()) {
+            auto& pid_list = pid_map_iter->second;
+            if (std::find(pid_list.begin(), pid_list.end(), pid) == pid_list.end()) {
+                rodsLog(LOG_NOTICE, "%s:%d (%s) SHMEM: push_back(%s)", __FILE__, __LINE__, __FUNCTION__, path.c_str());
+                pid_list.push_back(pid);
+            }
+        } else {
+            int_vector pid_list(alloc_inst);
+            pid_list.push_back(pid);
+            map_value_type value(key_object, pid_list);
+            rodsLog(LOG_NOTICE, "%s:%d (%s) SHMEM: insert(%s)", __FILE__, __LINE__, __FUNCTION__, path.c_str());
+            pid_map->insert(value);
+        }
+
+        // TODO debug logging
+        rodsLog(LOG_NOTICE, "%s:%d (%s) SHMEM: ----------- printing ------------", __FILE__, __LINE__, __FUNCTION__);
+        for (auto iter = pid_map->begin(); iter != pid_map->end(); ++iter) {
+            rodsLog(LOG_NOTICE, "%s:%d (%s) SHMEM: key: %s", __FILE__, __LINE__, __FUNCTION__, iter->first.c_str());
+            auto pid_list = iter->second;
+            rodsLog(LOG_NOTICE, "%s:%d (%s) SHMEM:  list size: %zu", __FILE__, __LINE__, __FUNCTION__, pid_list.size());
+            for (auto iter2 = pid_list.begin(); iter2 != pid_list.end(); ++iter2) {
+                rodsLog(LOG_NOTICE, "%s:%d (%s) SHMEM:   -> %d", __FILE__, __LINE__, __FUNCTION__, *iter2);
+            }
+        }
+        rodsLog(LOG_NOTICE, "%s:%d (%s) SHMEM: ---------------------------------", __FILE__, __LINE__, __FUNCTION__);
+
+ 
+        named_mtx.unlock();
+
+
+
         return SUCCESS();
     }
 
@@ -255,7 +301,9 @@ rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
         // clear stat for reading fresh stat.
         // (if object stat is changed, we refresh it. then s3fs gets always
         // stat when s3fs open the object).
-        StatCache::getStatCacheData()->DelStat(path.c_str());
+       
+        // TODO not deleting for now because this cache data might need to be in shared memory 
+        //StatCache::getStatCacheData()->DelStat(path.c_str());
 
         int flags = fco->flags();
 
@@ -304,6 +352,56 @@ rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
 
         // save iRODS file descriptor 
         fco->file_descriptor(irods_fd);
+
+        // if the file was open with the O_APPEND flag, seek to the end of the file
+        if ((unsigned int)flags & O_APPEND) {
+            s3FileLseekPlugin(_ctx, 0, SEEK_END);
+        } 
+
+
+        // add this pid into the map in shared memory if it does not already exist
+        int pid = getpid();
+
+        boost::interprocess::managed_shared_memory segment(boost::interprocess::open_or_create, cacheless_s3_shared_memory_name.c_str(), 65536);
+        boost::interprocess::named_upgradable_mutex named_mtx(boost::interprocess::open_or_create, cacheless_s3_shared_memory_mutex_name.c_str());
+        void_allocator alloc_inst (segment.get_segment_manager());
+
+        named_mtx.lock();
+
+        file_to_pid_map_t *pid_map = segment.find_or_construct<file_to_pid_map_t>
+            ("FileToPidMap")(std::less<char_string>(), alloc_inst);
+
+        char_string key_object(alloc_inst);
+        key_object = path.c_str();
+        auto pid_map_iter = pid_map->find(key_object);
+        if (pid_map_iter != pid_map->end()) {
+            auto& pid_list = pid_map_iter->second;
+            if (std::find(pid_list.begin(), pid_list.end(), pid) == pid_list.end()) {
+                rodsLog(LOG_NOTICE, "%s:%d (%s) SHMEM: push_back(%s)", __FILE__, __LINE__, __FUNCTION__, path.c_str());
+                pid_list.push_back(pid);
+            }
+        } else {
+            int_vector pid_list(alloc_inst);
+            pid_list.push_back(pid);
+            map_value_type value(key_object, pid_list);
+            rodsLog(LOG_NOTICE, "%s:%d (%s) SHMEM: insert(%s)", __FILE__, __LINE__, __FUNCTION__, path.c_str());
+            pid_map->insert(value);
+        }
+
+        // TODO debug logging
+        rodsLog(LOG_NOTICE, "%s:%d (%s) SHMEM: ----------- printing ------------", __FILE__, __LINE__, __FUNCTION__);
+        for (auto iter = pid_map->begin(); iter != pid_map->end(); ++iter) {
+            rodsLog(LOG_NOTICE, "%s:%d (%s) SHMEM: key: %s", __FILE__, __LINE__, __FUNCTION__, iter->first.c_str());
+            auto pid_list = iter->second;
+            rodsLog(LOG_NOTICE, "%s:%d (%s) SHMEM:  list size: %zu", __FILE__, __LINE__, __FUNCTION__, pid_list.size());
+            for (auto iter2 = pid_list.begin(); iter2 != pid_list.end(); ++iter2) {
+                rodsLog(LOG_NOTICE, "%s:%d (%s) SHMEM:   -> %d", __FILE__, __LINE__, __FUNCTION__, *iter2);
+            }
+        }
+        rodsLog(LOG_NOTICE, "%s:%d (%s) SHMEM: ---------------------------------", __FILE__, __LINE__, __FUNCTION__);
+
+ 
+        named_mtx.unlock();
 
         S3FS_MALLOCTRIM(0);
 
@@ -497,10 +595,54 @@ rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
  
         // we are finished with only close if only one is open 
         if(NULL != (ent = FdManager::get()->ExistOpen(path.c_str())) && !FileOffsetManager::get()->fd_exists(ent->GetFd())){
-            FdManager::get()->Close(ent);
 
-            // iRODS does not have a flush operation so manually flush here
-            flush_buffer(path, ent->GetFd());
+            // this is the last thread with this pid.  remove the pid from the shared memory pid map.
+            int pid = getpid();
+    
+            boost::interprocess::managed_shared_memory segment(boost::interprocess::open_or_create, cacheless_s3_shared_memory_name.c_str(), 65536);
+            boost::interprocess::named_upgradable_mutex named_mtx(boost::interprocess::open_or_create, cacheless_s3_shared_memory_mutex_name.c_str());
+            void_allocator alloc_inst (segment.get_segment_manager());
+    
+            named_mtx.lock();
+    
+            file_to_pid_map_t *pid_map = segment.find_or_construct<file_to_pid_map_t>
+                ("FileToPidMap")(std::less<char_string>(), alloc_inst);
+
+            char_string key_object(alloc_inst);
+            key_object = path.c_str();
+            auto pid_map_iter = pid_map->find(key_object);
+
+            // this test should always succeed
+            if (pid_map_iter != pid_map->end()) {
+                auto& pid_list = pid_map_iter->second;
+                pid_list.erase(std::remove(pid_list.begin(), pid_list.end(), pid), pid_list.end());
+
+                if (pid_list.size() == 0) {
+
+                    // last pid to have this file open.  remove this key/value
+                    // from the pid map and flush the file 
+                    pid_map->erase(pid_map_iter, pid_map->end());
+                    rodsLog(LOG_NOTICE, "%s:%d (%s) SHMEM: **** flushing to S3 ****", __FILE__, __LINE__, __FUNCTION__);
+                    //ent->Load(); 
+                    flush_buffer(path, ent->GetFd());
+                    FdManager::get()->Close(ent);
+                    StatCache::getStatCacheData()->DelStat(path.c_str());
+                    FdManager::DeleteCacheFile(path.c_str());
+                }
+            }
+
+            // DEBUG print shared memory
+            rodsLog(LOG_NOTICE, "%s:%d (%s) SHMEM: ----------- printing ------------", __FILE__, __LINE__, __FUNCTION__);
+            for (auto iter = pid_map->begin(); iter != pid_map->end(); ++iter) {
+                rodsLog(LOG_NOTICE, "%s:%d (%s) SHMEM: key: %s", __FILE__, __LINE__, __FUNCTION__, iter->first.c_str());
+                auto pid_list = iter->second;
+                for (auto iter2 = pid_list.begin(); iter2 != pid_list.end(); ++iter2) {
+                    rodsLog(LOG_NOTICE, "%s:%d (%s) SHMEM:   -> %d", __FILE__, __LINE__, __FUNCTION__, *iter2);
+                }
+            }
+            rodsLog(LOG_NOTICE, "%s:%d (%s) SHMEM: ---------------------------------", __FILE__, __LINE__, __FUNCTION__);
+
+            named_mtx.unlock();
         }
         S3FS_MALLOCTRIM(0);
         result.code(0);
@@ -533,8 +675,8 @@ rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
 
         S3fsCurl s3fscurl;
         result = s3fscurl.DeleteRequest(path.c_str());
-        FdManager::DeleteCacheFile(path.c_str());
-        StatCache::getStatCacheData()->DelStat(path.c_str());
+        //FdManager::DeleteCacheFile(path.c_str());
+        //StatCache::getStatCacheData()->DelStat(path.c_str());
         S3FS_MALLOCTRIM(0);
 
         if (result < 0) {
