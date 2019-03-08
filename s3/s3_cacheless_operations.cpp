@@ -627,7 +627,10 @@ rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
                     rodsLog(LOG_NOTICE, "%s:%d (%s) SHMEM: **** flushing to S3 ****", __FILE__, __LINE__, __FUNCTION__);
                     //ent->Load(); 
                     flush_buffer(path, ent->GetFd());
+
+rodsLog(LOG_NOTICE, "%s:%d (%s) before closing ent", __FILE__, __LINE__, __FUNCTION__);
                     FdManager::get()->Close(ent);
+rodsLog(LOG_NOTICE, "%s:%d (%s) after closing ent", __FILE__, __LINE__, __FUNCTION__);
                     StatCache::getStatCacheData()->DelStat(path.c_str());
                     FdManager::DeleteCacheFile(path.c_str());
                 }
