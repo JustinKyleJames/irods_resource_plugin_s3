@@ -535,7 +535,6 @@ int PageList::GetUnloadedPages(fdpage_list_non_shared_t& unloaded_list, off_t st
 bool PageList::Serialize(CacheFileStat& file, bool is_output)
 {
 
-rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
   if (pages == nullptr) {
 	  return false;
   }
@@ -544,31 +543,21 @@ rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
     return false;
   }
   if(is_output){
-rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
     //
     // put to file
     //
     stringstream ssall;
-rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
     ssall << Size();
-rodsLog(LOG_NOTICE, "%s:%d (%s) pages->size() = %d", __FILE__, __LINE__, __FUNCTION__, pages->size());
-
 
     for(fdpage_list_t::iterator iter = pages->begin(); iter != pages->end(); ++iter){
-rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
       ssall << "\n" << (*iter).offset << ":" << (*iter).bytes << ":" << ((*iter).loaded ? "1" : "0");
-rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
     }
 
-rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
     string strall = ssall.str();
-rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
     if(0 >= pwrite(file.GetFd(), strall.c_str(), strall.length(), 0)){
-rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
       S3FS_PRN_ERR("failed to write stats(%d)", errno);
       return false;
     }
-rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
 
   }else{
     //
@@ -708,7 +697,6 @@ FdEntity::FdEntity(const char* tpath, const char* cpath)
 
 FdEntity::~FdEntity()
 {
-rodsLog(LOG_NOTICE, "%s:%d (%s) [ent=%p]", __FILE__, __LINE__, __FUNCTION__, this);
   Clear();
 
   if(is_lock_init){
@@ -728,13 +716,10 @@ void FdEntity::Clear(void)
   if(-1 != fd){
     //if(false && 0 != cachepath.size()){
     if(false && 0 != cachepath.size()){
-rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
       CacheFileStat cfstat(path.c_str());
-rodsLog(LOG_NOTICE, "%s:%d (%s) **** calling Serialize ****", __FILE__, __LINE__, __FUNCTION__);
       if(!pagelist.Serialize(cfstat, true)){
         S3FS_PRN_WARN("failed to save cache stat file(%s).", path.c_str());
       }
-rodsLog(LOG_NOTICE, "%s:%d (%s) **** return from Serialize ****", __FILE__, __LINE__, __FUNCTION__);
     }
     if(pfile){
       fclose(pfile);
@@ -760,7 +745,6 @@ void FdEntity::Close(void)
 {
   S3FS_PRN_DBG("[path=%s][fd=%d][refcnt=%d]", path.c_str(), fd, (-1 != fd ? refcnt - 1 : refcnt));
 
-rodsLog(LOG_NOTICE, "%s:%d (%s) [refcnt=%d]", __FILE__, __LINE__, __FUNCTION__, refcnt);
   if(-1 != fd){
     AutoLock auto_lock(&fdent_lock);
 
@@ -792,7 +776,6 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) [refcnt=%d]", __FILE__, __LINE__, __FUNCTION__, 
 
 int FdEntity::Dup()
 {
-rodsLog(LOG_NOTICE, "%s:%d (%s) [refcnt=%d]", __FILE__, __LINE__, __FUNCTION__, refcnt);
   S3FS_PRN_DBG("[path=%s][fd=%d][refcnt=%d]", path.c_str(), fd, (-1 != fd ? refcnt + 1 : refcnt));
 
   if(-1 != fd){
@@ -862,7 +845,6 @@ int FdEntity::OpenMirrorFile(void)
 
 int FdEntity::Open(headers_t* pmeta, ssize_t size, time_t time, bool no_fd_lock_wait)
 {
-rodsLog(LOG_NOTICE, "%s:%d (%s) [refcnt=%d]", __FILE__, __LINE__, __FUNCTION__, refcnt);
   S3FS_PRN_DBG("[path=%s][fd=%d][size=%jd][time=%jd]", path.c_str(), fd, (intmax_t)size, (intmax_t)time);
 
   AutoLock auto_lock(&fdent_lock, no_fd_lock_wait);
@@ -2240,9 +2222,6 @@ void FdManager::Rename(const std::string &from, const std::string &to)
 
 bool FdManager::Close(FdEntity* ent)
 {
-
-rodsLog(LOG_NOTICE, "%s:%d (%s) close ent %p", __FILE__, __LINE__, __FUNCTION__, ent);
-
   S3FS_PRN_DBG("[ent->file=%s][ent->fd=%d]", ent ? ent->GetPath() : "", ent ? ent->GetFd() : -1);
 
   if(!ent){
@@ -2253,7 +2232,6 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) close ent %p", __FILE__, __LINE__, __FUNCTION__,
 
   for(fdent_map_t::iterator iter = fent.begin(); iter != fent.end(); ++iter){
     if((*iter).second == ent){
-rodsLog(LOG_NOTICE, "%s:%d (%s) found ent %p", __FILE__, __LINE__, __FUNCTION__);
       ent->Close();
       if(!ent->IsOpen()){
         // remove found entity from map.
@@ -2267,7 +2245,6 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) found ent %p", __FILE__, __LINE__, __FUNCTION__)
             ++iter;
           }
         }
-rodsLog(LOG_NOTICE, "%s:%d (%s) deleting ent %p", __FILE__, __LINE__, __FUNCTION__);
         delete ent;
       }
       return true;

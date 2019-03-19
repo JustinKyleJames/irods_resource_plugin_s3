@@ -184,7 +184,6 @@ namespace irods_s3_cacheless {
 
     irods::error s3FileCreatePlugin( irods::plugin_context& _ctx) {
 
-rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
         // =-=-=-=-=-=-=-
         // check incoming parameters
         irods::error ret = s3CheckParams( _ctx );
@@ -252,33 +251,17 @@ rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
         if (pid_map_iter != pid_map->end()) {
             auto& pid_list = pid_map_iter->second;
             if (std::find(pid_list.begin(), pid_list.end(), pid) == pid_list.end()) {
-                rodsLog(LOG_NOTICE, "%s:%d (%s) SHMEM: push_back(%s)", __FILE__, __LINE__, __FUNCTION__, path.c_str());
                 pid_list.push_back(pid);
             }
         } else {
             int_vector pid_list(alloc_inst);
             pid_list.push_back(pid);
             map_value_type value(key_object, pid_list);
-            rodsLog(LOG_NOTICE, "%s:%d (%s) SHMEM: insert(%s)", __FILE__, __LINE__, __FUNCTION__, path.c_str());
             pid_map->insert(value);
         }
 
-        // TODO debug logging
-        rodsLog(LOG_NOTICE, "%s:%d (%s) SHMEM: ----------- printing ------------", __FILE__, __LINE__, __FUNCTION__);
-        for (auto iter = pid_map->begin(); iter != pid_map->end(); ++iter) {
-            rodsLog(LOG_NOTICE, "%s:%d (%s) SHMEM: key: %s", __FILE__, __LINE__, __FUNCTION__, iter->first.c_str());
-            auto pid_list = iter->second;
-            rodsLog(LOG_NOTICE, "%s:%d (%s) SHMEM:  list size: %zu", __FILE__, __LINE__, __FUNCTION__, pid_list.size());
-            for (auto iter2 = pid_list.begin(); iter2 != pid_list.end(); ++iter2) {
-                rodsLog(LOG_NOTICE, "%s:%d (%s) SHMEM:   -> %d", __FILE__, __LINE__, __FUNCTION__, *iter2);
-            }
-        }
-        rodsLog(LOG_NOTICE, "%s:%d (%s) SHMEM: ---------------------------------", __FILE__, __LINE__, __FUNCTION__);
-
  
         named_mtx.unlock();
-
-
 
         return SUCCESS();
     }
@@ -287,7 +270,6 @@ rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
     // interface for POSIX Open
     irods::error s3FileOpenPlugin( irods::plugin_context& _ctx) {
 
-rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
         // =-=-=-=-=-=-=-
         // check incoming parameters
         irods::error ret = s3CheckParams( _ctx );
@@ -386,29 +368,16 @@ rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
         if (pid_map_iter != pid_map->end()) {
             auto& pid_list = pid_map_iter->second;
             if (std::find(pid_list.begin(), pid_list.end(), pid) == pid_list.end()) {
-                rodsLog(LOG_NOTICE, "%s:%d (%s) SHMEM: push_back(%s)", __FILE__, __LINE__, __FUNCTION__, path.c_str());
                 pid_list.push_back(pid);
             }
         } else {
             int_vector pid_list(alloc_inst);
             pid_list.push_back(pid);
             map_value_type value(key_object, pid_list);
-            rodsLog(LOG_NOTICE, "%s:%d (%s) SHMEM: insert(%s)", __FILE__, __LINE__, __FUNCTION__, path.c_str());
             pid_map->insert(value);
         }
 
         // TODO debug logging
-        rodsLog(LOG_NOTICE, "%s:%d (%s) SHMEM: ----------- printing ------------", __FILE__, __LINE__, __FUNCTION__);
-        for (auto iter = pid_map->begin(); iter != pid_map->end(); ++iter) {
-            rodsLog(LOG_NOTICE, "%s:%d (%s) SHMEM: key: %s", __FILE__, __LINE__, __FUNCTION__, iter->first.c_str());
-            auto pid_list = iter->second;
-            rodsLog(LOG_NOTICE, "%s:%d (%s) SHMEM:  list size: %zu", __FILE__, __LINE__, __FUNCTION__, pid_list.size());
-            for (auto iter2 = pid_list.begin(); iter2 != pid_list.end(); ++iter2) {
-                rodsLog(LOG_NOTICE, "%s:%d (%s) SHMEM:   -> %d", __FILE__, __LINE__, __FUNCTION__, *iter2);
-            }
-        }
-        rodsLog(LOG_NOTICE, "%s:%d (%s) SHMEM: ---------------------------------", __FILE__, __LINE__, __FUNCTION__);
-
  
         named_mtx.unlock();
 
@@ -475,8 +444,6 @@ rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
           return result;
         }
 
-rodsLog(LOG_NOTICE, "%s:%d (%s) [realsize=%zu]", __FILE__, __LINE__, __FUNCTION__, realsize);
-
         // read the file size into st.st_size to mimic posix read semantics
         // TODO check performance of this.
         struct stat st;
@@ -524,7 +491,6 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) [realsize=%zu]", __FILE__, __LINE__, __FUNCTION_
                                     void*               _buf,
                                     int                 _len ) {
 
-rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
         // =-=-=-=-=-=-=-
         // check incoming parameters
         irods::error ret = s3CheckParams( _ctx );
@@ -590,7 +556,6 @@ rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
     // interface for POSIX Close
     irods::error s3FileClosePlugin(  irods::plugin_context& _ctx ) {
 
-rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
         irods::error result = SUCCESS();
 
         irods::file_object_ptr fco = boost::dynamic_pointer_cast< irods::file_object >( _ctx.fco() );
@@ -633,28 +598,14 @@ rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
                     // last pid to have this file open.  remove this key/value
                     // from the pid map and flush the file 
                     pid_map->erase(pid_map_iter, pid_map->end());
-                    rodsLog(LOG_NOTICE, "%s:%d (%s) SHMEM: **** flushing to S3 ****", __FILE__, __LINE__, __FUNCTION__);
                     //ent->Load(); 
                     flush_buffer(path, ent->GetFd());
 
-rodsLog(LOG_NOTICE, "%s:%d (%s) before closing ent", __FILE__, __LINE__, __FUNCTION__);
                     FdManager::get()->Close(ent);
-rodsLog(LOG_NOTICE, "%s:%d (%s) after closing ent", __FILE__, __LINE__, __FUNCTION__);
                     StatCache::getStatCacheData()->DelStat(path.c_str());
                     FdManager::DeleteCacheFile(path.c_str());
                 }
             }
-
-            // DEBUG print shared memory
-            rodsLog(LOG_NOTICE, "%s:%d (%s) SHMEM: ----------- printing ------------", __FILE__, __LINE__, __FUNCTION__);
-            for (auto iter = pid_map->begin(); iter != pid_map->end(); ++iter) {
-                rodsLog(LOG_NOTICE, "%s:%d (%s) SHMEM: key: %s", __FILE__, __LINE__, __FUNCTION__, iter->first.c_str());
-                auto pid_list = iter->second;
-                for (auto iter2 = pid_list.begin(); iter2 != pid_list.end(); ++iter2) {
-                    rodsLog(LOG_NOTICE, "%s:%d (%s) SHMEM:   -> %d", __FILE__, __LINE__, __FUNCTION__, *iter2);
-                }
-            }
-            rodsLog(LOG_NOTICE, "%s:%d (%s) SHMEM: ---------------------------------", __FILE__, __LINE__, __FUNCTION__);
 
             named_mtx.unlock();
         }
@@ -765,8 +716,6 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) after closing ent", __FILE__, __LINE__, __FUNCTI
                                      long long            _offset,
                                      int                 _whence ) {
 
-rodsLog(LOG_NOTICE, "%s:%d (%s) [offset=%lld][_whence=%d][SEEK_SET=%d][SEEK_CUR=%d][SEEK_END=%d]", __FILE__, __LINE__, __FUNCTION__, _offset, _whence, SEEK_SET, SEEK_CUR, SEEK_END);
-
         // =-=-=-=-=-=-=-
         // check incoming parameters
         irods::error ret = s3CheckParams( _ctx );
@@ -824,8 +773,6 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) [offset=%lld][_whence=%d][SEEK_SET=%d][SEEK_CUR=
                     if (0 != returnVal) {
                         return ERROR(S3_FILE_STAT_ERR, (boost::format("%s: - Failed to perform a stat of %s") % __FUNCTION__ % path.c_str()));
                     }
-
-rodsLog(LOG_NOTICE, "%s:%d (%s) setting offset to [st.st_size=%zu][_offset=%jd][result=%jd]", __FILE__, __LINE__, __FUNCTION__, st.st_size, _whence, st.st_size + _whence);
 
                     FileOffsetManager::get()->setOffset(irods_fd, st.st_size + _offset);
                     //ent->SetOffset(st.st_size + _offset);
