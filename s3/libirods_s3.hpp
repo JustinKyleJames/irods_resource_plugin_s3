@@ -41,6 +41,7 @@ const std::string s3_signature_version{"S3_SIGNATURE_VERSION"};
 const std::string s3_region_name{"S3_REGIONNAME"};
 const std::string REPL_POLICY_KEY{"repl_policy"};
 const std::string REPL_POLICY_VAL{"reg_repl"};
+const std::string s3_cache_dir{"S3_CACHE_DIR"};
 
 const char* s3GetHostname();
 S3SignatureVersion s3GetSignatureVersion(irods::plugin_property_map& _prop_map);

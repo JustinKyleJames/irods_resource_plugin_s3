@@ -189,6 +189,7 @@ extern s3fs_log_level debug_level;
 extern const char*    s3fs_log_nest[S3FS_LOG_NEST_MAX];
 
 extern std::string    s3_protocol_str;
+extern std::string    s3_cache_dir_str;
 
 #endif // S3FS_COMMON_H_
 

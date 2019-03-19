@@ -92,6 +92,15 @@ namespace irods_s3_cacheless {
             rodsLog(LOG_ERROR, error_str.c_str());
             return ERROR(S3_INIT_ERROR, error_str.c_str());
         }
+     
+        ret = _ctx.prop_map().get< std::string >(s3_cache_dir, s3_cache_dir_str);
+        if (!ret.ok()) {
+            S3fsCurl::DestroyS3fsCurl();
+            s3fs_destroy_global_ssl();
+            std::string error_str =  "S3_CACHE_DIR is not defined for resource.";
+            rodsLog(LOG_ERROR, error_str.c_str());
+            return ERROR(S3_INIT_ERROR, error_str.c_str());
+        }
     
         if (boost::iequals(s3_protocol_str, "https")) {
             s3_protocol_str = "https";
@@ -680,7 +689,7 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) after closing ent", __FILE__, __LINE__, __FUNCTI
 
         S3fsCurl s3fscurl;
         result = s3fscurl.DeleteRequest(path.c_str());
-        //FdManager::DeleteCacheFile(path.c_str());
+        FdManager::DeleteCacheFile(path.c_str());
         //StatCache::getStatCacheData()->DelStat(path.c_str());
         S3FS_MALLOCTRIM(0);
 

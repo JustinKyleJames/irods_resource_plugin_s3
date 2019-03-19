@@ -103,6 +103,7 @@ std::string instance_name         = "";
 s3fs_log_level debug_level        = S3FS_LOG_CRIT;
 const char*    s3fs_log_nest[S3FS_LOG_NEST_MAX] = {"", "  ", "    ", "      "};
 std::string aws_profile           = "default";
+std::string s3_cache_dir_str      = "";
 
 // flag to say whether we're doing http or https
 std::string s3_protocol_str       = "";
