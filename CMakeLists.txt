@@ -69,6 +69,8 @@ add_library(
   ${CMAKE_SOURCE_DIR}/s3/libirods_s3.cpp
   ${CMAKE_SOURCE_DIR}/s3/s3_archive_operations.cpp
   ${CMAKE_SOURCE_DIR}/s3/s3_cacheless_operations.cpp
+  ${CMAKE_SOURCE_DIR}/s3/s3_cacheless_sharedmemory.cpp
+  ${CMAKE_SOURCE_DIR}/s3/s3_cacheless_locks.cpp
   ${CMAKE_SOURCE_DIR}/s3/s3fs/curl.cpp
   ${CMAKE_SOURCE_DIR}/s3/s3fs/addhead.cpp
   ${CMAKE_SOURCE_DIR}/s3/s3fs/cache.cpp

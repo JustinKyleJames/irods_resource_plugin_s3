@@ -20,6 +20,8 @@
 #ifndef FD_CACHE_H_
 #define FD_CACHE_H_
 
+#include "../s3_cacheless_sharedmemory.hpp"
+
 #include <sys/statvfs.h>
 #include "curl.h"
 
@@ -36,6 +38,8 @@
 #include <boost/algorithm/string.hpp>
 
 #include <memory>
+
+extern std::string s3_resource_name;
 
 //------------------------------------------------
 // Shared memory code to keep track of multiple 
@@ -85,8 +89,8 @@ typedef std::list<struct fdpage> fdpage_list_non_shared_t;
 
 
 
-const std::string cacheless_s3_shared_memory_name = "cacheless_s3_shared_memory";
-const std::string cacheless_s3_shared_memory_mutex_name = "cacheless_s3_shared_memory_mutex";
+//const std::string cacheless_s3_shared_memory_name = "cacheless_s3_shared_memory";
+//const std::string cacheless_s3_shared_memory_mutex_name = "cacheless_s3_shared_memory_mutex";
 
 
 //------------------------------------------------
@@ -243,6 +247,7 @@ class FdManager
     static pthread_mutex_t reserved_diskspace_lock;
     static bool            is_lock_init;
     static std::string     cache_dir;
+	static std::string     resource_name;
     static bool            check_cache_dir_exist;
     static size_t          free_disk_space; // limit free disk space
 
@@ -328,20 +333,6 @@ class FileOffsetManager
 	static bool adjustOffset(int irods_fd, off_t delta);
 
 };
-
-class SharedMemorySegment {
- private:
-    static std::shared_ptr<boost::interprocess::managed_shared_memory> segment;
- public:
-
-    static std::shared_ptr<boost::interprocess::managed_shared_memory> get_segment() {
-        if (segment.get() == nullptr) {
-            segment = std::make_shared<boost::interprocess::managed_shared_memory>(boost::interprocess::open_or_create, cacheless_s3_shared_memory_name.c_str(), 65536);
-        }
-        return segment;
-    }
-};
-  
 
 #endif // FD_CACHE_H_
 

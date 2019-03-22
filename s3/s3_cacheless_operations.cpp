@@ -2,6 +2,8 @@
 // =-=-=-=-=-=-=-
 // local includes
 #include "s3_cacheless_operations.hpp"
+#include "s3_cacheless_locks.hpp"
+#include "s3_cacheless_sharedmemory.hpp"
 #include "libirods_s3.hpp"
 #include "s3fs/curl.h"
 #include "s3fs/cache.h"
@@ -31,6 +33,7 @@
 #include <boost/algorithm/string.hpp>
 #include <boost/format.hpp>
 #include <boost/algorithm/string.hpp>
+#include <boost/interprocess/managed_shared_memory.hpp>
 
 // =-=-=-=-=-=-=-
 // other includes
@@ -128,6 +131,13 @@ namespace irods_s3_cacheless {
         service_path = "";
         host = std::string(s3GetHostname());
 
+        ret = _ctx.prop_map().get< std::string >( irods::RESOURCE_NAME, s3_resource_name );
+        if (!ret.ok()) {
+            std::stringstream msg;
+            msg << __FUNCTION__ << " - Could not read resource name to open shared memory.";
+            return PASSMSG(msg.str(), ret);
+        }
+
         // set bucket name
         //std::string key_not_used;
         //parseS3Path(fco->physical_path(), bucket, key_not_used);
@@ -184,6 +194,7 @@ namespace irods_s3_cacheless {
 
     irods::error s3FileCreatePlugin( irods::plugin_context& _ctx) {
 
+
         // =-=-=-=-=-=-=-
         // check incoming parameters
         irods::error ret = s3CheckParams( _ctx );
@@ -236,13 +247,13 @@ namespace irods_s3_cacheless {
         // add pid to shared memory
         int pid = getpid();
 
-        boost::interprocess::managed_shared_memory segment(boost::interprocess::open_or_create, cacheless_s3_shared_memory_name.c_str(), 65536);
-        boost::interprocess::named_upgradable_mutex named_mtx(boost::interprocess::open_or_create, cacheless_s3_shared_memory_mutex_name.c_str());
-        void_allocator alloc_inst (segment.get_segment_manager());
+        auto segment = get_shared_memory_segment();
+        auto named_mtx = get_named_mutex();
+        void_allocator alloc_inst (segment->get_segment_manager());
 
-        named_mtx.lock();
+        named_mtx->lock();
 
-        file_to_pid_map_t *pid_map = segment.find_or_construct<file_to_pid_map_t>
+        file_to_pid_map_t *pid_map = segment->find_or_construct<file_to_pid_map_t>
             ("FileToPidMap")(std::less<char_string>(), alloc_inst);
 
         char_string key_object(alloc_inst);
@@ -261,7 +272,7 @@ namespace irods_s3_cacheless {
         }
 
  
-        named_mtx.unlock();
+        named_mtx->unlock();
 
         return SUCCESS();
     }
@@ -353,13 +364,13 @@ namespace irods_s3_cacheless {
         // add this pid into the map in shared memory if it does not already exist
         int pid = getpid();
 
-        boost::interprocess::managed_shared_memory segment(boost::interprocess::open_or_create, cacheless_s3_shared_memory_name.c_str(), 65536);
-        boost::interprocess::named_upgradable_mutex named_mtx(boost::interprocess::open_or_create, cacheless_s3_shared_memory_mutex_name.c_str());
-        void_allocator alloc_inst (segment.get_segment_manager());
+        auto segment = get_shared_memory_segment();
+        auto named_mtx = get_named_mutex();
+        void_allocator alloc_inst (segment->get_segment_manager());
 
-        named_mtx.lock();
+        named_mtx->lock();
 
-        file_to_pid_map_t *pid_map = segment.find_or_construct<file_to_pid_map_t>
+        file_to_pid_map_t *pid_map = segment->find_or_construct<file_to_pid_map_t>
             ("FileToPidMap")(std::less<char_string>(), alloc_inst);
 
         char_string key_object(alloc_inst);
@@ -377,9 +388,7 @@ namespace irods_s3_cacheless {
             pid_map->insert(value);
         }
 
-        // TODO debug logging
- 
-        named_mtx.unlock();
+        named_mtx->unlock();
 
         S3FS_MALLOCTRIM(0);
 
@@ -575,13 +584,13 @@ namespace irods_s3_cacheless {
             // this is the last thread with this pid.  remove the pid from the shared memory pid map.
             int pid = getpid();
     
-            boost::interprocess::managed_shared_memory segment(boost::interprocess::open_or_create, cacheless_s3_shared_memory_name.c_str(), 65536);
-            boost::interprocess::named_upgradable_mutex named_mtx(boost::interprocess::open_or_create, cacheless_s3_shared_memory_mutex_name.c_str());
-            void_allocator alloc_inst (segment.get_segment_manager());
+            auto segment = get_shared_memory_segment();
+            auto named_mtx = get_named_mutex();
+            void_allocator alloc_inst (segment->get_segment_manager());
     
-            named_mtx.lock();
+            named_mtx->lock();
     
-            file_to_pid_map_t *pid_map = segment.find_or_construct<file_to_pid_map_t>
+            file_to_pid_map_t *pid_map = segment->find_or_construct<file_to_pid_map_t>
                 ("FileToPidMap")(std::less<char_string>(), alloc_inst);
 
             char_string key_object(alloc_inst);
@@ -607,7 +616,7 @@ namespace irods_s3_cacheless {
                 }
             }
 
-            named_mtx.unlock();
+            named_mtx->unlock();
         }
         S3FS_MALLOCTRIM(0);
         result.code(0);
