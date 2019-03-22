@@ -20,6 +20,8 @@
 #ifndef FD_CACHE_H_
 #define FD_CACHE_H_
 
+#include "../s3_cacheless_sharedmemory.hpp"
+
 #include <sys/statvfs.h>
 #include "curl.h"
 #include <condition_variable>
@@ -38,6 +40,8 @@
 #include <boost/algorithm/string.hpp>
 
 #include <memory>
+
+extern std::string s3_resource_name;
 
 //------------------------------------------------
 // Shared memory code to keep track of multiple 
@@ -84,9 +88,8 @@ typedef boost::interprocess::list<struct fdpage, fdpage_allocator>              
 
 // a page list that is not in shared memory
 typedef std::list<struct fdpage> fdpage_list_non_shared_t;
-
-const std::string cacheless_s3_shared_memory_name = "cacheless_s3_shared_memory";
-const std::string cacheless_s3_shared_memory_mutex_name = "cacheless_s3_shared_memory_mutex";
+//const std::string cacheless_s3_shared_memory_name = "cacheless_s3_shared_memory";
+//const std::string cacheless_s3_shared_memory_mutex_name = "cacheless_s3_shared_memory_mutex";
 
 
 //------------------------------------------------
@@ -241,8 +244,6 @@ typedef std::map<std::string, class FdEntity*> fdent_map_t;   // key=path, value
 class FdManager
 {
   private:
-
-
     static FdManager                    singleton;
     static pthread_mutex_t              fd_manager_lock;
     static pthread_mutex_t              cache_cleanup_lock;

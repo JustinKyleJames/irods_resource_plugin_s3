@@ -3,7 +3,9 @@
 #include "libirods_s3.hpp"
 #include "s3_archive_operations.hpp"
 #include "s3_cacheless_operations.hpp"
-
+#include "s3_cacheless_locks.hpp"
+#include "s3_cacheless_sharedmemory.hpp"
+#
 // =-=-=-=-=-=-=-
 // irods includes
 #include <msParam.h>
@@ -53,6 +55,7 @@
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/format.hpp>
+#include <boost/interprocess/managed_shared_memory.hpp>
 
 // =-=-=-=-=-=-=-
 // system includes
@@ -1937,9 +1940,6 @@ irods:: error s3StartOperation(irods::plugin_property_map& _prop_map)
         // init curl
         S3fsCurl::InitS3fsCurl("/etc/mime.types");
 
-        // create shared memory objects
-        boost::interprocess::managed_shared_memory segment(boost::interprocess::open_or_create, cacheless_s3_shared_memory_name.c_str(), 65536);
-        boost::interprocess::named_upgradable_mutex named_mtx(boost::interprocess::open_or_create, cacheless_s3_shared_memory_mutex_name.c_str());
     }
  
 
@@ -1961,7 +1961,7 @@ irods::error s3StopOperation(irods::plugin_property_map& _prop_map)
     get_modes_from_properties(_prop_map, attached_mode, cacheless_mode); 
 
     if (cacheless_mode) {
-        boost::interprocess::shared_memory_object::remove(cacheless_s3_shared_memory_name.c_str());
+        // remove shared memory
     }
     return result;
 }

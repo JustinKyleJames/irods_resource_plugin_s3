@@ -49,6 +49,8 @@
 #include "s3fs_util.h"
 #include "string_util.h"
 #include "curl.h"
+#include "../s3_cacheless_locks.hpp"
+#include "../s3_cacheless_sharedmemory.hpp"
 
 #include <rodsLog.h>
 #include <irods_stacktrace.hpp>
@@ -278,8 +280,8 @@ bool PageList::Init(size_t size, bool is_loaded)
 
   Clear();
 
-  auto segment = SharedMemorySegment::get_segment();
-  boost::interprocess::named_upgradable_mutex named_mtx(boost::interprocess::open_or_create, cacheless_s3_shared_memory_mutex_name.c_str());
+  auto segment = irods_s3_cacheless::get_shared_memory_segment();
+  auto named_mtx = irods_s3_cacheless::get_named_mutex();
   void_allocator alloc_inst (segment->get_segment_manager());
 
   if (pages == nullptr) {
@@ -2035,7 +2037,6 @@ FdManager::FdManager()
       pthread_mutex_init(&FdManager::cache_cleanup_lock, NULL);
       pthread_mutex_init(&FdManager::reserved_diskspace_lock, NULL);
       FdManager::is_lock_init = true;
-
       // just to keep the segment open until the FdManager is completely destructed
       segment = SharedMemorySegment::get_segment();
     }catch(exception& e){
@@ -2354,11 +2355,6 @@ pthread_mutex_t             FileOffsetManager::file_offset_manager_lock;
 bool                        FileOffsetManager::is_lock_init;
 std::map<int, FdOffsetPair> FileOffsetManager::offset_map; 
 FileOffsetManager           FileOffsetManager::singleton;
-
-//------------------------------------------------
-// SharedMemorySegment class variable
-//------------------------------------------------
-std::shared_ptr<boost::interprocess::managed_shared_memory> SharedMemorySegment::segment;
 
 //------------------------------------------------
 // FileOffsetManager methods
