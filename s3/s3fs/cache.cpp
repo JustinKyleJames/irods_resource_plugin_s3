@@ -496,6 +496,7 @@ void StatCache::ChangeNoTruncateFlag(std::string key, bool no_truncate)
 
 bool StatCache::TruncateCache(void)
 {
+rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
   if(stat_cache.empty()){
     return true;
   }

@@ -448,6 +448,33 @@ AutoLock::~AutoLock()
 }
 
 //-------------------------------------------------------------------
+// Class AutoLockInterprocess
+//-------------------------------------------------------------------
+AutoLockInterprocess::AutoLockInterprocess(boost::interprocess::interprocess_recursive_mutex* mutex, bool no_wait) : auto_mutex(mutex)
+{
+  if (no_wait) {
+    is_lock_acquired = mutex->try_lock() == true;
+  } else {
+    mutex->lock();
+	rodsLog(LOG_NOTICE, "%s:%d (%s) LOCKED", __FILE__, __LINE__, __FUNCTION__);
+    is_lock_acquired = true;
+  }
+}
+
+bool AutoLockInterprocess::isLockAcquired() const
+{
+  return is_lock_acquired;
+}
+
+AutoLockInterprocess::~AutoLockInterprocess()
+{
+  if (is_lock_acquired) {
+	rodsLog(LOG_NOTICE, "%s:%d (%s) UNLOCK", __FILE__, __LINE__, __FUNCTION__);
+    auto_mutex->unlock();
+  }
+}
+
+//-------------------------------------------------------------------
 // Utility for UID/GID
 //-------------------------------------------------------------------
 // get user name from uid

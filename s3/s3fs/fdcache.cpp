@@ -686,10 +686,17 @@ FdEntity::FdEntity(const char* tpath, const char* cpath)
           fd(-1), pfile(NULL), is_modify(false), size_orgmeta(0), upload_id(""), mp_start(0), mp_size(0)
 {
   try{
-    pthread_mutexattr_t attr;
+/*    pthread_mutexattr_t attr;
     pthread_mutexattr_init(&attr);
     pthread_mutexattr_settype(&attr, S3FS_MUTEX_RECURSIVE);   // recursive mutex
-    pthread_mutex_init(&fdent_lock, &attr);
+    pthread_mutex_init(&fdent_lock, &attr);*/
+
+    auto segment = irods_s3_cacheless::get_shared_memory_segment();
+
+	std::string mutex_name = path + ".lock";
+
+    fdent_lock = segment->find_or_construct<boost::interprocess::interprocess_recursive_mutex>(mutex_name.c_str())();
+
     is_lock_init = true;
 	pagelist.path = SAFESTRPTR(tpath);
   }catch(exception& e){
@@ -703,7 +710,8 @@ FdEntity::~FdEntity()
 
   if(is_lock_init){
     try{
-      pthread_mutex_destroy(&fdent_lock);
+	  // have a shared lock - don't destroy (???)
+      //pthread_mutex_destroy(&fdent_lock);
     }catch(exception& e){
       S3FS_PRN_CRIT("failed to destroy mutex");
     }
@@ -713,7 +721,7 @@ FdEntity::~FdEntity()
 
 void FdEntity::Clear(void)
 {
-  AutoLock auto_lock(&fdent_lock);
+  AutoLockInterprocess auto_lock(fdent_lock);
 
   if(-1 != fd){
     //if(false && 0 != cachepath.size()){
@@ -748,7 +756,7 @@ void FdEntity::Close(void)
   S3FS_PRN_DBG("[path=%s][fd=%d][refcnt=%d]", path.c_str(), fd, (-1 != fd ? refcnt - 1 : refcnt));
 
   if(-1 != fd){
-    AutoLock auto_lock(&fdent_lock);
+    AutoLockInterprocess auto_lock(fdent_lock);
 
     if(0 < refcnt){
       refcnt--;
@@ -760,6 +768,12 @@ void FdEntity::Close(void)
           S3FS_PRN_WARN("failed to save cache stat file(%s).", path.c_str());
         }
       }
+
+	  // remove pagelist from shared memory
+      auto segment = irods_s3_cacheless::get_shared_memory_segment();
+	  segment->destroy<fdpage_list_t>(path.c_str());
+	  pagelist.pages = nullptr;
+
       if(pfile){
         fclose(pfile);
         pfile = NULL;
@@ -781,7 +795,7 @@ int FdEntity::Dup()
   S3FS_PRN_DBG("[path=%s][fd=%d][refcnt=%d]", path.c_str(), fd, (-1 != fd ? refcnt + 1 : refcnt));
 
   if(-1 != fd){
-    AutoLock auto_lock(&fdent_lock);
+    AutoLockInterprocess auto_lock(fdent_lock);
 	// we are handling the refcnt elsewhere
     //refcnt++;
   }
@@ -849,7 +863,7 @@ int FdEntity::Open(headers_t* pmeta, ssize_t size, time_t time, bool no_fd_lock_
 {
   S3FS_PRN_DBG("[path=%s][fd=%d][size=%jd][time=%jd]", path.c_str(), fd, (intmax_t)size, (intmax_t)time);
 
-  AutoLock auto_lock(&fdent_lock, no_fd_lock_wait);
+  AutoLockInterprocess auto_lock(fdent_lock, no_fd_lock_wait);
   if (!auto_lock.isLockAcquired()) {
     // had to wait for fd lock, return
     return -EIO;
@@ -1037,7 +1051,7 @@ bool FdEntity::OpenAndLoadAll(headers_t* pmeta, size_t* size, bool force_load)
       return false;
     }
   }
-  AutoLock auto_lock(&fdent_lock);
+  AutoLockInterprocess auto_lock(fdent_lock);
 
   if(force_load){
     SetAllStatusUnloaded();
@@ -1060,7 +1074,7 @@ bool FdEntity::OpenAndLoadAll(headers_t* pmeta, size_t* size, bool force_load)
 
 bool FdEntity::GetStats(struct stat& st)
 {
-  AutoLock auto_lock(&fdent_lock);
+  AutoLockInterprocess auto_lock(fdent_lock);
   if(-1 == fd){
     return false;
   }
@@ -1081,7 +1095,7 @@ int FdEntity::SetMtime(time_t time)
     return 0;
   }
 
-  AutoLock auto_lock(&fdent_lock);
+  AutoLockInterprocess auto_lock(fdent_lock);
   if(-1 != fd){
     struct timeval tv[2];
     tv[0].tv_sec = time;
@@ -1109,7 +1123,7 @@ int FdEntity::SetMtime(time_t time)
 
 bool FdEntity::UpdateMtime(void)
 {
-  AutoLock auto_lock(&fdent_lock);
+  AutoLockInterprocess auto_lock(fdent_lock);
   struct stat st;
   if(!GetStats(st)){
     return false;
@@ -1123,7 +1137,7 @@ bool FdEntity::GetSize(size_t& size)
   if(-1 == fd){
     return false;
   }
-  AutoLock auto_lock(&fdent_lock);
+  AutoLockInterprocess auto_lock(fdent_lock);
 
   size = pagelist.Size();
   return true;
@@ -1131,21 +1145,21 @@ bool FdEntity::GetSize(size_t& size)
 
 bool FdEntity::SetMode(mode_t mode)
 {
-  AutoLock auto_lock(&fdent_lock);
+  AutoLockInterprocess auto_lock(fdent_lock);
   orgmeta["x-amz-meta-mode"] = str(mode);
   return true;
 }
 
 bool FdEntity::SetUId(uid_t uid)
 {
-  AutoLock auto_lock(&fdent_lock);
+  AutoLockInterprocess auto_lock(fdent_lock);
   orgmeta["x-amz-meta-uid"] = str(uid);
   return true;
 }
 
 bool FdEntity::SetGId(gid_t gid)
 {
-  AutoLock auto_lock(&fdent_lock);
+  AutoLockInterprocess auto_lock(fdent_lock);
   orgmeta["x-amz-meta-gid"] = str(gid);
   return true;
 }
@@ -1155,7 +1169,7 @@ bool FdEntity::SetContentType(const char* path)
   if(!path){
     return false;
   }
-  AutoLock auto_lock(&fdent_lock);
+  AutoLockInterprocess auto_lock(fdent_lock);
   orgmeta["Content-Type"] = S3fsCurl::LookupMimeType(string(path));
   return true;
 }
@@ -1193,7 +1207,7 @@ int FdEntity::Load(off_t start, size_t size)
   if(-1 == fd){
     return -EBADF;
   }
-  AutoLock auto_lock(&fdent_lock);
+  AutoLockInterprocess auto_lock(fdent_lock);
 
   int result = 0;
 
@@ -1496,7 +1510,7 @@ int FdEntity::RowFlush(const char* tpath, bool force_sync)
   if(-1 == fd){
     return -EBADF;
   }
-  AutoLock auto_lock(&fdent_lock);
+  AutoLockInterprocess auto_lock(fdent_lock);
 
   if(!force_sync && !is_modify){
     // nothing to update.
@@ -1649,7 +1663,7 @@ ssize_t FdEntity::Read(char* bytes, off_t start, size_t size, bool force_load)
   if(-1 == fd){
     return -EBADF;
   }
-  AutoLock auto_lock(&fdent_lock);
+  AutoLockInterprocess auto_lock(fdent_lock);
 
   if(force_load){
     pagelist.SetPageLoadedStatus(start, size, false);
@@ -1714,11 +1728,13 @@ ssize_t FdEntity::Write(const char* bytes, size_t start, size_t size)
   if(FdManager::IsCacheDir() && !FdManager::IsSafeDiskSpace(NULL, size)){
     FdManager::get()->CleanupCacheDir();
   }
-  AutoLock auto_lock(&fdent_lock);
+  AutoLockInterprocess auto_lock(fdent_lock);
 
   // check file size
   if(pagelist.Size() < static_cast<size_t>(start)){
     // grow file size
+pagelist.Dump();
+rodsLog(LOG_NOTICE, "%s:%d (%s) calling ftruncate(fd, %llu) pagelist.Size() == %llu", __FILE__, __LINE__, __FUNCTION__, static_cast<size_t>(start), pagelist.Size());
     if(-1 == ftruncate(fd, static_cast<size_t>(start))){
       S3FS_PRN_ERR("failed to truncate temporary file(%d).", fd);
       return -EIO;
@@ -1810,7 +1826,7 @@ ssize_t FdEntity::Write(const char* bytes, size_t start, size_t size)
 
 void FdEntity::CleanupCache()
 {
-  AutoLock auto_lock(&fdent_lock, true);
+  AutoLockInterprocess auto_lock(fdent_lock, true);
 
   if (!auto_lock.isLockAcquired()) {
     return;

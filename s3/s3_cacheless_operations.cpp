@@ -193,6 +193,7 @@ namespace irods_s3_cacheless {
     // interface for POSIX create
 
     irods::error s3FileCreatePlugin( irods::plugin_context& _ctx) {
+rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
 
 
         // =-=-=-=-=-=-=-
@@ -248,10 +249,13 @@ namespace irods_s3_cacheless {
         int pid = getpid();
 
         auto segment = get_shared_memory_segment();
-        auto named_mtx = get_named_mutex();
+        //auto named_mtx = get_named_mutex();
         void_allocator alloc_inst (segment->get_segment_manager());
 
-        named_mtx->lock();
+	    std::string mutex_name = "pidmap.lock";
+        auto named_mtx = segment->find_or_construct<boost::interprocess::interprocess_recursive_mutex>(mutex_name.c_str())();
+    
+        AutoLockInterprocess auto_lock(named_mtx); 
 
         file_to_pid_map_t *pid_map = segment->find_or_construct<file_to_pid_map_t>
             ("FileToPidMap")(std::less<char_string>(), alloc_inst);
@@ -263,17 +267,17 @@ namespace irods_s3_cacheless {
             auto& pid_list = pid_map_iter->second;
             if (std::find(pid_list.begin(), pid_list.end(), pid) == pid_list.end()) {
                 pid_list.push_back(pid);
+rodsLog(LOG_NOTICE, "%s:%d (%s) Added PID: %d", __FILE__, __LINE__, __FUNCTION__, pid);
             }
         } else {
             int_vector pid_list(alloc_inst);
             pid_list.push_back(pid);
             map_value_type value(key_object, pid_list);
             pid_map->insert(value);
+rodsLog(LOG_NOTICE, "%s:%d (%s) Added PID: %d", __FILE__, __LINE__, __FUNCTION__, pid);
         }
 
  
-        named_mtx->unlock();
-
         return SUCCESS();
     }
 
@@ -281,6 +285,7 @@ namespace irods_s3_cacheless {
     // interface for POSIX Open
     irods::error s3FileOpenPlugin( irods::plugin_context& _ctx) {
 
+rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
         // =-=-=-=-=-=-=-
         // check incoming parameters
         irods::error ret = s3CheckParams( _ctx );
@@ -295,10 +300,46 @@ namespace irods_s3_cacheless {
             return ERROR(S3_INIT_ERROR, (boost::format("init cacheless mode returned error %s") % ret.result().c_str()));
         }
 
-        bool needs_flush = false;
-
         irods::file_object_ptr fco = boost::dynamic_pointer_cast< irods::file_object >( _ctx.fco() );
         std::string path = fco->physical_path();
+
+        // add this pid into the map in shared memory if it does not already exist
+        int pid = getpid();
+
+        auto segment = get_shared_memory_segment();
+        //auto named_mtx = get_named_mutex();
+        void_allocator alloc_inst (segment->get_segment_manager());
+    
+	    std::string mutex_name = "pidmap.lock";
+        auto named_mtx = segment->find_or_construct<boost::interprocess::interprocess_recursive_mutex>(mutex_name.c_str())();
+
+        {
+            AutoLockInterprocess auto_lock(named_mtx); 
+    
+            file_to_pid_map_t *pid_map = segment->find_or_construct<file_to_pid_map_t>
+                ("FileToPidMap")(std::less<char_string>(), alloc_inst);
+    
+            char_string key_object(alloc_inst);
+            key_object = path.c_str();
+            auto pid_map_iter = pid_map->find(key_object);
+            if (pid_map_iter != pid_map->end()) {
+                auto& pid_list = pid_map_iter->second;
+                if (std::find(pid_list.begin(), pid_list.end(), pid) == pid_list.end()) {
+                    pid_list.push_back(pid);
+rodsLog(LOG_NOTICE, "%s:%d (%s) Added PID: %d", __FILE__, __LINE__, __FUNCTION__, pid);
+                }
+            } else {
+                int_vector pid_list(alloc_inst);
+                pid_list.push_back(pid);
+                map_value_type value(key_object, pid_list);
+                pid_map->insert(value);
+rodsLog(LOG_NOTICE, "%s:%d (%s) Added PID: %d", __FILE__, __LINE__, __FUNCTION__, pid);
+            }
+        }
+
+
+        bool needs_flush = false;
+
 
         // clear stat for reading fresh stat.
         // (if object stat is changed, we refresh it. then s3fs gets always
@@ -360,35 +401,6 @@ namespace irods_s3_cacheless {
             s3FileLseekPlugin(_ctx, 0, SEEK_END);
         } 
 
-
-        // add this pid into the map in shared memory if it does not already exist
-        int pid = getpid();
-
-        auto segment = get_shared_memory_segment();
-        auto named_mtx = get_named_mutex();
-        void_allocator alloc_inst (segment->get_segment_manager());
-
-        named_mtx->lock();
-
-        file_to_pid_map_t *pid_map = segment->find_or_construct<file_to_pid_map_t>
-            ("FileToPidMap")(std::less<char_string>(), alloc_inst);
-
-        char_string key_object(alloc_inst);
-        key_object = path.c_str();
-        auto pid_map_iter = pid_map->find(key_object);
-        if (pid_map_iter != pid_map->end()) {
-            auto& pid_list = pid_map_iter->second;
-            if (std::find(pid_list.begin(), pid_list.end(), pid) == pid_list.end()) {
-                pid_list.push_back(pid);
-            }
-        } else {
-            int_vector pid_list(alloc_inst);
-            pid_list.push_back(pid);
-            map_value_type value(key_object, pid_list);
-            pid_map->insert(value);
-        }
-
-        named_mtx->unlock();
 
         S3FS_MALLOCTRIM(0);
 
@@ -545,6 +557,13 @@ namespace irods_s3_cacheless {
         }
         S3FS_PRN_DBG("[offset=%llu]", offset);
 
+if (1000 > _len) {
+char buf[_len+1];
+strncpy(buf, static_cast<char*>(_buf), _len);
+buf[_len] = 0;
+rodsLog(LOG_NOTICE, "%s:%d (%s) write [buf=%s][offset=%llu][len=%d]", __FILE__, __LINE__, __FUNCTION__, buf, offset, _len);
+}
+
         if(0 > (retVal = ent->Write(static_cast<const char*>(_buf), offset, _len))){
             S3FS_PRN_WARN("failed to write file(%s). result=%jd", path.c_str(), (intmax_t)retVal);
         }
@@ -565,6 +584,7 @@ namespace irods_s3_cacheless {
     // interface for POSIX Close
     irods::error s3FileClosePlugin(  irods::plugin_context& _ctx ) {
 
+rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
         irods::error result = SUCCESS();
 
         irods::file_object_ptr fco = boost::dynamic_pointer_cast< irods::file_object >( _ctx.fco() );
@@ -577,6 +597,8 @@ namespace irods_s3_cacheless {
 
 
         FdEntity*   ent;
+
+        bool flush_and_cleanup = false;
  
         // we are finished with only close if only one is open 
         if(NULL != (ent = FdManager::get()->ExistOpen(path.c_str())) && !FileOffsetManager::get()->fd_exists(ent->GetFd())){
@@ -585,38 +607,49 @@ namespace irods_s3_cacheless {
             int pid = getpid();
     
             auto segment = get_shared_memory_segment();
-            auto named_mtx = get_named_mutex();
+            //auto named_mtx = get_named_mutex();
             void_allocator alloc_inst (segment->get_segment_manager());
+
+	        std::string mutex_name = "pidmap.lock";
+            auto named_mtx = segment->find_or_construct<boost::interprocess::interprocess_recursive_mutex>(mutex_name.c_str())();
+  
+            { 
+                AutoLockInterprocess auto_lock(named_mtx); 
+        
+                file_to_pid_map_t *pid_map = segment->find_or_construct<file_to_pid_map_t>
+                    ("FileToPidMap")(std::less<char_string>(), alloc_inst);
     
-            named_mtx->lock();
+                char_string key_object(alloc_inst);
+                key_object = path.c_str();
+                auto pid_map_iter = pid_map->find(key_object);
     
-            file_to_pid_map_t *pid_map = segment->find_or_construct<file_to_pid_map_t>
-                ("FileToPidMap")(std::less<char_string>(), alloc_inst);
-
-            char_string key_object(alloc_inst);
-            key_object = path.c_str();
-            auto pid_map_iter = pid_map->find(key_object);
-
-            // this test should always succeed
-            if (pid_map_iter != pid_map->end()) {
-                auto& pid_list = pid_map_iter->second;
-                pid_list.erase(std::remove(pid_list.begin(), pid_list.end(), pid), pid_list.end());
-
-                if (pid_list.size() == 0) {
-
-                    // last pid to have this file open.  remove this key/value
-                    // from the pid map and flush the file 
-                    pid_map->erase(pid_map_iter, pid_map->end());
-                    //ent->Load(); 
-                    flush_buffer(path, ent->GetFd());
-
-                    FdManager::get()->Close(ent);
-                    StatCache::getStatCacheData()->DelStat(path.c_str());
-                    FdManager::DeleteCacheFile(path.c_str());
+                // this test should always succeed
+                if (pid_map_iter != pid_map->end()) {
+                    auto& pid_list = pid_map_iter->second;
+                    pid_list.erase(std::remove(pid_list.begin(), pid_list.end(), pid), pid_list.end());
+rodsLog(LOG_NOTICE, "%s:%d (%s) Removed  PID: %d", __FILE__, __LINE__, __FUNCTION__, pid);
+    
+                    if (pid_list.size() == 0) {
+                        // last pid to have this file open.  remove this key/value
+                        // from the pid map
+                        pid_map->erase(pid_map_iter, pid_map->end());
+                        flush_and_cleanup = true;
+                    }
                 }
-            }
+           }
 
-            named_mtx->unlock();
+           if (flush_and_cleanup) {
+    
+rodsLog(LOG_NOTICE, "%s:%d (%s) >>> closing file and flushing", __FILE__, __LINE__, __FUNCTION__);
+ent->getPageList()->Dump();
+
+               flush_buffer(path, ent->GetFd());
+    
+               FdManager::get()->Close(ent);
+               StatCache::getStatCacheData()->DelStat(path.c_str());
+               FdManager::DeleteCacheFile(path.c_str());
+           }
+
         }
         S3FS_MALLOCTRIM(0);
         result.code(0);

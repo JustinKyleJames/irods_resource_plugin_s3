@@ -36,6 +36,7 @@
 #include <boost/interprocess/sync/named_mutex.hpp>
 #include <boost/interprocess/sync/named_upgradable_mutex.hpp>
 #include <boost/algorithm/string.hpp>
+#include <boost/interprocess/sync/interprocess_recursive_mutex.hpp>
 
 #include <memory>
 
@@ -138,6 +139,7 @@ class PageList
     bool Parse(off_t new_pos);
 
   public:
+    static std::shared_ptr<boost::interprocess::named_upgradable_mutex> named_mtx; 
     static void FreeList(fdpage_list_t& list);
     static void FreeList(fdpage_list_non_shared_t& list);
 
@@ -164,7 +166,8 @@ class PageList
 class FdEntity
 {
   private:
-    pthread_mutex_t fdent_lock;
+    //pthread_mutex_t fdent_lock;
+	boost::interprocess::interprocess_recursive_mutex *fdent_lock;
     bool            is_lock_init;
     PageList        pagelist;
     int             refcnt;         // reference count

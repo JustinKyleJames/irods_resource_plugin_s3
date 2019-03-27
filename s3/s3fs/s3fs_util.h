@@ -20,6 +20,8 @@
 #ifndef S3FS_S3FS_UTIL_H_
 #define S3FS_S3FS_UTIL_H_
 
+#include <boost/interprocess/sync/interprocess_recursive_mutex.hpp>
+
 //-------------------------------------------------------------------
 // Typedef
 //-------------------------------------------------------------------
@@ -96,6 +98,18 @@ class AutoLock
     explicit AutoLock(pthread_mutex_t* pmutex, bool no_wait = false);
     bool isLockAcquired() const;
     ~AutoLock();
+};
+
+class AutoLockInterprocess
+{
+  private:
+    boost::interprocess::interprocess_recursive_mutex* auto_mutex;
+    bool is_lock_acquired;
+
+  public:
+    explicit AutoLockInterprocess(boost::interprocess::interprocess_recursive_mutex* pmutex, bool no_wait = false);
+    bool isLockAcquired() const;
+    ~AutoLockInterprocess();
 };
 
 //-------------------------------------------------------------------
