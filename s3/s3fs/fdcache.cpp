@@ -266,11 +266,13 @@ PageList::PageList(size_t size, bool is_loaded)
 
 PageList::~PageList()
 {
-  Clear();
+  // don't clear because this is in shmem and used by other processes
+  //Clear();
 }
 
 void PageList::Clear(void)
 {
+rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
   if (pages != nullptr) {
       PageList::FreeList(*pages);
   }
@@ -279,7 +281,8 @@ void PageList::Clear(void)
 bool PageList::Init(size_t size, bool is_loaded)
 {
 
-  Clear();
+
+rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
 
   auto segment = irods_s3_cacheless::get_shared_memory_segment();
   auto named_mtx = irods_s3_cacheless::get_named_mutex();
@@ -287,10 +290,18 @@ bool PageList::Init(size_t size, bool is_loaded)
 
   if (pages == nullptr) {
       pages = segment->find_or_construct<fdpage_list_t>(path.c_str())(alloc_inst);
+rodsLog(LOG_NOTICE, "%s:%d (%s) Read pages from shmem pages=%p", __FILE__, __LINE__, __FUNCTION__, pages);
   }
 
+  //Clear();
+
   fdpage page(0, size, is_loaded);
+
+rodsLog(LOG_NOTICE, "%s:%d (%s) Before push_back", __FILE__, __LINE__, __FUNCTION__);
+Dump();
   pages->push_back(page);
+rodsLog(LOG_NOTICE, "%s:%d (%s) After push_back", __FILE__, __LINE__, __FUNCTION__);
+Dump();
   return true;
 }
 

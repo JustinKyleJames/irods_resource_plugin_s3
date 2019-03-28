@@ -564,6 +564,9 @@ buf[_len] = 0;
 rodsLog(LOG_NOTICE, "%s:%d (%s) write [buf=%s][offset=%llu][len=%d]", __FILE__, __LINE__, __FUNCTION__, buf, offset, _len);
 }
 
+rodsLog(LOG_NOTICE, "%s:%d (%s) Before Write", __FILE__, __LINE__, __FUNCTION__);
+ent->getPageList()->Dump();
+
         if(0 > (retVal = ent->Write(static_cast<const char*>(_buf), offset, _len))){
             S3FS_PRN_WARN("failed to write file(%s). result=%jd", path.c_str(), (intmax_t)retVal);
         }
@@ -573,7 +576,11 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) write [buf=%s][offset=%llu][len=%d]", __FILE__, 
         // irods has no flush operation so have to manually flush at the end of the write
         //flush_buffer(path, ent->GetFd());
 
+rodsLog(LOG_NOTICE, "%s:%d (%s) After Write but before adjustOffset", __FILE__, __LINE__, __FUNCTION__);
+ent->getPageList()->Dump();
         FileOffsetManager::get()->adjustOffset(irods_fd, _len);
+rodsLog(LOG_NOTICE, "%s:%d (%s) After Write and adjustOffset", __FILE__, __LINE__, __FUNCTION__);
+ent->getPageList()->Dump();
 
         result.code(retVal);
         return result;
@@ -603,7 +610,7 @@ rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
         // we are finished with only close if only one is open 
         if(NULL != (ent = FdManager::get()->ExistOpen(path.c_str())) && !FileOffsetManager::get()->fd_exists(ent->GetFd())){
 
-            // this is the last thread with this pid.  remove the pid from the shared memory pid map.
+            // check if this is the last thread with this pid.  remove the pid from the shared memory pid map.
             int pid = getpid();
     
             auto segment = get_shared_memory_segment();
@@ -628,6 +635,7 @@ rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
                     auto& pid_list = pid_map_iter->second;
                     pid_list.erase(std::remove(pid_list.begin(), pid_list.end(), pid), pid_list.end());
 rodsLog(LOG_NOTICE, "%s:%d (%s) Removed  PID: %d", __FILE__, __LINE__, __FUNCTION__, pid);
+ent->getPageList()->Dump();
     
                     if (pid_list.size() == 0) {
                         // last pid to have this file open.  remove this key/value
@@ -644,7 +652,6 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) >>> closing file and flushing", __FILE__, __LINE
 ent->getPageList()->Dump();
 
                flush_buffer(path, ent->GetFd());
-    
                FdManager::get()->Close(ent);
                StatCache::getStatCacheData()->DelStat(path.c_str());
                FdManager::DeleteCacheFile(path.c_str());
