@@ -139,7 +139,7 @@ class PageList
     bool Parse(off_t new_pos);
 
   public:
-    static std::shared_ptr<boost::interprocess::named_upgradable_mutex> named_mtx; 
+    //static std::shared_ptr<boost::interprocess::named_upgradable_mutex> named_mtx; 
     static void FreeList(fdpage_list_t& list);
     static void FreeList(fdpage_list_non_shared_t& list);
 

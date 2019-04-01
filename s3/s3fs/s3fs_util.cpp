@@ -456,7 +456,7 @@ AutoLockInterprocess::AutoLockInterprocess(boost::interprocess::interprocess_rec
     is_lock_acquired = mutex->try_lock() == true;
   } else {
     mutex->lock();
-	rodsLog(LOG_NOTICE, "%s:%d (%s) LOCKED", __FILE__, __LINE__, __FUNCTION__);
+//rodsLog(LOG_NOTICE, "%s:%d (%s) LOCKED", __FILE__, __LINE__, __FUNCTION__);
     is_lock_acquired = true;
   }
 }
@@ -469,7 +469,7 @@ bool AutoLockInterprocess::isLockAcquired() const
 AutoLockInterprocess::~AutoLockInterprocess()
 {
   if (is_lock_acquired) {
-	rodsLog(LOG_NOTICE, "%s:%d (%s) UNLOCK", __FILE__, __LINE__, __FUNCTION__);
+//rodsLog(LOG_NOTICE, "%s:%d (%s) UNLOCK", __FILE__, __LINE__, __FUNCTION__);
     auto_mutex->unlock();
   }
 }

@@ -285,7 +285,6 @@ bool PageList::Init(size_t size, bool is_loaded)
 rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
 
   auto segment = irods_s3_cacheless::get_shared_memory_segment();
-  auto named_mtx = irods_s3_cacheless::get_named_mutex();
   void_allocator alloc_inst (segment->get_segment_manager());
 
   if (pages == nullptr) {
@@ -708,6 +707,8 @@ FdEntity::FdEntity(const char* tpath, const char* cpath)
 
     fdent_lock = segment->find_or_construct<boost::interprocess::interprocess_recursive_mutex>(mutex_name.c_str())();
 
+rodsLog(LOG_NOTICE, "%s:%d (%s) fdent_lock is %p", __FILE__, __LINE__, __FUNCTION__, &fdent_lock);
+
     is_lock_init = true;
 	pagelist.path = SAFESTRPTR(tpath);
   }catch(exception& e){
@@ -782,6 +783,7 @@ void FdEntity::Close(void)
 
 	  // remove pagelist from shared memory
       auto segment = irods_s3_cacheless::get_shared_memory_segment();
+	  pagelist.Clear();
 	  segment->destroy<fdpage_list_t>(path.c_str());
 	  pagelist.pages = nullptr;
 

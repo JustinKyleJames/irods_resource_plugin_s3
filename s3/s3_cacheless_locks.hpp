@@ -13,6 +13,16 @@
 
 namespace irods_s3_cacheless {
 
+    // Class AutoLockNamedMutex - RAAI wrapper for named_upgradable_mutex
+    class AutoLockNamedMutex
+    {
+     private:
+         std::shared_ptr<boost::interprocess::named_upgradable_mutex> auto_mutex;
+     public:
+         explicit AutoLockNamedMutex(std::shared_ptr<boost::interprocess::named_upgradable_mutex> mtx);
+         ~AutoLockNamedMutex();
+    };
+
     typedef boost::interprocess::named_sharable_mutex mutex_type;
     
     void unlockReadMutex( const char*, mutex_type **mutex );

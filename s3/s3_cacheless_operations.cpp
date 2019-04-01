@@ -161,8 +161,18 @@ namespace irods_s3_cacheless {
     }
 
     void flush_buffer(std::string& path, int fh) {
+
+        // This mutex protects another mutex which is created
+        // in the FdEntity constructor.
+        auto named_mtx = get_named_mutex();
+
         FdEntity* ent;
-        if (NULL != (ent = FdManager::get()->ExistOpen(path.c_str(), fh))) {
+        {
+            AutoLockNamedMutex mtx(named_mtx);
+            ent = FdManager::get()->ExistOpen(path.c_str(), fh);
+        }
+
+        if (nullptr != ent) {
             //ent->UpdateMtime();
             ent->Flush(false);
             //FdManager::get()->Close(ent);
@@ -228,13 +238,20 @@ rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
           return ERROR(S3_PUT_ERROR, (boost::format("Error in %s.  Code is %d") % __FUNCTION__ % result).str());
         }
 
-
         FdEntity*   ent;
-        headers_t   meta;
-        get_object_attribute(path.c_str(), NULL, &meta, true, NULL, true);    // no truncate cache
-        if(NULL == (ent = FdManager::get()->Open(path.c_str(), &meta, 0, -1, false, true))){
-          StatCache::getStatCacheData()->DelStat(path.c_str());
-          return ERROR(S3_PUT_ERROR, (boost::format("Error in %s.  Code is EIO") % __FUNCTION__));
+
+        // This mutex protects the PID map as well as another mutex which is created
+        // in the FdEntity constructor.
+        auto named_mtx = get_named_mutex();
+        {
+            AutoLockNamedMutex mtx(named_mtx);
+    
+            headers_t   meta;
+            get_object_attribute(path.c_str(), NULL, &meta, true, NULL, true);    // no truncate cache
+            if(NULL == (ent = FdManager::get()->Open(path.c_str(), &meta, 0, -1, false, true))){
+                StatCache::getStatCacheData()->DelStat(path.c_str());
+                return ERROR(S3_PUT_ERROR, (boost::format("Error in %s.  Code is EIO") % __FUNCTION__));
+            }
         }
 
         // create an iRODS file descriptor
@@ -249,35 +266,31 @@ rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
         int pid = getpid();
 
         auto segment = get_shared_memory_segment();
-        //auto named_mtx = get_named_mutex();
         void_allocator alloc_inst (segment->get_segment_manager());
-
-	    std::string mutex_name = "pidmap.lock";
-        auto named_mtx = segment->find_or_construct<boost::interprocess::interprocess_recursive_mutex>(mutex_name.c_str())();
+       
+        {
+            AutoLockNamedMutex mtx(named_mtx);
+            file_to_pid_map_t *pid_map = segment->find_or_construct<file_to_pid_map_t>
+                ("FileToPidMap")(std::less<char_string>(), alloc_inst);
     
-        AutoLockInterprocess auto_lock(named_mtx); 
-
-        file_to_pid_map_t *pid_map = segment->find_or_construct<file_to_pid_map_t>
-            ("FileToPidMap")(std::less<char_string>(), alloc_inst);
-
-        char_string key_object(alloc_inst);
-        key_object = path.c_str();
-        auto pid_map_iter = pid_map->find(key_object);
-        if (pid_map_iter != pid_map->end()) {
-            auto& pid_list = pid_map_iter->second;
-            if (std::find(pid_list.begin(), pid_list.end(), pid) == pid_list.end()) {
+            char_string key_object(alloc_inst);
+            key_object = path.c_str();
+            auto pid_map_iter = pid_map->find(key_object);
+            if (pid_map_iter != pid_map->end()) {
+                auto& pid_list = pid_map_iter->second;
+                if (std::find(pid_list.begin(), pid_list.end(), pid) == pid_list.end()) {
+                    pid_list.push_back(pid);
+rodsLog(LOG_NOTICE, "%s:%d (%s) Added PID: %d", __FILE__, __LINE__, __FUNCTION__, pid);
+                }
+            } else {
+                int_vector pid_list(alloc_inst);
                 pid_list.push_back(pid);
+                map_value_type value(key_object, pid_list);
+                pid_map->insert(value);
 rodsLog(LOG_NOTICE, "%s:%d (%s) Added PID: %d", __FILE__, __LINE__, __FUNCTION__, pid);
             }
-        } else {
-            int_vector pid_list(alloc_inst);
-            pid_list.push_back(pid);
-            map_value_type value(key_object, pid_list);
-            pid_map->insert(value);
-rodsLog(LOG_NOTICE, "%s:%d (%s) Added PID: %d", __FILE__, __LINE__, __FUNCTION__, pid);
         }
 
- 
         return SUCCESS();
     }
 
@@ -310,12 +323,13 @@ rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
         //auto named_mtx = get_named_mutex();
         void_allocator alloc_inst (segment->get_segment_manager());
     
-	    std::string mutex_name = "pidmap.lock";
-        auto named_mtx = segment->find_or_construct<boost::interprocess::interprocess_recursive_mutex>(mutex_name.c_str())();
+        // This mutex protects the PID map as well as another mutex which is created
+        // in the FdEntity constructor.
+        auto named_mtx = get_named_mutex();
 
         {
-            AutoLockInterprocess auto_lock(named_mtx); 
-    
+            AutoLockNamedMutex mtx(named_mtx);
+        
             file_to_pid_map_t *pid_map = segment->find_or_construct<file_to_pid_map_t>
                 ("FileToPidMap")(std::less<char_string>(), alloc_inst);
     
@@ -336,7 +350,6 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) Added PID: %d", __FILE__, __LINE__, __FUNCTION__
 rodsLog(LOG_NOTICE, "%s:%d (%s) Added PID: %d", __FILE__, __LINE__, __FUNCTION__, pid);
             }
         }
-
 
         bool needs_flush = false;
 
@@ -367,15 +380,17 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) Added PID: %d", __FILE__, __LINE__, __FUNCTION__
                 needs_flush = true;
             }    
         }
-
+     
         FdEntity*   ent;
-        //headers_t   meta;
-        //get_object_attribute(path.c_str(), NULL, &meta, true, NULL, true);    // no truncate cache
-        if(NULL == (ent = FdManager::get()->Open(path.c_str(), &meta, st.st_size, -1, false, true))){
-          StatCache::getStatCacheData()->DelStat(path.c_str());
-
-          // TODO create S3_OPEN_ERROR
-          return ERROR(S3_FILE_STAT_ERR, (boost::format("%s:  Error opening %s.") % __FUNCTION__ % path.c_str()));
+        {
+            AutoLockNamedMutex mtx(named_mtx);
+            //headers_t   meta;
+            //get_object_attribute(path.c_str(), NULL, &meta, true, NULL, true);    // no truncate cache
+            if(NULL == (ent = FdManager::get()->Open(path.c_str(), &meta, st.st_size, -1, false, true))){
+                StatCache::getStatCacheData()->DelStat(path.c_str());
+                // TODO create S3_OPEN_ERROR
+                return ERROR(S3_FILE_STAT_ERR, (boost::format("%s:  Error opening %s.") % __FUNCTION__ % path.c_str()));
+            }
         }
 
         if (needs_flush){
@@ -400,7 +415,6 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) Added PID: %d", __FILE__, __LINE__, __FUNCTION__
         if ((unsigned int)flags & O_APPEND) {
             s3FileLseekPlugin(_ctx, 0, SEEK_END);
         } 
-
 
         S3FS_MALLOCTRIM(0);
 
@@ -441,12 +455,19 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) Added PID: %d", __FILE__, __LINE__, __FUNCTION__
         ssize_t readReturnVal;
 
         FdEntity* ent;
-        if(NULL == (ent = FdManager::get()->ExistOpen(path.c_str(), fd))) {
-          S3FS_PRN_ERR("could not find opened fd(%d) for %s", fd, path.c_str());
-          return ERROR(S3_GET_ERROR, (boost::format("%s: Could not find opened fd(%s) for %s") % __FUNCTION__ % fd % path.c_str()));
-        }
-        if(ent->GetFd() != fd){
-          S3FS_PRN_WARN("different fd(%d - %llu)", ent->GetFd(), (unsigned long long)(fd));
+
+        // This mutex protects another mutex which is created
+        // in the FdEntity constructor.
+        auto named_mtx = get_named_mutex();
+        {
+            AutoLockNamedMutex mtx(named_mtx);
+            if(NULL == (ent = FdManager::get()->ExistOpen(path.c_str(), fd))) {
+                S3FS_PRN_ERR("could not find opened fd(%d) for %s", fd, path.c_str());
+                return ERROR(S3_GET_ERROR, (boost::format("%s: Could not find opened fd(%s) for %s") % __FUNCTION__ % fd % path.c_str()));
+            }
+            if(ent->GetFd() != fd){
+                S3FS_PRN_WARN("different fd(%d - %llu)", ent->GetFd(), (unsigned long long)(fd));
+            }
         }
 
         // read the offset from the cache
@@ -541,13 +562,21 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) Added PID: %d", __FILE__, __LINE__, __FUNCTION__
 
         S3FS_PRN_DBG("[path=%s][size=%zu][fd=%llu]", path.c_str(), _len, (unsigned long long)(fd));
 
-        FdEntity* ent;
-        if(NULL == (ent = FdManager::get()->ExistOpen(path.c_str(), static_cast<int>(fd)))){
-            S3FS_PRN_ERR("could not find opened fd(%s)", path.c_str());
-            return ERROR(S3_PUT_ERROR, (boost::format("%s: - Could not find opened fd(%s)") % __FUNCTION__ % fd));
-        }
-        if(ent->GetFd() != fd) {
-            S3FS_PRN_WARN("different fd(%d - %llu)", ent->GetFd(), (unsigned long long)(fd));
+         FdEntity* ent;
+
+        // This mutex protects another mutex which is created
+        // in the FdEntity constructor.
+        auto named_mtx = get_named_mutex();
+        {
+            AutoLockNamedMutex mtx(named_mtx);
+
+            if(NULL == (ent = FdManager::get()->ExistOpen(path.c_str(), static_cast<int>(fd)))){
+                S3FS_PRN_ERR("could not find opened fd(%s)", path.c_str());
+                return ERROR(S3_PUT_ERROR, (boost::format("%s: - Could not find opened fd(%s)") % __FUNCTION__ % fd));
+            }
+            if(ent->GetFd() != fd) {
+                S3FS_PRN_WARN("different fd(%d - %llu)", ent->GetFd(), (unsigned long long)(fd));
+            }
         }
 
         // read the offset from the cache
@@ -603,50 +632,52 @@ rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
         FileOffsetManager::get()->delete_entry(irods_fd);
 
 
+        // This mutex protects the PID map and another mutex which is created
+        // in the FdEntity constructor.
+        auto named_mtx = get_named_mutex();
+
         FdEntity*   ent;
 
         bool flush_and_cleanup = false;
- 
-        // we are finished with only close if only one is open 
-        if(NULL != (ent = FdManager::get()->ExistOpen(path.c_str())) && !FileOffsetManager::get()->fd_exists(ent->GetFd())){
-
-            // check if this is the last thread with this pid.  remove the pid from the shared memory pid map.
-            int pid = getpid();
     
-            auto segment = get_shared_memory_segment();
-            //auto named_mtx = get_named_mutex();
-            void_allocator alloc_inst (segment->get_segment_manager());
-
-	        std::string mutex_name = "pidmap.lock";
-            auto named_mtx = segment->find_or_construct<boost::interprocess::interprocess_recursive_mutex>(mutex_name.c_str())();
-  
-            { 
-                AutoLockInterprocess auto_lock(named_mtx); 
+        { 
+            AutoLockNamedMutex mtx(named_mtx);
+            // we are finished with only close if only one is open 
+            if(NULL != (ent = FdManager::get()->ExistOpen(path.c_str())) && !FileOffsetManager::get()->fd_exists(ent->GetFd())){
+    
+                // check if this is the last thread with this pid.  remove the pid from the shared memory pid map.
+                int pid = getpid();
         
+                auto segment = get_shared_memory_segment();
+                //auto named_mtx = get_named_mutex();
+                void_allocator alloc_inst (segment->get_segment_manager());
+    
+            
                 file_to_pid_map_t *pid_map = segment->find_or_construct<file_to_pid_map_t>
                     ("FileToPidMap")(std::less<char_string>(), alloc_inst);
-    
+        
                 char_string key_object(alloc_inst);
                 key_object = path.c_str();
                 auto pid_map_iter = pid_map->find(key_object);
-    
+        
                 // this test should always succeed
                 if (pid_map_iter != pid_map->end()) {
                     auto& pid_list = pid_map_iter->second;
                     pid_list.erase(std::remove(pid_list.begin(), pid_list.end(), pid), pid_list.end());
-rodsLog(LOG_NOTICE, "%s:%d (%s) Removed  PID: %d", __FILE__, __LINE__, __FUNCTION__, pid);
-ent->getPageList()->Dump();
-    
-                    if (pid_list.size() == 0) {
-                        // last pid to have this file open.  remove this key/value
-                        // from the pid map
-                        pid_map->erase(pid_map_iter, pid_map->end());
-                        flush_and_cleanup = true;
-                    }
-                }
-           }
+    rodsLog(LOG_NOTICE, "%s:%d (%s) Removed  PID: %d", __FILE__, __LINE__, __FUNCTION__, pid);
+    ent->getPageList()->Dump();
+        
+               if (pid_list.size() == 0) {
+                       // last pid to have this file open.  remove this key/value
+                       // from the pid map
+                       pid_map->erase(pid_map_iter, pid_map->end());
+                       flush_and_cleanup = true;
+                   }
+               }
+            }
+        }
 
-           if (flush_and_cleanup) {
+        if (flush_and_cleanup) {
     
 rodsLog(LOG_NOTICE, "%s:%d (%s) >>> closing file and flushing", __FILE__, __LINE__, __FUNCTION__);
 ent->getPageList()->Dump();
@@ -655,9 +686,8 @@ ent->getPageList()->Dump();
                FdManager::get()->Close(ent);
                StatCache::getStatCacheData()->DelStat(path.c_str());
                FdManager::DeleteCacheFile(path.c_str());
-           }
-
         }
+
         S3FS_MALLOCTRIM(0);
         result.code(0);
         return result;
@@ -733,17 +763,24 @@ ent->getPageList()->Dump();
         // If has already opened fd, the st_size should be instead.
         // (See: Issue 241)
         if(_statbuf){
-          FdEntity*   ent;
+            // This mutex protects another mutex which is created
+            // in the FdEntity constructor.
+            auto named_mtx = get_named_mutex();
+
+            {
+                AutoLockNamedMutex mtx(named_mtx);
+                FdEntity*   ent;
       
-          if(NULL != (ent = FdManager::get()->ExistOpen(path.c_str()))){
-            struct stat tmpstbuf;
-            if(ent->GetStats(tmpstbuf)){
-              _statbuf->st_size = tmpstbuf.st_size;
+                if(NULL != (ent = FdManager::get()->ExistOpen(path.c_str()))){
+                    struct stat tmpstbuf;
+                    if(ent->GetStats(tmpstbuf)){
+                        _statbuf->st_size = tmpstbuf.st_size;
+                    }
+                    //FdManager::get()->Close(ent);
+                }
             }
-            //FdManager::get()->Close(ent);
-          }
-          _statbuf->st_blksize = 4096;
-          _statbuf->st_blocks  = get_blocks(_statbuf->st_size);
+            _statbuf->st_blksize = 4096;
+            _statbuf->st_blocks  = get_blocks(_statbuf->st_size);
         }
         S3FS_PRN_DBG("[path=%s] uid=%u, gid=%u, mode=%04o", path.c_str(), (unsigned int)(_statbuf->st_uid), (unsigned int)(_statbuf->st_gid), _statbuf->st_mode);
         S3FS_MALLOCTRIM(0);
@@ -792,12 +829,20 @@ ent->getPageList()->Dump();
         }
 
         FdEntity* ent;
-        if(NULL == (ent = FdManager::get()->ExistOpen(path.c_str(), static_cast<int>(fd)))){
-          S3FS_PRN_ERR("could not find opened fd(%s)", path.c_str());
-          return ERROR(S3_FILE_STAT_ERR, (boost::format("%s: - Could not find opened fd(%s)") % __FUNCTION__ % fd));
-        }
-        if(ent->GetFd() != fd) {
-            S3FS_PRN_WARN("different fd(%d - %llu)", ent->GetFd(), fd);
+
+        // This mutex protects another mutex which is created
+        // in the FdEntity constructor.
+        auto named_mtx = get_named_mutex();
+        {
+            AutoLockNamedMutex mtx(named_mtx);
+
+            if(NULL == (ent = FdManager::get()->ExistOpen(path.c_str(), static_cast<int>(fd)))){
+              S3FS_PRN_ERR("could not find opened fd(%s)", path.c_str());
+              return ERROR(S3_FILE_STAT_ERR, (boost::format("%s: - Could not find opened fd(%s)") % __FUNCTION__ % fd));
+            }
+            if(ent->GetFd() != fd) {
+                S3FS_PRN_WARN("different fd(%d - %llu)", ent->GetFd(), fd);
+            }
         }
 
         // update the position based on the _offset and _whence

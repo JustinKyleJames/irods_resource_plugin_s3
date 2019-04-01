@@ -12,6 +12,18 @@ extern std::string s3_resource_name;
 
 namespace irods_s3_cacheless {
 
+    // Class AutoLockNamedMutex - RAAI wrapper for named_upgradable_mutex
+    AutoLockNamedMutex::AutoLockNamedMutex(std::shared_ptr<bi::named_upgradable_mutex> mtx) : auto_mutex(mtx)
+    {
+        auto_mutex->lock();
+    }
+    
+    AutoLockNamedMutex::~AutoLockNamedMutex()
+    {
+        auto_mutex->unlock();
+    }
+
+
     // a map which maps the resource name to the shared memory segment for that resource
     std::map<std::string, std::shared_ptr<bi::named_upgradable_mutex> > named_mutexes;
 
