@@ -268,9 +268,7 @@ const char *s3GetHostname()
     if (g_hostname.empty()) {
         return NULL; // Short-circuit default case
     }
-    if (g_hostname.empty()) {
-        g_hostnameIdxLock.lock();
-    }
+    g_hostnameIdxLock.lock();
     char *ret = g_hostname[g_hostnameIdx];
     g_hostnameIdx = (g_hostnameIdx + 1) % g_hostname.size();
     g_hostnameIdxLock.unlock();
