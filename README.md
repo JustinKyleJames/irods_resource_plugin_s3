@@ -92,12 +92,12 @@ An additional flag called HOST_MODE is used to enable cacheless mode.  The defau
 
 Note that the cacheless_detached mode is still a work-in-progress.
 
-The cacheless version uses a local cache directory temporarily during uploads and downloads.  This is set using the S3_CACHE_DIR parameter in the context.
+The cacheless version uses a local cache directory temporarily during uploads and downloads.  This can be set using the S3_CACHE_DIR parameter in the context.  If it is not set a directory under /tmp will be created and used.
 
 The following is an example of how to configure a cacheless_attached S3 resource:
 
 ~~~~
-iadmin mkresc s3resc s3 `hostname`:/irods-bucket/irods/Vault "S3_DEFAULT_HOSTNAME=s3.amazonaws.com;S3_AUTH_FILE=/var/lib/irods/s3.keypair;S3_REGIONNAME=us-east-1;S3_RETRY_COUNT=1;S3_WAIT_TIME_SEC=3;S3_PROTO=HTTP;ARCHIVE_NAMING_POLICY=consistent;HOST_MODE=cacheless_attached;S3_CACHE_DIR=/var/lib/irods/cachedir1"
+iadmin mkresc s3resc s3 `hostname`:/irods-bucket/irods/Vault "S3_DEFAULT_HOSTNAME=s3.amazonaws.com;S3_AUTH_FILE=/var/lib/irods/s3.keypair;S3_REGIONNAME=us-east-1;S3_RETRY_COUNT=1;S3_WAIT_TIME_SEC=3;S3_PROTO=HTTP;ARCHIVE_NAMING_POLICY=consistent;HOST_MODE=cacheless_attached"
 ~~~~
 
 
