@@ -41,6 +41,7 @@
 #include <libxml/xpath.h>
 #include <libxml/xpathInternals.h>
 #include <libxml/tree.h>
+#include <thread>
 
 
 extern size_t g_retry_count;
@@ -393,9 +394,11 @@ namespace irods_s3_cacheless {
         }
 rodsLog(LOG_NOTICE, "%s:%d (%s) [_len=%d][offset=%jd][realsize=%zu]", __FILE__, __LINE__, __FUNCTION__, _len, offset, realsize);
 
-        // Go ahead and read entire file
-        bool thread_controls_read = ent->waitForRead();
-rodsLog(LOG_NOTICE, "%s:%d (%s) ***** thread_controls_read = %d *****", __FILE__, __LINE__, __FUNCTION__, thread_controls_read);
+        // if it isn't started, start a thread to read entire file
+        ent->start_read_thread(_ctx, 0, realsize);
+
+        // wait until my requested part has been read 
+        ent->wait_for_read();
 
         // read the file size into st.st_size to mimic posix read semantics
         // TODO check performance of this.
@@ -412,14 +415,6 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) ***** thread_controls_read = %d *****", __FILE__
             return result;
         }
 
-        if (thread_controls_read) {
-            // preload entire file to cache
-ent->pagelist.Dump();
-            ent->Load(0, realsize);
-rodsLog(LOG_NOTICE, "%s:%d (%s) ----------------------- original read done ----------------------------", __FILE__, __LINE__, __FUNCTION__);
-            ent->signalReadDone();
-        } 
-    
         // now this should just read from cache 
         //readReturnVal = ent->Read(static_cast<char*>(_buf), offset, _len, true);
         readReturnVal = ent->Read(static_cast<char*>(_buf), offset, _len, false);
