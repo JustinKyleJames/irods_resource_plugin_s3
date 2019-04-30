@@ -42,6 +42,7 @@
 #include <utime.h>
 #include <condition_variable>
 #include <mutex>
+#include <thread>
 
 #include "common.h"
 #include "fdcache.h"
@@ -52,6 +53,7 @@
 
 #include <rodsLog.h>
 #include <irods_stacktrace.hpp>
+#include "../s3_cacheless_operations.hpp"
 
 using namespace std;
 
@@ -709,24 +711,34 @@ FdEntity::~FdEntity()
   }
 }
 
-// if read is in progress, it waits for the read_object_cv and returns false
-// if read is not in progress, it sets the read_in_progress variable and returns true
-bool FdEntity::waitForRead() {
-	std::unique_lock<std::mutex> lck(cv_mtx);
-    if (!read_in_progress) {
-	    read_in_progress = true;
-	    return true;
-	} else {
-		// read is in progress, wait for a signal that it is done
-		read_object_cv.wait(lck);
-		return false;
-    }
-}
+void FdEntity::read_entire_file(irods::plugin_context ctx, size_t start_offset, size_t file_size) {
 
-void FdEntity::signalReadDone() {
+	irods_s3_cacheless::set_s3_configuration_from_context(ctx.prop_map());
+
+	// read entire file
+	Load(start_offset, file_size - start_offset);
+
+	if (start_offset != 0) {
+		Load(0, start_offset);
+	}
+
+	// notify all who are waiting that read is done
 	std::unique_lock<std::mutex> lck(cv_mtx);
 	read_object_cv.notify_all();
 	read_in_progress = false;
+}
+
+void FdEntity::start_read_thread(irods::plugin_context& ctx, size_t start_offset, size_t file_size) {
+	std::unique_lock<std::mutex> lck(cv_mtx);
+    if (!read_in_progress) {
+	    read_in_progress = true;
+		std::thread read_thread(&FdEntity::read_entire_file, this, ctx, start_offset, file_size);
+	} 
+}
+
+void FdEntity::wait_for_read() {
+	std::unique_lock<std::mutex> lck(cv_mtx);
+	read_object_cv.wait(lck);
 }
 
 void FdEntity::Clear(void)

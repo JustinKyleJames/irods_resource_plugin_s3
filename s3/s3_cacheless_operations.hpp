@@ -14,6 +14,8 @@
 
 namespace irods_s3_cacheless {
 
+    irods::error set_s3_configuration_from_context(irods::plugin_property_map& _prop_map); 
+
     // =-=-=-=-=-=-=-
     // interface for file registration
     irods::error s3RegisteredPlugin( irods::plugin_context& _ctx); 
