@@ -27,6 +27,7 @@
 #include "psemaphore.h"
 #include <curl/curl.h>
 #include "common.h"
+#include <condition_variable>
 
 //----------------------------------------------
 // Symbols
@@ -311,9 +312,10 @@ class S3fsCurl
     static size_t UploadReadCallback(void *ptr, size_t size, size_t nmemb, void *userp);
     static size_t DownloadWriteCallback(void* ptr, size_t size, size_t nmemb, void* userp);
 
-    static bool UploadMultipartPostCallback(S3fsCurl* s3fscurl);
-    static S3fsCurl* UploadMultipartPostRetryCallback(S3fsCurl* s3fscurl);
-    static S3fsCurl* ParallelGetObjectRetryCallback(S3fsCurl* s3fscurl);
+    static bool UploadMultipartPostCallback(S3fsCurl* s3fscurl, std::condition_variable *cv);
+    static S3fsCurl* UploadMultipartPostRetryCallback(S3fsCurl* s3fscurl, std::condition_variable *cv);
+    static bool ParallelGetObjectSuccessCallback(S3fsCurl* s3fscurl, std::condition_variable *cv);
+    static S3fsCurl* ParallelGetObjectRetryCallback(S3fsCurl* s3fscurl, std::condition_variable *cv);
 
     static bool ParseIAMCredentialResponse(const char* response, iamcredmap_t& keyval);
     static bool SetIAMCredentials(const char* response);
@@ -348,7 +350,7 @@ class S3fsCurl
     static bool InitS3fsCurl(const char* MimeFile = NULL);
     static bool DestroyS3fsCurl(void);
     static int ParallelMultipartUploadRequest(const char* tpath, headers_t& meta, int fd);
-    static int ParallelGetObjectRequest(const char* tpath, int fd, off_t start, ssize_t size);
+    static int ParallelGetObjectRequest(const char* tpath, int fd, off_t start, ssize_t size, std::condition_variable *cv);
     static bool CheckIAMCredentialUpdate(void);
 
     // class methods(variables)
@@ -428,7 +430,7 @@ class S3fsCurl
     int PutHeadRequest(const char* tpath, headers_t& meta, bool is_copy);
     int PutRequest(const char* tpath, headers_t& meta, int fd);
     int PreGetObjectRequest(const char* tpath, int fd, off_t start, ssize_t size, sse_type_t ssetype, std::string& ssevalue);
-    int GetObjectRequest(const char* tpath, int fd, off_t start = -1, ssize_t size = -1);
+    int GetObjectRequest(const char* tpath, int fd, off_t start = -1, ssize_t size = -1, std::condition_variable *cv = nullptr);
     int CheckBucket(void);
     int ListBucketRequest(const char* tpath, const char* query);
     int PreMultipartPostRequest(const char* tpath, headers_t& meta, std::string& upload_id, bool is_copy);
@@ -468,8 +470,8 @@ class S3fsCurl
 // Class for lapping multi curl
 //
 typedef std::map<CURL*, S3fsCurl*> s3fscurlmap_t;
-typedef bool (*S3fsMultiSuccessCallback)(S3fsCurl* s3fscurl);    // callback for succeed multi request
-typedef S3fsCurl* (*S3fsMultiRetryCallback)(S3fsCurl* s3fscurl); // callback for failure and retrying
+typedef bool (*S3fsMultiSuccessCallback)(S3fsCurl* s3fscurl, std::condition_variable *cv);    // callback for succeed multi request
+typedef S3fsCurl* (*S3fsMultiRetryCallback)(S3fsCurl* s3fscurl, std::condition_variable *cv); // callback for failure and retrying
 
 class S3fsMultiCurl
 {
@@ -485,7 +487,7 @@ class S3fsMultiCurl
   private:
     bool ClearEx(bool is_all);
     int MultiPerform(void);
-    int MultiRead(void);
+    int MultiRead(std::condition_variable *cv);
 
     static void* RequestPerformWrapper(void* arg);
 
@@ -496,11 +498,12 @@ class S3fsMultiCurl
     static int SetMaxMultiRequest(int max);
     static int GetMaxMultiRequest(void) { return S3fsMultiCurl::max_multireq; }
 
+	// cv is for sending notifications to threads waiting for them
     S3fsMultiSuccessCallback SetSuccessCallback(S3fsMultiSuccessCallback function);
     S3fsMultiRetryCallback SetRetryCallback(S3fsMultiRetryCallback function);
     bool Clear(void) { return ClearEx(true); }
     bool SetS3fsCurlObject(S3fsCurl* s3fscurl);
-    int Request(void);
+    int Request(std::condition_variable *cv);
 };
 
 //----------------------------------------------

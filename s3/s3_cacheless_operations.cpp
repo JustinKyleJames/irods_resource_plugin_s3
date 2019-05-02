@@ -395,10 +395,17 @@ namespace irods_s3_cacheless {
 rodsLog(LOG_NOTICE, "%s:%d (%s) [_len=%d][offset=%jd][realsize=%zu]", __FILE__, __LINE__, __FUNCTION__, _len, offset, realsize);
 
         // if it isn't started, start a thread to read entire file
-        ent->start_read_thread(_ctx, 0, realsize);
+        bool first_reader = ent->start_read_thread(_ctx, offset, _len, realsize);
 
         // wait until my requested part has been read 
-        ent->wait_for_read();
+
+        // First reader has its portion read in start_read_thread so it does not have to wait.
+        // All others must wait for background read to complete.
+        if (!first_reader) {
+rodsLog(LOG_NOTICE, "%s:%d (%s) Wait for Notify [offset=%jd]", __FILE__, __LINE__, __FUNCTION__, offset);
+            ent->wait_for_read(offset, _len);
+rodsLog(LOG_NOTICE, "%s:%d (%s) Got Notify [offset=%jd]", __FILE__, __LINE__, __FUNCTION__, offset);
+        }
 
         // read the file size into st.st_size to mimic posix read semantics
         // TODO check performance of this.
