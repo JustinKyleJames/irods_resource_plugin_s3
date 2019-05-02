@@ -45,6 +45,7 @@
 #include <vector>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <condition_variable>
 
 
 #include "common.h"
@@ -1246,7 +1247,7 @@ int S3fsCurl::SetMaxParallelCount(int value)
   return old;
 }
 
-bool S3fsCurl::UploadMultipartPostCallback(S3fsCurl* s3fscurl)
+bool S3fsCurl::UploadMultipartPostCallback(S3fsCurl* s3fscurl, std::condition_variable *cv)
 {
   if(!s3fscurl){
     return false;
@@ -1255,7 +1256,7 @@ bool S3fsCurl::UploadMultipartPostCallback(S3fsCurl* s3fscurl)
   return s3fscurl->UploadMultipartPostComplete();
 }
 
-S3fsCurl* S3fsCurl::UploadMultipartPostRetryCallback(S3fsCurl* s3fscurl)
+S3fsCurl* S3fsCurl::UploadMultipartPostRetryCallback(S3fsCurl* s3fscurl, std::condition_variable *cv)
 {
   if(!s3fscurl){
     return NULL;
@@ -1367,7 +1368,7 @@ int S3fsCurl::ParallelMultipartUploadRequest(const char* tpath, headers_t& meta,
   }
 
   // Multi request
-  if(0 != (result = curlmulti.Request())){
+  if(0 != (result = curlmulti.Request(nullptr))){
     S3FS_PRN_ERR("error occurred in multi request(errno=%d).", result);
     return result;
   }
@@ -1380,7 +1381,27 @@ int S3fsCurl::ParallelMultipartUploadRequest(const char* tpath, headers_t& meta,
   return 0;
 }
 
-S3fsCurl* S3fsCurl::ParallelGetObjectRetryCallback(S3fsCurl* s3fscurl)
+
+bool S3fsCurl::ParallelGetObjectSuccessCallback(S3fsCurl* s3fscurl, std::condition_variable *cv)
+{
+rodsLog(LOG_NOTICE, "%s:%d (%s) --------------------------------", __FILE__, __LINE__, __FUNCTION__);
+rodsLog(LOG_NOTICE, "%s:%d (%s) ParallelGetObjectSuccessCallback", __FILE__, __LINE__, __FUNCTION__);
+rodsLog(LOG_NOTICE, "%s:%d (%s) --------------------------------", __FILE__, __LINE__, __FUNCTION__);
+
+  // notify threads waiting on a change of status loading cache
+rodsLog(LOG_NOTICE, "%s:%d (%s) Notify all", __FILE__, __LINE__, __FUNCTION__);
+  //cv->notify_all();
+
+  if(!s3fscurl){
+    return false;
+  }
+
+  return true;  // ???
+  //return s3fscurl->UploadMultipartPostComplete();
+}
+
+
+S3fsCurl* S3fsCurl::ParallelGetObjectRetryCallback(S3fsCurl* s3fscurl, std::condition_variable *cv)
 {
   int result;
 
@@ -1388,6 +1409,11 @@ S3fsCurl* S3fsCurl::ParallelGetObjectRetryCallback(S3fsCurl* s3fscurl)
     return NULL;
   }
   if(s3fscurl->retry_count >= S3fsCurl::retries){
+
+	// TODO set bailout status and notify all
+rodsLog(LOG_NOTICE, "%s:%d (%s) Notify all", __FILE__, __LINE__, __FUNCTION__);
+	cv->notify_all();
+
     S3FS_PRN_ERR("Over retry count(%d) limit(%s).", s3fscurl->retry_count, s3fscurl->path.c_str());
     return NULL;
   }
@@ -1397,16 +1423,22 @@ S3fsCurl* S3fsCurl::ParallelGetObjectRetryCallback(S3fsCurl* s3fscurl)
   if(0 != (result = newcurl->PreGetObjectRequest(s3fscurl->path.c_str(), s3fscurl->partdata.fd,
      s3fscurl->partdata.startpos, s3fscurl->partdata.size, s3fscurl->b_ssetype, s3fscurl->b_ssevalue)))
   {
+	// TODO set bailout status and notify all
+rodsLog(LOG_NOTICE, "%s:%d (%s) Notify all", __FILE__, __LINE__, __FUNCTION__);
+	cv->notify_all();
+
     S3FS_PRN_ERR("failed downloading part setup(%d)", result);
     delete newcurl;
     return NULL;;
   }
   newcurl->retry_count = s3fscurl->retry_count + 1;
 
+rodsLog(LOG_NOTICE, "%s:%d (%s) Notify all", __FILE__, __LINE__, __FUNCTION__);
+  cv->notify_all();
   return newcurl;
 }
 
-int S3fsCurl::ParallelGetObjectRequest(const char* tpath, int fd, off_t start, ssize_t size)
+int S3fsCurl::ParallelGetObjectRequest(const char* tpath, int fd, off_t start, ssize_t size, std::condition_variable *cv)
 {
   S3FS_PRN_DBG("[tpath=%s][fd=%d]", SAFESTRPTR(tpath), fd);
 
@@ -1425,7 +1457,7 @@ int S3fsCurl::ParallelGetObjectRequest(const char* tpath, int fd, off_t start, s
     off_t         chunk;
 
     // Initialize S3fsMultiCurl
-    //curlmulti.SetSuccessCallback(NULL);   // not need to set success callback
+    curlmulti.SetSuccessCallback(S3fsCurl::ParallelGetObjectSuccessCallback);   // not need to set success callback
     curlmulti.SetRetryCallback(S3fsCurl::ParallelGetObjectRetryCallback);
 
     // Loop for setup parallel upload(multipart) request.
@@ -1450,7 +1482,7 @@ int S3fsCurl::ParallelGetObjectRequest(const char* tpath, int fd, off_t start, s
     }
 
     // Multi request
-    if(0 != (result = curlmulti.Request())){
+    if(0 != (result = curlmulti.Request(cv))){
       S3FS_PRN_ERR("error occurred in multi request(errno=%d).", result);
       break;
     }
@@ -3052,7 +3084,7 @@ int S3fsCurl::PreGetObjectRequest(const char* tpath, int fd, off_t start, ssize_
   return 0;
 }
 
-int S3fsCurl::GetObjectRequest(const char* tpath, int fd, off_t start, ssize_t size)
+int S3fsCurl::GetObjectRequest(const char* tpath, int fd, off_t start, ssize_t size, std::condition_variable *cv)
 {
   int result;
 
@@ -3907,7 +3939,7 @@ bool S3fsMultiCurl::SetS3fsCurlObject(S3fsCurl* s3fscurl)
   return true;
 }
 
-int S3fsMultiCurl::MultiPerform(void)
+int S3fsMultiCurl::MultiPerform()
 {
   std::vector<pthread_t>   threads;
   bool                     success = true;
@@ -3988,7 +4020,7 @@ int S3fsMultiCurl::MultiPerform(void)
   return success ? 0 : -EIO;
 }
 
-int S3fsMultiCurl::MultiRead(void)
+int S3fsMultiCurl::MultiRead(std::condition_variable *cv)
 {
   for(s3fscurlmap_t::iterator iter = cMap_req.begin(); iter != cMap_req.end(); cMap_req.erase(iter++)) {
     S3fsCurl* s3fscurl = (*iter).second;
@@ -3999,7 +4031,7 @@ int S3fsMultiCurl::MultiRead(void)
     if(s3fscurl->GetResponseCode(responseCode)){
       if(400 > responseCode){
         // add into stat cache
-        if(SuccessCallback && !SuccessCallback(s3fscurl)){
+        if(SuccessCallback && !SuccessCallback(s3fscurl, cv)){
           S3FS_PRN_WARN("error from callback function(%s).", s3fscurl->url.c_str());
         }
       }else if(400 == responseCode){
@@ -4037,7 +4069,7 @@ int S3fsMultiCurl::MultiRead(void)
 
       // For retry
       if(RetryCallback){
-        retrycurl = RetryCallback(s3fscurl);
+        retrycurl = RetryCallback(s3fscurl, cv);
         if(NULL != retrycurl){
           cMap_all[retrycurl->hCurl] = retrycurl;
         }else{
@@ -4054,7 +4086,7 @@ int S3fsMultiCurl::MultiRead(void)
   return 0;
 }
 
-int S3fsMultiCurl::Request(void)
+int S3fsMultiCurl::Request(std::condition_variable *cv)
 {
   S3FS_PRN_DBG("[count=%zu]", cMap_all.size());
 
@@ -4083,7 +4115,7 @@ int S3fsMultiCurl::Request(void)
     }
 
     // Read the result
-    if(0 != (result = MultiRead())){
+    if(0 != (result = MultiRead(cv))){
       Clear();
       return result;
     }
