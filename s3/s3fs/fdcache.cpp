@@ -715,34 +715,62 @@ FdEntity::~FdEntity()
   }
 }
 
-void FdEntity::read_entire_file(irods::plugin_context ctx, size_t start_offset, size_t file_size) {
+// thread operation that reads the entire file
+void FdEntity::read_entire_file(irods::plugin_context ctx, size_t file_size) {
 
 	irods_s3_cacheless::set_s3_configuration_from_context(ctx.prop_map());
 
-	// read entire file
-	Load(start_offset, file_size - start_offset);
-
-	if (start_offset != 0) {
-		Load(0, start_offset);
-	}
+    // read entire file
+    Load(0, file_size);
 
 	// notify all who are waiting that read is done
-	std::unique_lock<std::mutex> lck(cv_mtx);
+	//std::unique_lock<std::mutex> lck(cv_mtx);
 	read_object_cv.notify_all();
+
+    AutoLock auto_lock(&fdent_lock);
 	read_in_progress = false;
 }
 
-void FdEntity::start_read_thread(irods::plugin_context& ctx, size_t start_offset, size_t file_size) {
-	std::unique_lock<std::mutex> lck(cv_mtx);
-    if (!read_in_progress) {
+bool FdEntity::start_read_thread(irods::plugin_context& ctx, off_t start_offset, size_t len, size_t file_size) {
+
+	// TODO race condition below
+	// if read_in_progress swaps between (a) and (b)
+	bool in_progress;
+    {
+		AutoLock auto_lock(&fdent_lock);
+		in_progress = read_in_progress;  // (a)
+	}
+
+	// if a read is already in progress we will just wait to be
+	// notified when portions of it are done 
+    if (!in_progress) {   // (b)
+
+	    // go ahead and read the requested portion first so if this is just
+	    // a one-off small read we can return quickly 
+	    Load(start_offset, len);
+
+	    // now read the rest of the file in the background 
 	    read_in_progress = true;
-		std::thread read_thread(&FdEntity::read_entire_file, this, ctx, start_offset, file_size);
-	} 
+		std::thread read_thread(&FdEntity::read_entire_file, this, ctx, file_size);
+		read_thread.detach();  // read thread will notify us when download is complete
+
+		// first thread does not have to wait as we have already read 
+		// what it is asking for
+		return true;
+	} else {
+
+		// these threads need to wait for notification
+		return false;
+    }
 }
 
-void FdEntity::wait_for_read() {
-	std::unique_lock<std::mutex> lck(cv_mtx);
-	read_object_cv.wait(lck);
+void FdEntity::wait_for_read(off_t offset, size_t len) {
+	// get notified each time a new section has been read
+	// each time, check and see if our part has been loaded
+	while (!pagelist.IsPageLoaded(offset, len)) {
+	    std::unique_lock<std::mutex> lck(cv_mtx);
+	    read_object_cv.wait(lck);
+	}
 }
 
 void FdEntity::Clear(void)
@@ -1203,8 +1231,6 @@ bool FdEntity::SetAllStatus(bool is_loaded)
 //
 int FdEntity::Load(off_t start, size_t size)
 {
-rodsLog(LOG_NOTICE, "%s:%d (%s), start=%jd size=%zu", __FILE__, __LINE__, __FUNCTION__, start, size);
-pagelist.Dump();
   S3FS_PRN_DBG("[path=%s][fd=%d][offset=%jd][size=%jd]", path.c_str(), fd, (intmax_t)start, (intmax_t)size);
 
   if(-1 == fd){
@@ -1240,7 +1266,7 @@ pagelist.Dump();
         if(120 > S3fsCurl::GetReadwriteTimeout()){
           backup = S3fsCurl::SetReadwriteTimeout(120);
         }
-        result = S3fsCurl::ParallelGetObjectRequest(path.c_str(), fd, (*iter)->offset, need_load_size);
+        result = S3fsCurl::ParallelGetObjectRequest(path.c_str(), fd, (*iter)->offset, need_load_size, &read_object_cv);
         if(0 != backup){
           S3fsCurl::SetReadwriteTimeout(backup);
         }
@@ -1248,7 +1274,7 @@ pagelist.Dump();
         // single request
         if(0 < need_load_size){
           S3fsCurl s3fscurl;
-          result = s3fscurl.GetObjectRequest(path.c_str(), fd, (*iter)->offset, need_load_size);
+          result = s3fscurl.GetObjectRequest(path.c_str(), fd, (*iter)->offset, need_load_size, &read_object_cv);
         }else{
           result = 0;
         }
@@ -1273,7 +1299,10 @@ pagelist.Dump();
     }
     PageList::FreeList(unloaded_list);
   }
-  rodsLog(LOG_NOTICE, "%s:%d (%s), returning... start=%jd size=%zu", __FILE__, __LINE__, __FUNCTION__, start, size);
+
+rodsLog(LOG_NOTICE, "%s:%d (%s) Notify all just in case some are left waiting", __FILE__, __LINE__, __FUNCTION__);
+read_object_cv.notify_all();
+rodsLog(LOG_NOTICE, "%s:%d (%s), returning... start=%jd size=%zu", __FILE__, __LINE__, __FUNCTION__, start, size);
   return result;
 }
 
@@ -2407,9 +2436,10 @@ FileOffsetManager::~FileOffsetManager() {
     if(this == get()){
   
         offset_map.clear();
-    
+
         if(is_lock_init){
             try{
+rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
                 pthread_mutex_destroy(&file_offset_manager_lock);
             }catch(exception& e){
                 S3FS_PRN_CRIT("failed to destroy mutex in ~FileOffsetManager");
@@ -2417,6 +2447,7 @@ FileOffsetManager::~FileOffsetManager() {
             is_lock_init = false;
         }
     }else{
+rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
         assert(false);
     }
 }

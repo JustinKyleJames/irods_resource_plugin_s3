@@ -183,15 +183,17 @@ class FdEntity
     void CleanupCache();
 
 	// used to prereadh the file into cache
-    void read_entire_file(irods::plugin_context ctx, size_t start_offset, size_t file_size); 
+    void read_entire_file(irods::plugin_context ctx, size_t file_size); 
 
 
-	// Checks read_in_progress flag.  If a read is already in progress then do nothing.
-	// Otherwise start a thread to read the entire file.
-    void start_read_thread(irods::plugin_context& ctx, size_t start_offset, size_t file_size); 
+	// Checks read_in_progress flag.  
+	//   * If a read is already in progress then do nothing and return false.
+	//   * Otherwise read the portion asked for then start a background thread to read the rest of the file 
+	//     and return true.
+    bool start_read_thread(irods::plugin_context& ctx, off_t start_offset, size_t len, size_t file_size);
 
 	// Wait to get a notification that the read is ready.
-    void wait_for_read();
+    void wait_for_read(off_t offset, size_t len);
 
 	// if read is in progress, it waits for the read_object_cv and returns false
 	// if read is not in progress, it sets the read_in_progress variable and returns true
