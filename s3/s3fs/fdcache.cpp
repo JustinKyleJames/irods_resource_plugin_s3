@@ -720,11 +720,13 @@ void FdEntity::read_entire_file(irods::plugin_context ctx, size_t file_size) {
 
 	irods_s3_cacheless::set_s3_configuration_from_context(ctx.prop_map());
 
+rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
     // read entire file
     Load(0, file_size);
-
+rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
 	// notify all who are waiting that read is done
 	//std::unique_lock<std::mutex> lck(cv_mtx);
+rodsLog(LOG_NOTICE, "%s:%d (%s) ******* notify_all ******* ", __FILE__, __LINE__, __FUNCTION__);
 	read_object_cv.notify_all();
 
     AutoLock auto_lock(&fdent_lock);
@@ -741,16 +743,19 @@ bool FdEntity::start_read_thread(irods::plugin_context& ctx, off_t start_offset,
 		in_progress = read_in_progress;  // (a)
 	}
 
+rodsLog(LOG_NOTICE, "%s:%d (%s) offset=%jd, in_progress=%d", __FILE__, __LINE__, __FUNCTION__, start_offset, in_progress);
 	// if a read is already in progress we will just wait to be
 	// notified when portions of it are done 
     if (!in_progress) {   // (b)
 
+rodsLog(LOG_NOTICE, "%s:%d (%s) first thread before Load()", __FILE__, __LINE__, __FUNCTION__);
 	    // go ahead and read the requested portion first so if this is just
 	    // a one-off small read we can return quickly 
 	    Load(start_offset, len);
-
+rodsLog(LOG_NOTICE, "%s:%d (%s) first thread after Load()", __FILE__, __LINE__, __FUNCTION__);
 	    // now read the rest of the file in the background 
 	    read_in_progress = true;
+rodsLog(LOG_NOTICE, "%s:%d (%s) first thread run read_entire_file", __FILE__, __LINE__, __FUNCTION__);
 		std::thread read_thread(&FdEntity::read_entire_file, this, ctx, file_size);
 		read_thread.detach();  // read thread will notify us when download is complete
 
