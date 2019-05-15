@@ -396,6 +396,7 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) [_len=%d][offset=%jd][realsize=%zu]", __FILE__, 
 
         // if it isn't started, start a thread to read entire file
         bool first_reader = ent->start_read_thread(_ctx, offset, _len, realsize);
+rodsLog(LOG_NOTICE, "%s:%d (%s) first_reader = %d", __FILE__, __LINE__, __FUNCTION__, first_reader);
 
         // wait until my requested part has been read 
 
