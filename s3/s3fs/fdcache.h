@@ -113,7 +113,6 @@ class FdEntity
     pthread_mutex_t fdent_lock;
     bool            is_lock_init;
     PageList        pagelist;
-    int             refcnt;         // reference count
     std::string     path;           // object path
     std::string     cachepath;      // local cache file path
                                     // (if this is empty, does not load/save pagelist.)
@@ -144,7 +143,6 @@ class FdEntity
 
     void Close(void);
     bool IsOpen(void) const { return (-1 != fd); }
-    bool IsMultiOpened(void) const { return refcnt > 1; }
     int Open(headers_t* pmeta = NULL, ssize_t size = -1, time_t time = -1, bool no_fd_lock_wait = false);
     bool OpenAndLoadAll(headers_t* pmeta = NULL, size_t* size = NULL, bool force_load = false);
     int Dup();
