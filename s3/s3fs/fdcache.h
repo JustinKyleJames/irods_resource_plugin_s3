@@ -113,7 +113,6 @@ class PageList
 class FdEntity
 {
   private:
-
 	bool                    read_in_progress;
 	std::condition_variable read_object_cv;
 	std::mutex              cv_mtx;
@@ -122,7 +121,6 @@ class FdEntity
 public:
     PageList                pagelist;
 private:
-    int                     refcnt;         // reference count
     std::string             path;           // object path
     std::string             cachepath;      // local cache file path
                                             // (if this is empty, does not load/save pagelist.)
@@ -137,7 +135,6 @@ private:
     etaglist_t              etaglist;       // for no cached multipart uploading when no disk space
     off_t                   mp_start;       // start position for no cached multipart(write method only)
     size_t                  mp_size;        // size for no cached multipart(write method only)
-
   private:
     static int FillFile(int fd, unsigned char byte, size_t size, off_t start);
 
@@ -153,7 +150,6 @@ private:
 
     void Close(void);
     bool IsOpen(void) const { return (-1 != fd); }
-    bool IsMultiOpened(void) const { return refcnt > 1; }
     int Open(headers_t* pmeta = NULL, ssize_t size = -1, time_t time = -1, bool no_fd_lock_wait = false);
     bool OpenAndLoadAll(headers_t* pmeta = NULL, size_t* size = NULL, bool force_load = false);
     int Dup();
