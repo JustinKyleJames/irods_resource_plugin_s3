@@ -38,17 +38,24 @@ class ResourceBase(session.make_sessions_mixin([('otherrods', 'rods')], [('alice
         self.testdir = "testdir"
 
         hostname = lib.get_hostname()
-        hostuser = getpass.getuser()
 
+        self.testbucket = '/justinkylejames-irods1'
         self.testresc = "TestResc"
-        self.testvault = "/tmp/" + hostuser + "/" + self.testresc
+        self.testvault = "/tmp/" + self.testresc
         self.anotherresc = "AnotherResc"
-        self.anothervault = "/tmp/" + hostuser + "/" + self.anotherresc
+        self.anothervault = "/tmp/" + self.anotherresc
+
+        self.s3_context = "S3_DEFAULT_HOSTNAME=s3.amazonaws.com;S3_AUTH_FILE=/projects/irods/vsphere-testing/externals/amazon_web_services-CI.keypair;S3_REGIONNAME=us-east-1;S3_RETRY_COUNT=2;S3_WAIT_TIME_SEC=3;S3_PROTO=HTTP;ARCHIVE_NAMING_POLICY=consistent;HOST_MODE=cacheless_attached"
+
+        self.admin.assert_icommand("iadmin modresc demoResc name origResc", 'STDOUT_SINGLELINE', 'rename', input='yes\n')
+
+        self.admin.assert_icommand("iadmin mkresc demoResc s3 " + hostname + ":" + self.testbucket + "/tmp/demoResc " + self.s3_context, 'STDOUT_SINGLELINE', 's3')
 
         self.admin.assert_icommand(
-            ['iadmin', "mkresc", self.testresc, 'unixfilesystem', hostname + ":" + self.testvault], 'STDOUT_SINGLELINE', 'unixfilesystem')
+            ['iadmin', "mkresc", self.testresc, 's3', hostname + ":" + self.testbucket + self.testvault, self.s3_context], 'STDOUT_SINGLELINE', 's3')
         self.admin.assert_icommand(
-            ['iadmin', "mkresc", self.anotherresc, 'unixfilesystem', hostname + ":" + self.anothervault], 'STDOUT_SINGLELINE', 'unixfilesystem')
+            ['iadmin', "mkresc", self.anotherresc, 's3', hostname + ":" + self.testbucket + self.anothervault, self.s3_context], 'STDOUT_SINGLELINE', 's3')
+
         with open(self.testfile, 'wt') as f:
             print('I AM A TESTFILE -- [' + self.testfile + ']', file=f, end='')
         self.admin.run_icommand(['imkdir', self.testdir])
@@ -71,34 +78,17 @@ class ResourceBase(session.make_sessions_mixin([('otherrods', 'rods')], [('alice
             admin_session.run_icommand('irmtrash -M')
             admin_session.run_icommand(['iadmin', 'rmresc', self.testresc])
             admin_session.run_icommand(['iadmin', 'rmresc', self.anotherresc])
+            admin_session.assert_icommand("iadmin rmresc demoResc")
+            admin_session.assert_icommand("iadmin modresc origResc name demoResc", 'STDOUT_SINGLELINE', 'rename', input='yes\n')
             print("run_resource_teardown - END")
 
 
-class ResourceSuite_S3_NoCache(ResourceBase):
+class ResourceSuite_S3_NoCache(ResourceBase, unittest.TestCase):
 
-    '''Define the tests to be run for a resource type.
-
-    This class is designed to be used as a base class by developers
-    when they write tests for their own resource plugins.
-
-    All these tests will be inherited and the developer can add
-    any new tests for new functionality or replace any tests
-    they need to modify.
-    '''
 
     ###################
     # iget
     ###################
-
-    def test_ibun_resource_failure_behavior(self):
-        lib.touch("file.tar")
-        resource = self.testresc
-        zone = self.admin.zone_name
-        self.user0.assert_icommand('iput file.tar ', 'EMPTY')
-        self.admin.assert_icommand('ibun -x -R {resource} file.tar /{zone}/home/rods/doesntmatter'.format(**locals()),
-                                   'STDERR_SINGLELINE', 'REPLICA_NOT_IN_RESC')
-        self.admin.assert_icommand('ibun -x -R notaResc file.tar /{zone}/home/rods/doesntmatter'.format(**locals()),
-                                   'STDERR_SINGLELINE', 'SYS_RESC_DOES_NOT_EXIST')
 
     def test_local_iget(self):
         # local setup
@@ -313,8 +303,7 @@ class ResourceSuite_S3_NoCache(ResourceBase):
 
         IrodsController().restart()
 
-    #@unittest.skipIf(test.settings.RUN_IN_TOPOLOGY, "Skip for Topology Testing")
-    #@unittest.skip('TODO remove this skip once big file is solved')
+    @unittest.skipIf(test.settings.RUN_IN_TOPOLOGY, "Skip for Topology Testing")
     def test_ssl_iput_small_and_large_files(self):
         # set up client and server side for ssl handshake
 
@@ -699,10 +688,12 @@ class ResourceSuite_S3_NoCache(ResourceBase):
         doublesize = str(os.stat(doublefile).st_size)
 
         # assertions
-        self.admin.assert_icommand("iadmin mkresc thirdresc unixfilesystem %s:/tmp/%s/thirdrescVault" %
-                                   (hostname, hostuser), 'STDOUT_SINGLELINE', "Creating")   # create third resource
-        self.admin.assert_icommand("iadmin mkresc fourthresc unixfilesystem %s:/tmp/%s/fourthrescVault" %
-                                   (hostname, hostuser), 'STDOUT_SINGLELINE', "Creating")  # create fourth resource
+        self.admin.assert_icommand("iadmin mkresc thirdresc s3 %s:%s/tmp/%s/thirdrescVault %s" %
+                                   (hostname, self.testbucket, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")   # create third resource
+
+        self.admin.assert_icommand("iadmin mkresc fourthresc s3 %s:%s/tmp/%s/fourthrescVault %s" %
+                                   (hostname, self.testbucket, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")  # create fourth resource
+
         self.admin.assert_icommand("ils -L " + filename, 'STDERR_SINGLELINE', "does not exist")              # should not be listed
         self.admin.assert_icommand("iput " + filename)                                         # put file
         # replicate to test resource
@@ -780,8 +771,10 @@ class ResourceSuite_S3_NoCache(ResourceBase):
         hostname = lib.get_hostname()
         hostuser = getpass.getuser()
         # assertions
-        self.admin.assert_icommand("iadmin mkresc thirdresc unixfilesystem %s:/tmp/%s/thirdrescVault" %
-                                   (hostname, hostuser), 'STDOUT_SINGLELINE', "Creating")  # create third resource
+        self.admin.assert_icommand("iadmin mkresc thirdresc s3 %s:%s/tmp/%s/thirdrescVault %s" %
+                                   (hostname, self.testbucket, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")  # create third resource
+
+
         self.admin.assert_icommand("ils -L " + filename, 'STDERR_SINGLELINE', "does not exist")  # should not be listed
         self.admin.assert_icommand("iput " + filename)                            # put file
         self.admin.assert_icommand("irepl -R " + self.testresc + " " + filename)      # replicate to test resource
