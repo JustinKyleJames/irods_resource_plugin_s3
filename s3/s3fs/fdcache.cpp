@@ -735,18 +735,12 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) ******* notify_all ******* ", __FILE__, __LINE__
 
 bool FdEntity::start_read_thread(irods::plugin_context& ctx, off_t start_offset, size_t len, size_t file_size) {
 
-	// TODO race condition below
-	// if read_in_progress swaps between (a) and (b)
-	bool in_progress;
-    {
-		AutoLock auto_lock(&fdent_lock);
-		in_progress = read_in_progress;  // (a)
-	}
+	AutoLock auto_lock(&fdent_lock);
 
-rodsLog(LOG_NOTICE, "%s:%d (%s) offset=%jd, in_progress=%d", __FILE__, __LINE__, __FUNCTION__, start_offset, in_progress);
+rodsLog(LOG_NOTICE, "%s:%d (%s) offset=%jd, read_in_progress=%d", __FILE__, __LINE__, __FUNCTION__, start_offset, read_in_progress);
 	// if a read is already in progress we will just wait to be
 	// notified when portions of it are done 
-    if (!in_progress) {   // (b)
+    if (!read_in_progress) {   
 
 rodsLog(LOG_NOTICE, "%s:%d (%s) first thread before Load()", __FILE__, __LINE__, __FUNCTION__);
 	    // go ahead and read the requested portion first so if this is just
@@ -770,8 +764,12 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) first thread run read_entire_file", __FILE__, __
 }
 
 void FdEntity::wait_for_read(off_t offset, size_t len) {
+
 	// get notified each time a new section has been read
 	// each time, check and see if our part has been loaded
+	
+	AutoLock auto_lock(&fdent_lock);
+
 	while (!pagelist.IsPageLoaded(offset, len)) {
 	    std::unique_lock<std::mutex> lck(cv_mtx);
 	    read_object_cv.wait(lck);
