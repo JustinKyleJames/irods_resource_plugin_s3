@@ -359,8 +359,6 @@ class ResourceSuite_S3_NoCache(ResourceBase):
         # restart iRODS server without altered environment
         IrodsController().restart()
 
-    #@unittest.skipIf(psutil.disk_usage('/').free < 20000000000, "not enough free space for 5 x 2.2GB file ( local + iput + 3 repl children )")
-    #@unittest.skip('TODO remove this skip once big file is solved')
     def test_local_iput_with_really_big_file__ticket_1623(self):
         filename = "reallybigfile.txt"
         # file size larger than 32 bit int
@@ -1066,5 +1064,75 @@ class ResourceSuite_S3_NoCache(ResourceBase):
 
 
 class Test_S3_NoCache(ResourceSuite_S3_NoCache, unittest.TestCase):
-    def test_dumm(self):
-        pass
+    def test_iput_large_file_over_smaller(self):
+
+        file1 = "f1"
+        file2 = "f2"
+        filename_get = "f3"
+
+        file1_size = pow(2,20)
+        file2_size = 512*pow(2,20)
+
+        # create small and large files 
+        lib.make_file(file1, file1_size)
+        lib.make_file(file2, file2_size)
+
+        # put small file  
+        self.admin.assert_icommand("iput %s %s" % (file1, file2))  # iput
+
+        # write over small file with big file
+        self.admin.assert_icommand("iput -f %s" % file2)  # iput
+        self.admin.assert_icommand("ils -L %s" % file2, 'STDOUT_SINGLELINE', str(file2_size))  # should be listed
+
+        # get the file under a new name
+        self.admin.assert_icommand("iget -f %s %s" % (file2, filename_get))
+
+        # make sure the file that was put and got are the same
+        self.admin.assert_icommand("diff %s %s " % (file2, filename_get), 'EMPTY')
+
+        # local cleanup
+        self.admin.assert_icommand("irm -f " + file2, 'EMPTY')
+
+        if os.path.exists(file1):
+            os.unlink(file1)
+        if os.path.exists(file2):
+            os.unlink(file2)
+        if os.path.exists(filename_get):
+            os.unlink(filename_get)
+
+
+    def test_iput_small_file_over_larger(self):
+
+        file1 = "f1"
+        file2 = "f2"
+        filename_get = "f3"
+
+        file1_size = 512*pow(2,20)
+        file2_size = pow(2,20)
+
+        # create small and large files 
+        lib.make_file(file1, file1_size)
+        lib.make_file(file2, file2_size)
+
+        # put small file  
+        self.admin.assert_icommand("iput %s %s" % (file1, file2))  # iput
+
+        # write over small file with big file
+        self.admin.assert_icommand("iput -f %s" % file2)  # iput
+        self.admin.assert_icommand("ils -L %s" % file2, 'STDOUT_SINGLELINE', str(file2_size))  # should be listed
+
+        # get the file under a new name
+        self.admin.assert_icommand("iget -f %s %s" % (file2, filename_get))
+
+        # make sure the file that was put and got are the same
+        self.admin.assert_icommand("diff %s %s " % (file2, filename_get), 'EMPTY')
+
+        # local cleanup
+        self.admin.assert_icommand("irm -f " + file2, 'EMPTY')
+
+        if os.path.exists(file1):
+            os.unlink(file1)
+        if os.path.exists(file2):
+            os.unlink(file2)
+        if os.path.exists(filename_get):
+            os.unlink(filename_get)
