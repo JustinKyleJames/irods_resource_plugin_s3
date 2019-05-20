@@ -83,7 +83,7 @@ class ResourceBase(session.make_sessions_mixin([('otherrods', 'rods')], [('alice
             print("run_resource_teardown - END")
 
 
-class ResourceSuite_S3_NoCache(ResourceBase, unittest.TestCase):
+class ResourceSuite_S3_NoCache(ResourceBase):
 
 
     ###################
@@ -1065,3 +1065,6 @@ class ResourceSuite_S3_NoCache(ResourceBase, unittest.TestCase):
 
 
 
+class Test_S3_NoCache(ResourceSuite_S3_NoCache, unittest.TestCase):
+    def test_dumm(self):
+        pass
