@@ -41,7 +41,8 @@
 #include <libxml/xpath.h>
 #include <libxml/xpathInternals.h>
 #include <libxml/tree.h>
-#include <thread>
+//#include <thread>
+#include <boost/thread.hpp>
 
 
 extern size_t g_retry_count;
@@ -425,7 +426,9 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) Got Notify [offset=%jd]", __FILE__, __LINE__, __
 
         // now this should just read from cache 
         //readReturnVal = ent->Read(static_cast<char*>(_buf), offset, _len, true);
+rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
         readReturnVal = ent->Read(static_cast<char*>(_buf), offset, _len, false);
+rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__, offset);
         if(0 > readReturnVal){
           S3FS_PRN_WARN("failed to read file(%s). result=%jd", path.c_str(), (intmax_t)readReturnVal);
           return ERROR(S3_GET_ERROR, (boost::format("%s: failed to read file(%s)") % __FUNCTION__ % path.c_str()));
@@ -520,6 +523,7 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) Got Notify [offset=%jd]", __FILE__, __LINE__, __
     // =-=-=-=-=-=-=-
     // interface for POSIX Close
     irods::error s3FileClosePlugin(  irods::plugin_context& _ctx ) {
+rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
 
         irods::error result = SUCCESS();
 
@@ -537,17 +541,21 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) Got Notify [offset=%jd]", __FILE__, __LINE__, __
         FileOffsetManager::get()->delete_entry(irods_fd);
 
 
-        FdEntity*   ent;
+        FdEntity* ent = FdManager::get()->ExistOpen(path.c_str());
  
         // we are finished with only close if only one is open 
-        if(NULL != (ent = FdManager::get()->ExistOpen(path.c_str())) && !FileOffsetManager::get()->fd_exists(ent->GetFd())) {
+        if(NULL != ent && !FileOffsetManager::get()->fd_exists(ent->GetFd())) {
             flush_buffer(path, ent->GetFd());
             FdManager::get()->Close(ent);
             StatCache::getStatCacheData()->DelStat(path.c_str());
             FdManager::DeleteCacheFile(path.c_str());
+
+            // stop the background read thread if it exists
+            ent->stop_background_read_thread();
         }
         S3FS_MALLOCTRIM(0);
         result.code(0);
+rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
         return result;
     }
 

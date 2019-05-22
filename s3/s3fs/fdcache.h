@@ -25,6 +25,8 @@
 #include <condition_variable>
 #include <mutex>
 #include <irods_resource_plugin.hpp>
+//#include <thread>
+#include <boost/thread.hpp>
 
 //------------------------------------------------
 // CacheFileStat
@@ -115,6 +117,7 @@ class FdEntity
   private:
 	bool                    read_in_progress;
 	std::condition_variable read_object_cv;
+	std::shared_ptr<boost::thread> background_read_thread;
 	std::mutex              cv_mtx;
     pthread_mutex_t         fdent_lock;
     bool                    is_lock_init;
@@ -194,6 +197,9 @@ class FdEntity
 
 	// Wait to get a notification that the read is ready.
     void wait_for_read(off_t offset, size_t len);
+
+	// If a background read is in progress, stop it.
+	void stop_background_read_thread();
 
 	// if read is in progress, it waits for the read_object_cv and returns false
 	// if read is not in progress, it sets the read_in_progress variable and returns true

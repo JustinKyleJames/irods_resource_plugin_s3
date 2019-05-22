@@ -42,7 +42,8 @@
 #include <utime.h>
 #include <condition_variable>
 #include <mutex>
-#include <thread>
+//#include <thread>
+#include <boost/thread.hpp>
 
 #include "common.h"
 #include "fdcache.h"
@@ -718,19 +719,27 @@ FdEntity::~FdEntity()
 // thread operation that reads the entire file
 void FdEntity::read_entire_file(irods::plugin_context ctx, size_t file_size) {
 
-	irods_s3_cacheless::set_s3_configuration_from_context(ctx.prop_map());
+	try {
 
-rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
-    // read entire file
-    Load(0, file_size);
-rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
-	// notify all who are waiting that read is done
-	//std::unique_lock<std::mutex> lck(cv_mtx);
-rodsLog(LOG_NOTICE, "%s:%d (%s) ******* notify_all ******* ", __FILE__, __LINE__, __FUNCTION__);
-	read_object_cv.notify_all();
+		irods_s3_cacheless::set_s3_configuration_from_context(ctx.prop_map());
 
-    AutoLock auto_lock(&fdent_lock);
-	read_in_progress = false;
+	rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
+		// read entire file
+		Load(0, file_size);
+	rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
+		// notify all who are waiting that read is done
+		//std::unique_lock<std::mutex> lck(cv_mtx);
+	rodsLog(LOG_NOTICE, "%s:%d (%s) ******* notify_all ******* ", __FILE__, __LINE__, __FUNCTION__);
+		read_object_cv.notify_all();
+
+		AutoLock auto_lock(&fdent_lock);
+		read_in_progress = false;
+	} catch (boost::thread_interrupted&) {
+rodsLog(LOG_NOTICE, "%s:%d (%s) -=-=-=-=-=-=-=-=-=-=-= Thread interrupted -=-=-=-=-=-=-=-=-=-=-=-", __FILE__, __LINE__, __FUNCTION__);
+		AutoLock auto_lock(&fdent_lock);
+		read_object_cv.notify_all();
+		read_in_progress = false;
+	}
 }
 
 bool FdEntity::start_read_thread(irods::plugin_context& ctx, off_t start_offset, size_t len, size_t file_size) {
@@ -750,8 +759,10 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) first thread after Load()", __FILE__, __LINE__, 
 	    // now read the rest of the file in the background 
 	    read_in_progress = true;
 rodsLog(LOG_NOTICE, "%s:%d (%s) first thread run read_entire_file", __FILE__, __LINE__, __FUNCTION__);
-		std::thread read_thread(&FdEntity::read_entire_file, this, ctx, file_size);
-		read_thread.detach();  // read thread will notify us when download is complete
+
+        background_read_thread = make_shared<boost::thread>(&FdEntity::read_entire_file, this, ctx, file_size);
+		//std::thread read_thread(&FdEntity::read_entire_file, this, ctx, file_size);
+		background_read_thread->detach();  // read thread will notify us when download is complete
 
 		// first thread does not have to wait as we have already read 
 		// what it is asking for
@@ -760,6 +771,13 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) first thread run read_entire_file", __FILE__, __
 
 		// these threads need to wait for notification
 		return false;
+    }
+}
+
+
+void FdEntity::stop_background_read_thread() {
+	if (background_read_thread) {
+		background_read_thread->interrupt();
     }
 }
 
@@ -1303,9 +1321,9 @@ int FdEntity::Load(off_t start, size_t size)
     PageList::FreeList(unloaded_list);
   }
 
-rodsLog(LOG_NOTICE, "%s:%d (%s) Notify all just in case some are left waiting", __FILE__, __LINE__, __FUNCTION__);
-read_object_cv.notify_all();
-rodsLog(LOG_NOTICE, "%s:%d (%s), returning... start=%jd size=%zu", __FILE__, __LINE__, __FUNCTION__, start, size);
+//rodsLog(LOG_NOTICE, "%s:%d (%s) Notify all just in case some are left waiting", __FILE__, __LINE__, __FUNCTION__);
+//read_object_cv.notify_all();
+//rodsLog(LOG_NOTICE, "%s:%d (%s), returning... start=%jd size=%zu", __FILE__, __LINE__, __FUNCTION__, start, size);
   return result;
 }
 
