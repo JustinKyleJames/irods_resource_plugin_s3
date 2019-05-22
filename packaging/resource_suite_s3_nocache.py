@@ -1077,28 +1077,32 @@ class Test_S3_NoCache(ResourceSuite_S3_NoCache, unittest.TestCase):
         lib.make_file(file1, file1_size)
         lib.make_file(file2, file2_size)
 
-        # put small file  
-        self.admin.assert_icommand("iput %s %s" % (file1, file2))  # iput
+        try:
 
-        # write over small file with big file
-        self.admin.assert_icommand("iput -f %s" % file2)  # iput
-        self.admin.assert_icommand("ils -L %s" % file2, 'STDOUT_SINGLELINE', str(file2_size))  # should be listed
+            # put small file  
+            self.admin.assert_icommand("iput %s %s" % (file1, file2))  # iput
 
-        # get the file under a new name
-        self.admin.assert_icommand("iget -f %s %s" % (file2, filename_get))
+            # write over small file with big file
+            self.admin.assert_icommand("iput -f %s" % file2)  # iput
+            self.admin.assert_icommand("ils -L %s" % file2, 'STDOUT_SINGLELINE', str(file2_size))  # should be listed
 
-        # make sure the file that was put and got are the same
-        self.admin.assert_icommand("diff %s %s " % (file2, filename_get), 'EMPTY')
+            # get the file under a new name
+            self.admin.assert_icommand("iget -f %s %s" % (file2, filename_get))
 
-        # local cleanup
-        self.admin.assert_icommand("irm -f " + file2, 'EMPTY')
+            # make sure the file that was put and got are the same
+            self.admin.assert_icommand("diff %s %s " % (file2, filename_get), 'EMPTY')
 
-        if os.path.exists(file1):
-            os.unlink(file1)
-        if os.path.exists(file2):
-            os.unlink(file2)
-        if os.path.exists(filename_get):
-            os.unlink(filename_get)
+        finally:
+
+            # local cleanup
+            self.admin.assert_icommand("irm -f " + file2, 'EMPTY')
+
+            if os.path.exists(file1):
+                os.unlink(file1)
+            if os.path.exists(file2):
+                os.unlink(file2)
+            if os.path.exists(filename_get):
+                os.unlink(filename_get)
 
 
     def test_iput_small_file_over_larger(self):
@@ -1114,25 +1118,226 @@ class Test_S3_NoCache(ResourceSuite_S3_NoCache, unittest.TestCase):
         lib.make_file(file1, file1_size)
         lib.make_file(file2, file2_size)
 
-        # put small file  
-        self.admin.assert_icommand("iput %s %s" % (file1, file2))  # iput
+        try:
+            # put large file  
+            self.admin.assert_icommand("iput %s %s" % (file1, file2))  # iput
 
-        # write over small file with big file
-        self.admin.assert_icommand("iput -f %s" % file2)  # iput
-        self.admin.assert_icommand("ils -L %s" % file2, 'STDOUT_SINGLELINE', str(file2_size))  # should be listed
+            # write over large file with small file
+            self.admin.assert_icommand("iput -f %s" % file2)  # iput
+            self.admin.assert_icommand("ils -L %s" % file2, 'STDOUT_SINGLELINE', str(file2_size))  # should be listed
 
-        # get the file under a new name
-        self.admin.assert_icommand("iget -f %s %s" % (file2, filename_get))
+            # get the file under a new name
+            self.admin.assert_icommand("iget -f %s %s" % (file2, filename_get))
 
-        # make sure the file that was put and got are the same
-        self.admin.assert_icommand("diff %s %s " % (file2, filename_get), 'EMPTY')
+            # make sure the file that was put and got are the same
+            self.admin.assert_icommand("diff %s %s " % (file2, filename_get), 'EMPTY')
 
-        # local cleanup
-        self.admin.assert_icommand("irm -f " + file2, 'EMPTY')
+        finally:
 
-        if os.path.exists(file1):
-            os.unlink(file1)
-        if os.path.exists(file2):
-            os.unlink(file2)
-        if os.path.exists(filename_get):
-            os.unlink(filename_get)
+            # local cleanup
+            self.admin.assert_icommand("irm -f " + file2, 'EMPTY')
+
+            if os.path.exists(file1):
+                os.unlink(file1)
+            if os.path.exists(file2):
+                os.unlink(file2)
+            if os.path.exists(filename_get):
+                os.unlink(filename_get)
+
+
+
+    def test_simultaneous_open_writes(self):
+
+        rule_file_path = 'test_simultaneous_open_writes.r'
+
+        rule_str = '''
+test_simultaneous_open_writes {
+            msiDataObjCreate("/tempZone/home/otherrods/file1.txt", "destRescName=demoResc", *fd)
+            msiDataObjWrite(*fd, "abcd", *len)
+            msiDataObjClose(*fd, *status)
+
+
+            # multiple open simultaneously 
+            msiDataObjOpen("objPath=/tempZone/home/otherrods/file1.txt++++rescName=demoResc++++openFlags=O_WRONLY", *fd1)
+            msiDataObjOpen("objPath=/tempZone/home/otherrods/file1.txt++++rescName=demoResc++++openFlags=O_WRONLY", *fd2)
+            msiDataObjOpen("objPath=/tempZone/home/otherrods/file1.txt++++rescName=demoResc++++openFlags=O_WRONLY", *fd3)
+
+            msiDataObjLseek(*fd1, 4, "SEEK_SET", *status)
+            msiDataObjLseek(*fd2, 14, "SEEK_SET", *status)
+            msiDataObjLseek(*fd3, 24, "SEEK_SET", *status)
+
+            msiDataObjWrite(*fd3, "CCCCCCCCCC", *len)
+            msiDataObjWrite(*fd2, "BBBBBBBBBB", *len)
+            msiDataObjWrite(*fd1, "AAAAAAAAAA", *len)
+
+            msiDataObjClose(*fd1, *status)
+            msiDataObjClose(*fd2, *status)
+            msiDataObjClose(*fd3, *status)
+
+            # open write close consecutively
+            msiDataObjOpen("objPath=/tempZone/home/otherrods/file1.txt++++rescName=demoResc++++openFlags=O_WRONLY", *fd1)
+            msiDataObjLseek(*fd1, 34, "SEEK_SET", *status)
+            msiDataObjWrite(*fd1, "XXXXXXXXXX", *len)
+            msiDataObjClose(*fd1, *status)
+
+            msiDataObjOpen("objPath=/tempZone/home/otherrods/file1.txt++++rescName=demoResc++++openFlags=O_WRONLY", *fd2)
+            msiDataObjLseek(*fd2, 44, "SEEK_SET", *status)
+            msiDataObjWrite(*fd2, "YYYYYYYYYY", *len)
+            msiDataObjClose(*fd2, *status)
+
+            msiDataObjOpen("objPath=/tempZone/home/otherrods/file1.txt++++rescName=demoResc++++openFlags=O_WRONLY", *fd3)
+            msiDataObjLseek(*fd3, 54, "SEEK_SET", *status)
+            msiDataObjWrite(*fd3, "ZZZZZZZZZZ", *len)
+            msiDataObjClose(*fd3, *status)
+        }
+INPUT null
+OUTPUT ruleExecOut
+
+        '''
+
+        try:
+            with open(rule_file_path, 'w') as rule_file:
+                rule_file.write(rule_str)
+
+            self.admin.assert_icommand("irule -F %s" % rule_file_path)
+            self.admin.assert_icommand("iget /tempZone/home/otherrods/file1.txt -", 'STDOUT_SINGLELINE', 'abcdAAAAAAAAAABBBBBBBBBBCCCCCCCCCCXXXXXXXXXXYYYYYYYYYYZZZZZZZZZZ')
+        finally:
+            # local cleanup
+            self.admin.assert_icommand("irm -f /tempZone/home/otherrods/file1.txt")
+            if os.path.exists(rule_file_path):
+                os.unlink(rule_file_path)
+
+
+    def test_seek_end(self):
+
+        rule_file_path = 'test_seek_end.r'
+
+        rule_str = '''
+test_seek_end {
+            msiDataObjCreate("/tempZone/home/otherrods/file1.txt", "destRescName=demoResc", *fd)
+            msiDataObjWrite(*fd, "abcdefg", *len)
+            msiDataObjClose(*fd, *status)
+
+            msiDataObjOpen("objPath=/tempZone/home/otherrods/file1.txt++++rescName=demoResc++++openFlags=O_WRONLY", *fd1)
+            msiDataObjLseek(*fd1, 0, "SEEK_END", *status)
+            msiDataObjWrite(*fd1, "hijk", *len)
+            msiDataObjClose(*fd1, *status)
+        }
+INPUT null
+OUTPUT ruleExecOut
+
+        '''
+
+        try:
+            with open(rule_file_path, 'w') as rule_file:
+                rule_file.write(rule_str)
+
+            self.admin.assert_icommand("irule -F %s" % rule_file_path)
+            self.admin.assert_icommand("iget /tempZone/home/otherrods/file1.txt -", 'STDOUT_SINGLELINE', 'abcdefghijk')
+        finally:
+            # local cleanup
+            self.admin.assert_icommand("irm -f /tempZone/home/otherrods/file1.txt")
+            if os.path.exists(rule_file_path):
+                os.unlink(rule_file_path)
+
+
+    def test_seek_cur(self):
+
+        rule_file_path = 'test_seek_cur.r'
+
+        rule_str = '''
+test_seek_end {
+            msiDataObjCreate("/tempZone/home/otherrods/file1.txt", "destRescName=demoResc", *fd)
+            msiDataObjWrite(*fd, "abcdefg", *len)
+            msiDataObjClose(*fd, *status)
+
+            msiDataObjOpen("objPath=/tempZone/home/otherrods/file1.txt++++rescName=demoResc++++openFlags=O_WRONLY", *fd1)
+            msiDataObjLseek(*fd1, 2, "SEEK_SET", *status)
+            msiDataObjLseek(*fd1, 2, "SEEK_CUR", *status)
+            msiDataObjWrite(*fd1, "hijk", *len)
+            msiDataObjClose(*fd1, *status)
+        }
+INPUT null
+OUTPUT ruleExecOut
+
+        '''
+
+        try:
+            with open(rule_file_path, 'w') as rule_file:
+                rule_file.write(rule_str)
+
+            self.admin.assert_icommand("irule -F %s" % rule_file_path)
+            self.admin.assert_icommand("iget /tempZone/home/otherrods/file1.txt -", 'STDOUT_SINGLELINE', 'abcdhijk')
+        finally:
+            # local cleanup
+            self.admin.assert_icommand("irm -f /tempZone/home/otherrods/file1.txt")
+            if os.path.exists(rule_file_path):
+                os.unlink(rule_file_path)
+
+
+    def test_small_write_read_in_large_file(self):
+
+        rule_str_write = '''
+test_small_write {
+            msiDataObjOpen("objPath=/tempZone/home/otherrods/f1++++rescName=demoResc++++openFlags=O_WRONLY", *fd1)
+            msiDataObjLseek(*fd1, 1024000, "SEEK_SET", *status)
+            msiDataObjWrite(*fd1, "abcdef", *len)
+            msiDataObjClose(*fd1, *status)
+        }
+INPUT null
+OUTPUT ruleExecOut
+
+        '''
+
+
+        rule_str_read = '''
+test_small_read {
+            msiDataObjOpen("objPath=/tempZone/home/otherrods/f1++++rescName=demoResc++++openFlags=O_WRONLY", *fd1)
+            msiDataObjLseek(*fd1, 1024000, "SEEK_SET", *status)
+            msiDataObjRead(*fd1, 6, *buf)
+            msiDataObjClose(*fd1, *status)
+            writeLine("stdout", "buf=*buf")
+        }
+INPUT null
+OUTPUT ruleExecOut
+        '''
+
+        file1 = 'f1'
+        write_rule_file_path = 'test_small_write.r'
+        read_rule_file_path = 'test_small_read.r'
+
+        try:
+            file1_size = 512*pow(2,20)
+
+            # create and put large file
+            lib.make_file(file1, file1_size)
+            self.admin.assert_icommand("iput %s /tempZone/home/otherrods/%s" % (file1, file1))  # iput
+
+            with open(write_rule_file_path, 'w') as rule_file:
+                rule_file.write(rule_str_write)
+
+            with open(read_rule_file_path, 'w') as rule_file:
+                rule_file.write(rule_str_read)
+
+            self.admin.assert_icommand("irule -F %s" % write_rule_file_path)
+
+            before_read_time = time.time()
+            self.admin.assert_icommand("irule -F %s" % read_rule_file_path, 'STDOUT_SINGLELINE', 'buf=abcdef')
+            after_read_time = time.time()
+
+            self.assertLess(after_read_time - before_read_time, .01)
+                
+
+        finally:
+
+            # local cleanup
+            self.admin.assert_icommand("irm -f /tempZone/home/otherrods/%s" % file1, 'EMPTY')
+
+            if os.path.exists(file1):
+                os.unlink(file1)
+
+            if os.path.exists(write_rule_file_path):
+                os.unlink(write_rule_file_path)
+
+            if os.path.exists(read_rule_file_path):
+                os.unlink(read_rule_file_path)
