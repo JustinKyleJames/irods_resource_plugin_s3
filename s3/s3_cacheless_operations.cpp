@@ -26,6 +26,7 @@
 #include <irods_resource_redirect.hpp>
 #include <irods_stacktrace.hpp>
 #include <irods_random.hpp>
+#include <irods/irods_resource_backport.hpp>
 
 // =-=-=-=-=-=-=-
 // boost includes
@@ -1013,6 +1014,45 @@ namespace irods_s3_cacheless {
                 // get the name of this resource
                 ret = _ctx.prop_map().get< std::string >( irods::RESOURCE_NAME, resc_name );
                 if((result = ASSERT_PASS(ret, "Failed to get resource name property.")).ok() ) {
+
+                    // if we are in detached mode, set the location to current host
+                    bool attached_mode, cacheless_mode;
+                    get_modes_from_properties(_ctx.prop_map(), attached_mode, cacheless_mode);
+
+                    if (!attached_mode && _curr_host) {
+
+                        // set the hostname to the local host
+                        _ctx.prop_map().set<std::string>(irods::RESOURCE_LOCATION, *_curr_host);
+
+                        rodsServerHost_t* host = nullptr;
+                        rodsLong_t resc_id = 0;
+
+                        ret = _ctx.prop_map().get<rodsLong_t>( irods::RESOURCE_ID, resc_id );
+                        if ( !ret.ok() ) { 
+                            std::string msg("get_property in s3RedirectPlugin failed to get irods::RESOURCE _ID");
+                            return PASSMSG( msg, ret );
+                        }
+
+                        ret = irods::get_resource_property< rodsServerHost_t* >( resc_id, irods::RESOURCE_HOST, host );
+                        if ( !ret.ok() ) { 
+                            std::string msg("get_resource_property in s3RedirectPlugin for detached mode failed");
+                            return PASSMSG( msg, ret );
+                        }
+                      
+                        // pave over host->hostName->name in rodsServerHost_t 
+                        free(host->hostName->name);
+                        host->hostName->name = static_cast<char*>(malloc(strlen(_curr_host->c_str()) + 1));
+                        strcpy(host->hostName->name, _curr_host->c_str()); 
+                        host->localFlag = LOCAL_HOST;
+
+                        ret = irods::set_resource_property< rodsServerHost_t* >( resc_name, irods::RESOURCE_HOST, host );
+                        if ( !ret.ok() ) { 
+                            std::string msg("set_resource_property in s3RedirectPlugin for detached mode failed");
+                            return PASSMSG( msg, ret );
+                        }
+
+                    }
+
 
                     // =-=-=-=-=-=-=-
                     // add ourselves to the hierarchy parser by default
