@@ -2415,7 +2415,7 @@ void S3fsCurl::insertV4Headers()
   get_date_sigv3(strdate, date8601);
 
   string contentSHA256 = payload_hash.empty() ? empty_payload_hash : payload_hash;
-  const std::string realpath = server_path;
+  const std::string realpath = pathrequeststyle ? "/" + bucket + server_path : server_path;
 
   //string canonical_headers, signed_headers;
   requestHeaders = curl_slist_sort_insert(requestHeaders, "Host", get_bucket_host().c_str());
@@ -4324,7 +4324,7 @@ bool MakeUrlResource(const char* realpath, string& resourcepath, string& url)
   return true;
 }
 
-string prepare_url(const char* url)
+/*string prepare_url(const char* url)
 {
   return std::string(url);
 
@@ -4361,24 +4361,18 @@ string prepare_url(const char* url)
   S3FS_PRN_DBG("URL changed is %s", url_str.c_str());
 
   return std::string("http://" )+ url_str;
-}
+}*/
 
 
-/*string prepare_url(const char *url)
+string prepare_url(const char *url)
 {
   S3FS_PRN_DBG("URL is %s", url);
 
-  std::string url_lower = url;
-  boost::to_lower(url_lower);
+  std::string url_str = string(url);
 
-  return url_lower;
-}*/
-/*  
   string uri;
   string host;
   string path;
-  string url_str = string(url);
-  return url_str;
 
   string token = string("/") + bucket;
   int bucket_pos = url_str.find(token);
@@ -4410,7 +4404,6 @@ string prepare_url(const char* url)
 
   return url_str;
 }
-*/
 
 /*
 * Local variables:

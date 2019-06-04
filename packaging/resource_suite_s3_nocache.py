@@ -67,7 +67,7 @@ class ResourceBase(session.make_sessions_mixin([('otherrods', 'rods')], [('alice
         self.anotherresc = "AnotherResc"
         self.anothervault = "/tmp/" + self.anotherresc
 
-        self.s3_context = "S3_DEFAULT_HOSTNAME=%s;S3_AUTH_FILE=%s;S3_REGIONNAME=%s;S3_RETRY_COUNT=2;S3_WAIT_TIME_SEC=3;S3_PROTO=HTTP;ARCHIVE_NAMING_POLICY=consistent;HOST_MODE=cacheless_attached;S3_ENABLE_MD5=1;S3_SIGNATURE_VERSION=%d" % (self.s3endPoint, self.keypairfile, self.s3region, self.s3signature_version)
+        self.s3_context = "S3_DEFAULT_HOSTNAME=%s;S3_AUTH_FILE=%s;S3_REGIONNAME=%s;S3_RETRY_COUNT=2;S3_WAIT_TIME_SEC=3;S3_PROTO=HTTPS;ARCHIVE_NAMING_POLICY=consistent;HOST_MODE=cacheless_attached;S3_ENABLE_MD5=1;S3_SIGNATURE_VERSION=%d" % (self.s3endPoint, self.keypairfile, self.s3region, self.s3signature_version)
 
         self.admin.assert_icommand("iadmin modresc demoResc name origResc", 'STDOUT_SINGLELINE', 'rename', input='yes\n')
 
@@ -1383,7 +1383,7 @@ OUTPUT ruleExecOut
         resource_host = "irods.org"
 
         # change demoResc to use detached mode
-        s3_context_detached = "S3_DEFAULT_HOSTNAME=s3.amazonaws.com;S3_AUTH_FILE=/projects/irods/vsphere-testing/externals/amazon_web_services-CI.keypair;S3_REGIONNAME=us-east-1;S3_RETRY_COUNT=2;S3_WAIT_TIME_SEC=3;S3_PROTO=HTTP;ARCHIVE_NAMING_POLICY=consistent;HOST_MODE=cacheless_detached;S3_ENABLE_MD5=1"
+        s3_context_detached = "S3_DEFAULT_HOSTNAME=s3.amazonaws.com;S3_AUTH_FILE=/projects/irods/vsphere-testing/externals/amazon_web_services-CI.keypair;S3_REGIONNAME=us-east-1;S3_RETRY_COUNT=2;S3_WAIT_TIME_SEC=3;S3_PROTO=HTTPS;ARCHIVE_NAMING_POLICY=consistent;HOST_MODE=cacheless_detached;S3_ENABLE_MD5=1"
 
         self.admin.assert_icommand("iadmin modresc demoResc context %s" % s3_context_detached , 'EMPTY')
         self.admin.assert_icommand("iadmin modresc demoResc host %s" % resource_host, 'EMPTY')
@@ -1450,4 +1450,23 @@ class Test_S3_NoCache_V4(Test_S3_NoCache_Base, unittest.TestCase):
         self.s3region='us-east-1'
         self.s3endPoint='s3.amazonaws.com'
         self.s3signature_version=4
+        super(Test_S3_NoCache_Base, self).__init__(*args, **kwargs)
+
+class Test_S3_NoCache_EU_Central_1(Test_S3_NoCache_Base, unittest.TestCase):
+    '''
+    This also tests signature V4 with the x-amz-date header.
+    '''
+    def __init__(self, *args, **kwargs):
+        self.keypairfile='/projects/irods/vsphere-testing/externals/amazon_web_services-CI.keypair'
+        self.s3region='eu-central-1'
+        self.s3endPoint='s3.eu-central-1.amazonaws.com'
+        self.s3signature_version=4
+        super(Test_S3_NoCache_Base, self).__init__(*args, **kwargs)
+
+class Test_S3_NoCache_V2(Test_S3_NoCache_Base, unittest.TestCase):
+    def __init__(self, *args, **kwargs):
+        self.keypairfile='/projects/irods/vsphere-testing/externals/amazon_web_services-CI.keypair'
+        self.s3region='us-east-1'
+        self.s3endPoint='s3.amazonaws.com'
+        self.s3signature_version=2
         super(Test_S3_NoCache_Base, self).__init__(*args, **kwargs)
