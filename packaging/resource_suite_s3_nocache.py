@@ -13,6 +13,7 @@ import platform
 import random
 import string
 import io
+import urllib3
 
 try:
    from minio import Minio
