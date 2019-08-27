@@ -50,7 +50,20 @@ class ResourceBase(session.make_sessions_mixin([('otherrods', 'rods')], [('alice
         self.read_aws_keys()
 
         # set up s3 bucket
-        s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key)
+        try:
+            self.httpClient = urllib3.poolmanager.ProxyManager(
+                os.environ['http_proxy'],
+                timeout=urllib3.Timeout.DEFAULT_TIMEOUT,
+                cert_reqs='CERT_NONE',
+                retries=urllib3.Retry(
+                    total=5,
+                    backoff_factor=0.2,
+                    status_forcelist=[500, 502, 503, 504]
+                )
+            )
+        except KeyError:
+            self.httpClient = None
+        s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key, self.httpClient)
 
         distro_str = ''.join(platform.linux_distribution()[:2]).replace(' ','')
         self.s3bucketname = 'irods-ci-' + distro_str + datetime.datetime.utcnow().strftime('-%Y-%m-%d.%H-%M-%S-%f-')
@@ -100,7 +113,7 @@ class ResourceBase(session.make_sessions_mixin([('otherrods', 'rods')], [('alice
             print("run_resource_teardown - END")
 
         # delete s3 bucket
-        s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key)
+        s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key, self.httpClient)
         objects = s3_client.list_objects_v2(self.s3bucketname, recursive=True)
         s3_client.remove_objects(self.s3bucketname, objects)
         s3_client.remove_bucket(self.s3bucketname)
@@ -1468,7 +1481,7 @@ OUTPUT ruleExecOut
     def recursive_register_from_s3_bucket(self):
 
         # create some files on s3
-        s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key)
+        s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key, self.httpClient)
         file_contents = b'random test data'
         f = io.BytesIO(file_contents)
         size = len(file_contents)

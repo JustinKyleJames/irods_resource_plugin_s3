@@ -56,7 +56,7 @@ class Test_Compound_With_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
             httpClient = urllib3.poolmanager.ProxyManager(
                 os.environ['http_proxy'],
                 timeout=urllib3.Timeout.DEFAULT_TIMEOUT,
-                cert_reqs='CERT_REQUIRED',
+                cert_reqs='CERT_NONE',
                 retries=urllib3.Retry(
                     total=5,
                     backoff_factor=0.2,
