@@ -35,6 +35,7 @@
 #include "s3fs/s3fs.h"
 #include "s3fs/curl.h"
 #include "s3fs/s3fs_auth.h"
+#include "s3fs/fdcache.h"
 
 // =-=-=-=-=-=-=-
 // stl includes
@@ -1935,6 +1936,10 @@ irods:: error s3StartOperation(irods::plugin_property_map& _prop_map)
     
         // init curl
         S3fsCurl::InitS3fsCurl("/etc/mime.types");
+
+        // create shared memory objects
+        boost::interprocess::managed_shared_memory segment(boost::interprocess::open_or_create, cacheless_s3_shared_memory_name.c_str(), 65536);
+        boost::interprocess::named_upgradable_mutex named_mtx(boost::interprocess::open_or_create, cacheless_s3_shared_memory_mutex_name.c_str());
     }
  
 
@@ -1944,11 +1949,19 @@ irods:: error s3StartOperation(irods::plugin_property_map& _prop_map)
 /// @brief stop operation. All this does is deinitialize the s3 library
 irods::error s3StopOperation(irods::plugin_property_map& _prop_map)
 {
+//rodsLog(LOG_NOTICE, "%s:%d (%s) s3StopOperation ran", __FILE__, __LINE__, __FUNCTION__);
     irods::error result = SUCCESS();
     if(S3Initialized) {
         S3Initialized = false;
 
         S3_deinitialize();
+    }
+    
+    bool attached_mode = true, cacheless_mode = false;
+    get_modes_from_properties(_prop_map, attached_mode, cacheless_mode); 
+
+    if (cacheless_mode) {
+        boost::interprocess::shared_memory_object::remove(cacheless_s3_shared_memory_name.c_str());
     }
     return result;
 }

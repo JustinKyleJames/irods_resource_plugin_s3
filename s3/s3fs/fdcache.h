@@ -85,8 +85,6 @@ typedef boost::interprocess::list<struct fdpage, fdpage_allocator>              
 // a page list that is not in shared memory
 typedef std::list<struct fdpage> fdpage_list_non_shared_t;
 
-
-
 const std::string cacheless_s3_shared_memory_name = "cacheless_s3_shared_memory";
 const std::string cacheless_s3_shared_memory_mutex_name = "cacheless_s3_shared_memory_mutex";
 
