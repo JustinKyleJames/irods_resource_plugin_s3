@@ -398,7 +398,7 @@ bool StatCache::AddStat(std::string& key, headers_t& meta, bool forcedir, bool n
     }else if(tag == "last-modified"){
       ent->meta[iter->first] = value;
     }else if(tag.substr(0, 5) == "x-amz"){
-      ent->meta[tag] = value;		// key is lower case for "x-amz"
+      ent->meta[tag] = value;     // key is lower case for "x-amz"
     }
   }
 

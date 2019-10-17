@@ -303,7 +303,7 @@ size_t PageList::Size(void) const
 bool PageList::Compress(void)
 {
   if (pages == nullptr) {
-	  return true;
+      return true;
   }
 
   bool is_first       = true;
@@ -332,7 +332,7 @@ bool PageList::Parse(off_t new_pos)
 {
 
   if (pages == nullptr) {
-	  return true;
+      return true;
   }
 
   for(auto iter = pages->begin(); iter != pages->end(); ++iter){
@@ -355,7 +355,7 @@ bool PageList::Parse(off_t new_pos)
 bool PageList::Resize(size_t size, bool is_loaded)
 {
   if (pages == nullptr) {
-	  return true;
+      return true;
   }
 
   size_t total = Size();
@@ -538,7 +538,7 @@ bool PageList::Serialize(CacheFileStat& file, bool is_output)
 {
 
   if (pages == nullptr) {
-	  return false;
+      return false;
   }
 
   if(!file.Open()){
@@ -694,7 +694,7 @@ FdEntity::FdEntity(const char* tpath, const char* cpath)
     pthread_mutexattr_settype(&attr, S3FS_MUTEX_RECURSIVE);   // recursive mutex
     pthread_mutex_init(&fdent_lock, &attr);
     is_lock_init = true;
-	pagelist.path = SAFESTRPTR(tpath);
+    pagelist.path = SAFESTRPTR(tpath);
   }catch(exception& e){
     S3FS_PRN_CRIT("failed to init mutex");
   }
@@ -2022,7 +2022,7 @@ FdManager::FdManager()
       pthread_mutex_init(&FdManager::reserved_diskspace_lock, NULL);
       FdManager::is_lock_init = true;
 
-	  // just to keep the segment open until the FdManager is completely destructed
+      // just to keep the segment open until the FdManager is completely destructed
       segment = SharedMemorySegment::get_segment();
     }catch(exception& e){
       FdManager::is_lock_init = false;

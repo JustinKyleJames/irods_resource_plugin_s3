@@ -119,7 +119,7 @@ static string url_to_host(const std::string &url)
   } else if (url.compare(0, https.size(), https) == 0) {
     host = url.substr(https.size());
   } else {
-	host = url;
+    host = url;
   }
 
   size_t idx;
@@ -141,10 +141,10 @@ static string get_bucket_host()
 // compare ETag ignoring quotes
 static bool etag_equals(std::string s1, std::string s2) {
   if(s1.length() > 1 && s1[0] == '\"' && s1[s1.length() - 1] == '\"'){
-	s1 = s1.substr(1, s1.size() - 2);
+    s1 = s1.substr(1, s1.size() - 2);
   }
   if(s2.length() > 1 && s2[0] == '\"' && s2[s2.length() - 1] == '\"'){
-	s2 = s2.substr(1, s2.size() - 2);
+    s2 = s2.substr(1, s2.size() - 2);
   }
   return s1 == s2;
 }
@@ -1950,7 +1950,7 @@ bool S3fsCurl::RemakeHandle(void)
       curl_easy_setopt(hCurl, CURLOPT_WRITEDATA, (void*)bodydata);
       curl_easy_setopt(hCurl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
       curl_easy_setopt(hCurl, CURLOPT_HTTPHEADER, requestHeaders);
-	  //curl_easy_setopt(hCurl, CURLOPT_VERBOSE, 1);
+      //curl_easy_setopt(hCurl, CURLOPT_VERBOSE, 1);
       break;
 
     case REQTYPE_PREMULTIPOST:
@@ -2425,7 +2425,7 @@ void S3fsCurl::insertV4Headers()
   requestHeaders = curl_slist_sort_insert(requestHeaders, "Host", get_bucket_host().c_str());
   requestHeaders = curl_slist_sort_insert(requestHeaders, "x-amz-content-sha256", contentSHA256.c_str());
   requestHeaders = curl_slist_sort_insert(requestHeaders, "x-amz-date", date8601.c_str());
-	
+    
   if(!S3fsCurl::IsPublicBucket()){
     string Signature = CalcSignature(op, realpath, query_string + (type == REQTYPE_PREMULTIPOST ? "=" : ""), strdate, contentSHA256, date8601);
     string auth = "AWS4-HMAC-SHA256 Credential=" + std::string(AWSAccessKeyId) + "/" + strdate + "/" + endpoint +
@@ -2757,7 +2757,7 @@ int S3fsCurl::HeadRequest(const char* tpath, headers_t& meta)
     }else if(key == "last-modified"){
       meta[iter->first] = value;
     }else if(key.substr(0, 5) == "x-amz"){
-      meta[key] = value;		// key is lower case for "x-amz"
+      meta[key] = value;        // key is lower case for "x-amz"
     }
   }
   return 0;
@@ -4320,9 +4320,9 @@ bool MakeUrlResource(const char* realpath, string& resourcepath, string& url)
   // if s3_protocol_str is set to either https or http, add this to url
   // otherwise leave it alone and let curl figure it out
   if (s3_protocol_str == "https") {
-	  url = "https://" + url;
+      url = "https://" + url;
   } else if (s3_protocol_str == "http") {
-	  url = "http://" + url;
+      url = "http://" + url;
   }
 
   return true;

@@ -465,9 +465,9 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) [realsize=%zu]", __FILE__, __LINE__, __FUNCTION_
         // - Third and subsequent threads will wait for this load (due to mutex lock)
         //   and then read their part from cache.
         {
-	        std::unique_lock<std::mutex> lck(ent->cv_mtx);
+            std::unique_lock<std::mutex> lck(ent->cv_mtx);
 
-	        ++(ent->simultaneous_read_count);
+            ++(ent->simultaneous_read_count);
 
             if (ent->simultaneous_read_count == 2) {
 
@@ -486,8 +486,8 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) [realsize=%zu]", __FILE__, __LINE__, __FUNCTION_
         }
 
         {
-	        std::unique_lock<std::mutex> lck(ent->cv_mtx);
-	        --(ent->simultaneous_read_count);
+            std::unique_lock<std::mutex> lck(ent->cv_mtx);
+            --(ent->simultaneous_read_count);
         }
 
         // ent->Read returns the size of the buffer but posix requires

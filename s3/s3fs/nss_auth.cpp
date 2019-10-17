@@ -158,7 +158,7 @@ size_t get_md5_digest_length(void)
 
 unsigned char* s3fs_md5hexsum(int fd, off_t start, ssize_t size)
 {
-  PK11Context*	 md5ctx;
+  PK11Context*     md5ctx;
   unsigned char  buf[512];
   ssize_t        bytes;
   unsigned char* result;
@@ -225,7 +225,7 @@ bool s3fs_sha256(const unsigned char* data, unsigned int datalen, unsigned char*
     return false;
   }
 
-  PK11Context*	 sha256ctx;
+  PK11Context*   sha256ctx;
   unsigned int   sha256outlen;
   sha256ctx = PK11_CreateDigestContext(SEC_OID_SHA256);
 
@@ -239,7 +239,7 @@ bool s3fs_sha256(const unsigned char* data, unsigned int datalen, unsigned char*
 
 unsigned char* s3fs_sha256hexsum(int fd, off_t start, ssize_t size)
 {
-  PK11Context*	 sha256ctx;
+  PK11Context*   sha256ctx;
   unsigned char  buf[512];
   ssize_t        bytes;
   unsigned char* result;

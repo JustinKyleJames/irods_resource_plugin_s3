@@ -69,7 +69,7 @@ enum dirtype {
 };
 
 #if !defined(ENOATTR)
-#define ENOATTR				ENODATA
+#define ENOATTR                ENODATA
 #endif
 
 //-------------------------------------------------------------------
@@ -621,7 +621,7 @@ int list_bucket(const char* path, S3ObjList& head, const char* delimiter, bool c
       return -1;
     }
     if(true == (truncated = is_truncated(doc))){
-      xmlChar*	tmpch = get_next_marker(doc);
+      xmlChar*    tmpch = get_next_marker(doc);
       if(tmpch){
         next_marker = (char*)tmpch;
         xmlFree(tmpch);

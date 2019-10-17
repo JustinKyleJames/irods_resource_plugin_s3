@@ -128,7 +128,7 @@ class PageList
 
   private:
     fdpage_list_t *pages = nullptr;
-	std::string path;
+    std::string path;
 
   private:
     void Clear(void);
@@ -217,7 +217,7 @@ class FdEntity
     bool SetGId(gid_t gid);
     bool SetContentType(const char* path);
 
-	PageList* getPageList() { return &pagelist;  }
+    PageList* getPageList() { return &pagelist;  }
 
     int Load(off_t start = 0, size_t size = 0);                 // size=0 means loading to end
     int NoCacheLoadAndPost(off_t start = 0, size_t size = 0);   // size=0 means loading to end
@@ -256,7 +256,7 @@ class FdManager
 
     fdent_map_t                         fent;
 
-	// just to keep the segment open until the FdManager is completely destructed
+    // just to keep the segment open until the FdManager is completely destructed
     std::shared_ptr<boost::interprocess::managed_shared_memory> segment; 
 
   private:

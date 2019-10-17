@@ -30,7 +30,7 @@
 #include <gcrypt.h>
 #include <gnutls/gnutls.h>
 #include <gnutls/crypto.h>
-#ifdef	USE_GNUTLS_NETTLE
+#ifdef    USE_GNUTLS_NETTLE
 #include <nettle/md5.h>
 #include <nettle/sha1.h>
 #include <nettle/hmac.h>
@@ -48,7 +48,7 @@ using namespace std;
 //-------------------------------------------------------------------
 // Utility Function for version
 //-------------------------------------------------------------------
-#ifdef	USE_GNUTLS_NETTLE
+#ifdef    USE_GNUTLS_NETTLE
 
 const char* s3fs_crypt_lib_name(void)
 {
@@ -57,7 +57,7 @@ const char* s3fs_crypt_lib_name(void)
   return version;
 }
 
-#else	// USE_GNUTLS_NETTLE
+#else    // USE_GNUTLS_NETTLE
 
 const char* s3fs_crypt_lib_name(void)
 {
@@ -66,7 +66,7 @@ const char* s3fs_crypt_lib_name(void)
   return version;
 }
 
-#endif	// USE_GNUTLS_NETTLE
+#endif    // USE_GNUTLS_NETTLE
 
 //-------------------------------------------------------------------
 // Utility Function for global init
@@ -80,7 +80,7 @@ bool s3fs_init_global_ssl(void)
   if(NULL == gcry_check_version(NULL)){
     return false;
   }
-#endif	// USE_GNUTLS_NETTLE
+#endif    // USE_GNUTLS_NETTLE
   return true;
 }
 
@@ -106,7 +106,7 @@ bool s3fs_destroy_crypt_mutex(void)
 //-------------------------------------------------------------------
 // Utility Function for HMAC
 //-------------------------------------------------------------------
-#ifdef	USE_GNUTLS_NETTLE
+#ifdef    USE_GNUTLS_NETTLE
 
 bool s3fs_HMAC(const void* key, size_t keylen, const unsigned char* data, size_t datalen, unsigned char** digest, unsigned int* digestlen)
 {
@@ -146,7 +146,7 @@ bool s3fs_HMAC256(const void* key, size_t keylen, const unsigned char* data, siz
   return true;
 }
 
-#else	// USE_GNUTLS_NETTLE
+#else    // USE_GNUTLS_NETTLE
 
 bool s3fs_HMAC(const void* key, size_t keylen, const unsigned char* data, size_t datalen, unsigned char** digest, unsigned int* digestlen)
 {
@@ -188,7 +188,7 @@ bool s3fs_HMAC256(const void* key, size_t keylen, const unsigned char* data, siz
   return true;
 }
 
-#endif	// USE_GNUTLS_NETTLE
+#endif    // USE_GNUTLS_NETTLE
 
 //-------------------------------------------------------------------
 // Utility Function for MD5
@@ -198,7 +198,7 @@ size_t get_md5_digest_length(void)
   return 16;
 }
 
-#ifdef	USE_GNUTLS_NETTLE
+#ifdef    USE_GNUTLS_NETTLE
 unsigned char* s3fs_md5hexsum(int fd, off_t start, ssize_t size)
 {
   struct md5_ctx ctx_md5;
@@ -241,7 +241,7 @@ unsigned char* s3fs_md5hexsum(int fd, off_t start, ssize_t size)
   return result;
 }
 
-#else	// USE_GNUTLS_NETTLE
+#else    // USE_GNUTLS_NETTLE
 
 unsigned char* s3fs_md5hexsum(int fd, off_t start, ssize_t size)
 {
@@ -300,7 +300,7 @@ unsigned char* s3fs_md5hexsum(int fd, off_t start, ssize_t size)
   return result;
 }
 
-#endif	// USE_GNUTLS_NETTLE
+#endif    // USE_GNUTLS_NETTLE
 
 //-------------------------------------------------------------------
 // Utility Function for SHA256
@@ -310,7 +310,7 @@ size_t get_sha256_digest_length(void)
   return 32;
 }
 
-#ifdef	USE_GNUTLS_NETTLE
+#ifdef    USE_GNUTLS_NETTLE
 bool s3fs_sha256(const unsigned char* data, unsigned int datalen, unsigned char** digest, unsigned int* digestlen)
 {
   (*digestlen) = static_cast<unsigned int>(get_sha256_digest_length());
@@ -368,7 +368,7 @@ unsigned char* s3fs_sha256hexsum(int fd, off_t start, ssize_t size)
   return result;
 }
 
-#else	// USE_GNUTLS_NETTLE
+#else    // USE_GNUTLS_NETTLE
 
 bool s3fs_sha256(const unsigned char* data, unsigned int datalen, unsigned char** digest, unsigned int* digestlen)
 {
@@ -448,7 +448,7 @@ unsigned char* s3fs_sha256hexsum(int fd, off_t start, ssize_t size)
   return result;
 }
 
-#endif	// USE_GNUTLS_NETTLE
+#endif    // USE_GNUTLS_NETTLE
 
 /*
 * Local variables:

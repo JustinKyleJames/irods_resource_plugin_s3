@@ -453,7 +453,7 @@ AutoLock::~AutoLock()
 // get user name from uid
 string get_username(uid_t uid)
 {
-  static size_t maxlen = 0;	// set once
+  static size_t maxlen = 0;    // set once
   int result;
   char* pbuf;
   struct passwd pwinfo;
@@ -509,7 +509,7 @@ string get_username(uid_t uid)
 
 int is_uid_include_group(uid_t uid, gid_t gid)
 {
-  static size_t maxlen = 0;	// set once
+  static size_t maxlen = 0;    // set once
   int result;
   char* pbuf;
   struct group ginfo;
@@ -1134,7 +1134,7 @@ void show_help (void)
     "\n"
     "   no_check_certificate\n"
     "      - server certificate won't be checked against the available \n"
-	"      certificate authorities.\n"
+    "      certificate authorities.\n"
     "\n"
     "   nodnscache (disable dns cache)\n"
     "      - s3fs is always using dns cache, this option make dns cache disable.\n"
