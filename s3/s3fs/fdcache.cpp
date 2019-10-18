@@ -2038,7 +2038,7 @@ FdManager::FdManager()
       pthread_mutex_init(&FdManager::reserved_diskspace_lock, NULL);
       FdManager::is_lock_init = true;
       // just to keep the segment open until the FdManager is completely destructed
-      segment = SharedMemorySegment::get_segment();
+      //segment = SharedMemorySegment::get_segment();
     }catch(exception& e){
       FdManager::is_lock_init = false;
       S3FS_PRN_CRIT("failed to init mutex");

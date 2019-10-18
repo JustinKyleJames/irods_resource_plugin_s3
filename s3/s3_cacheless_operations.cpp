@@ -184,7 +184,7 @@ namespace irods_s3_cacheless {
         //service_path = "";
         strncpy(host, s3GetHostname(_prop_map).c_str(), MAX_NAME_LEN-1);
 
-        ret = _ctx.prop_map().get< std::string >( irods::RESOURCE_NAME, s3_resource_name );
+        ret = _prop_map.get< std::string >( irods::RESOURCE_NAME, s3_resource_name );
         if (!ret.ok()) {
             std::stringstream msg;
             msg << __FUNCTION__ << " - Could not read resource name to open shared memory.";

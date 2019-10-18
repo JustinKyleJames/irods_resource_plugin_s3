@@ -374,7 +374,7 @@ class DirectoryListStreamManager
     static DirectoryListStreamManager* get(void) { return &singleton; }
 };
 
-class SharedMemorySegment {
+/*class SharedMemorySegment {
  private:
     static std::shared_ptr<boost::interprocess::managed_shared_memory> segment;
  public:
@@ -385,7 +385,7 @@ class SharedMemorySegment {
         }
         return segment;
     }
-};
+};*/
   
 
 #endif // FD_CACHE_H_
