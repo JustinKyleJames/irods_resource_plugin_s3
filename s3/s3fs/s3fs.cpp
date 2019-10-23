@@ -132,7 +132,7 @@ static const std::string keyval_fields_type    = "\t";       // special key for 
 //-------------------------------------------------------------------
 // Static functions : prototype
 //-------------------------------------------------------------------
-static FdEntity* get_local_fent(const char* path, bool is_load = false);
+static FdEntity* get_local_fent(const char* path, bool is_load = false, const std::string& resource_name = "");
 static int directory_empty(const char* path);
 static bool is_truncated(xmlDocPtr doc);
 static int append_objects_from_xml_ex(const char* path, xmlDocPtr doc, xmlXPathContextPtr ctx, 
@@ -143,7 +143,7 @@ static xmlChar* get_base_exp(xmlDocPtr doc, const char* exp);
 static xmlChar* get_prefix(xmlDocPtr doc);
 static xmlChar* get_next_marker(xmlDocPtr doc);
 static char* get_object_name(xmlDocPtr doc, xmlNodePtr node, const char* path);
-static int put_headers(const char* path, headers_t& meta, bool is_copy);
+static int put_headers(const char* path, headers_t& meta, bool is_copy, const std::string& resource_name);
 static int remote_mountpath_exists(const char* path);
 static int s3fs_unlink(const char* path);
 //int s3fs_check_service(void);
@@ -336,7 +336,7 @@ bool get_object_sse_type(const char* path, sse_type_t& ssetype, string& ssevalue
   return true;
 }
 
-static FdEntity* get_local_fent(const char* path, bool is_load)
+static FdEntity* get_local_fent(const char* path, bool is_load, const std::string& resource_name)
 {
   struct stat stobj;
   FdEntity*   ent;
@@ -352,7 +352,7 @@ static FdEntity* get_local_fent(const char* path, bool is_load)
   time_t mtime         = (!S_ISREG(stobj.st_mode) || S_ISLNK(stobj.st_mode)) ? -1 : stobj.st_mtime;
   bool   force_tmpfile = S_ISREG(stobj.st_mode) ? false : true;
 
-  if(NULL == (ent = FdManager::get()->Open(path, &meta, static_cast<ssize_t>(stobj.st_size), mtime, force_tmpfile, true))){
+  if(NULL == (ent = FdManager::get()->Open(path, resource_name, &meta, static_cast<ssize_t>(stobj.st_size), mtime, force_tmpfile, true))){
     S3FS_PRN_ERR("Could not open file. errno(%d)", errno);
     return NULL;
   }
@@ -370,7 +370,7 @@ static FdEntity* get_local_fent(const char* path, bool is_load)
  * ow_sse_flg is for over writing sse header by use_sse option.
  * @return fuse return code
  */
-static int put_headers(const char* path, headers_t& meta, bool is_copy)
+static int put_headers(const char* path, headers_t& meta, bool is_copy, const std::string& resource_name)
 {
   int         result;
   S3fsCurl    s3fscurl(true);
@@ -395,11 +395,11 @@ static int put_headers(const char* path, headers_t& meta, bool is_copy)
   }
 
   FdEntity* ent = NULL;
-  if(NULL == (ent = FdManager::get()->ExistOpen(path, -1, !(FdManager::get()->IsCacheDir())))){
+  if(NULL == (ent = FdManager::get()->ExistOpen(path, resource_name, -1, !(FdManager::get()->IsCacheDir())))){
     // no opened fd
     if(FdManager::get()->IsCacheDir()){
       // create cache file if be needed
-      ent = FdManager::get()->Open(path, &meta, static_cast<ssize_t>(buf.st_size), -1, false, true);
+      ent = FdManager::get()->Open(path, resource_name, &meta, static_cast<ssize_t>(buf.st_size), -1, false, true);
     }
   }
   if(ent){
@@ -441,7 +441,7 @@ static int directory_empty(const char* path)
   return 0;
 }
 
-int rename_object(const char* from, const char* to)
+int rename_object(const char* from, const char* to, const std::string& resource_name)
 {
   int result;
   string s3_realpath;
@@ -468,7 +468,7 @@ int rename_object(const char* from, const char* to)
   meta["Content-Type"]             = S3fsCurl::LookupMimeType(string(to));
   meta["x-amz-metadata-directive"] = "REPLACE";
 
-  if(0 != (result = put_headers(to, meta, true))){
+  if(0 != (result = put_headers(to, meta, true, resource_name))){
     return result;
   }
 
@@ -481,7 +481,7 @@ int rename_object(const char* from, const char* to)
   return result;
 }
 
-int rename_object_nocopy(const char* from, const char* to)
+int rename_object_nocopy(const char* from, const char* to, const std::string& resource_name)
 {
   int result;
 
@@ -498,7 +498,7 @@ int rename_object_nocopy(const char* from, const char* to)
 
   // open & load
   FdEntity* ent;
-  if(NULL == (ent = get_local_fent(from, true))){
+  if(NULL == (ent = get_local_fent(from, true, resource_name))){
     S3FS_PRN_ERR("could not open and read file(%s)", from);
     return -EIO;
   }

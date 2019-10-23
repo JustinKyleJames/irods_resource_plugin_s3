@@ -257,8 +257,9 @@ void PageList::FreeList(fdpage_list_non_shared_t& list)
   list.clear();
 }
 
-PageList::PageList(size_t size, bool is_loaded)
+PageList::PageList(const std::string& resource_name, size_t size, bool is_loaded)
 {
+  s3_resource_name = resource_name;
   Init(size, is_loaded);
 
 }
@@ -279,9 +280,9 @@ bool PageList::Init(size_t size, bool is_loaded)
 {
 
   Clear();
-
-  auto segment = irods_s3_cacheless::get_shared_memory_segment();
-  auto named_mtx = irods_s3_cacheless::get_named_mutex();
+rodsLog(LOG_NOTICE, "%s:%d (%s) ***************   [s3_resource_name=%s]   ***************", __FILE__, __LINE__, __FUNCTION__, s3_resource_name.c_str());
+  auto segment = irods_s3_cacheless::get_shared_memory_segment(s3_resource_name);
+  auto named_mtx = irods_s3_cacheless::get_named_mutex(s3_resource_name);
   void_allocator alloc_inst (segment->get_segment_manager());
 
   if (pages == nullptr) {
@@ -695,11 +696,12 @@ int FdEntity::FillFile(int fd, unsigned char byte, size_t size, off_t start)
 //------------------------------------------------
 // FdEntity methods
 //------------------------------------------------
-FdEntity::FdEntity(const char* tpath, const char* cpath)
-        : is_lock_init(false), simultaneous_read_count(0), path(SAFESTRPTR(tpath)), 
+FdEntity::FdEntity(const std::string& resource_name, const char* tpath, const char* cpath)
+        : is_lock_init(false), simultaneous_read_count(0), pagelist(resource_name), path(SAFESTRPTR(tpath)), 
           cachepath(SAFESTRPTR(cpath)), mirrorpath(""),
           fd(-1), pfile(NULL), is_modify(false), size_orgmeta(0), upload_id(""), mp_start(0), mp_size(0)
 {
+rodsLog(LOG_NOTICE, "FdEntity constructed with pagelist.resource_name = [%s]", resource_name.c_str());
   try{
     pthread_mutexattr_t attr;
     pthread_mutexattr_init(&attr);
@@ -2104,7 +2106,7 @@ FdEntity* FdManager::GetFdEntity(const char* path, int existfd)
   return NULL;
 }
 
-FdEntity* FdManager::Open(const char* path, headers_t* pmeta, ssize_t size, time_t time, bool force_tmpfile, bool is_create, bool no_fd_lock_wait)
+FdEntity* FdManager::Open(const char* path, const std::string& resource_name, headers_t* pmeta, ssize_t size, time_t time, bool force_tmpfile, bool is_create, bool no_fd_lock_wait)
 {
   S3FS_PRN_DBG("[path=%s][size=%jd][time=%jd]", SAFESTRPTR(path), (intmax_t)size, (intmax_t)time);
 
@@ -2143,7 +2145,7 @@ FdEntity* FdManager::Open(const char* path, headers_t* pmeta, ssize_t size, time
         return NULL;
       }
       // make new obj
-      ent = new FdEntity(path, cache_path.c_str());
+      ent = new FdEntity(resource_name, path, cache_path.c_str());
 
       if(0 < cache_path.size()){
         // using cache
@@ -2172,12 +2174,12 @@ FdEntity* FdManager::Open(const char* path, headers_t* pmeta, ssize_t size, time
   return ent;
 }
 
-FdEntity* FdManager::ExistOpen(const char* path, int existfd, bool ignore_existfd)
+FdEntity* FdManager::ExistOpen(const char* path, const std::string& resource_name, int existfd, bool ignore_existfd)
 {
   S3FS_PRN_DBG("[path=%s][fd=%d][ignore_existfd=%s]", SAFESTRPTR(path), existfd, ignore_existfd ? "true" : "false");
 
   // search by real path
-  FdEntity* ent = Open(path, NULL, -1, -1, false, false);
+  FdEntity* ent = Open(path, resource_name, NULL, -1, -1, false, false);
 
   if(!ent && (ignore_existfd || (-1 != existfd))){
     // search from all fdentity because of not using cache.
@@ -2281,7 +2283,7 @@ void FdManager::CleanupCacheDir()
 
   if(auto_lock_no_wait.isLockAcquired()){
     S3FS_PRN_DBG("cache cleanup started");
-    CleanupCacheDirInternal("");
+    CleanupCacheDirInternal("", "");
     S3FS_PRN_DBG("cache cleanup ended");
   }else{
     // wait for other thread to finish cache cleanup
@@ -2289,7 +2291,7 @@ void FdManager::CleanupCacheDir()
   }
 }
 
-void FdManager::CleanupCacheDirInternal(const std::string &path)
+void FdManager::CleanupCacheDirInternal(const std::string &path, const std::string& resource_name)
 {
   DIR*           dp;
   struct dirent* dent;
@@ -2315,10 +2317,10 @@ void FdManager::CleanupCacheDirInternal(const std::string &path)
     }
     string next_path = path + "/" + dent->d_name;
     if(S_ISDIR(st.st_mode)){
-      CleanupCacheDirInternal(next_path);
+      CleanupCacheDirInternal(next_path, resource_name);
     }else{
       FdEntity* ent;
-      if(NULL == (ent = FdManager::get()->Open(next_path.c_str(), NULL, -1, -1, false, true, true))){
+      if(NULL == (ent = FdManager::get()->Open(next_path.c_str(), resource_name, NULL, -1, -1, false, true, true))){
         S3FS_PRN_DBG("skipping locked file: %s", next_path.c_str());
         continue;
       }

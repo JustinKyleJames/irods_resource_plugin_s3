@@ -8,14 +8,12 @@
 
 namespace bi = boost::interprocess;
 
-extern std::string s3_resource_name;
-
 namespace irods_s3_cacheless {
 
-    // a map which maps the resource name to the shared memory segment for that resource
+    // a map which maps the resource name to the shared memory mutex for that resource
     std::map<std::string, std::shared_ptr<bi::named_upgradable_mutex> > named_mutexes;
 
-    std::shared_ptr<bi::named_upgradable_mutex> get_named_mutex() {
+    std::shared_ptr<bi::named_upgradable_mutex> get_named_mutex(const std::string& s3_resource_name) {
 
         auto iter = named_mutexes.find(s3_resource_name);
         if (iter != named_mutexes.end()) {

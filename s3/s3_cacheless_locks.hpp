@@ -22,7 +22,7 @@ namespace irods_s3_cacheless {
     void resetMutex( const char* );
     irods::error getMutexName( const char*, std::string &mutex_name );
 
-    std::shared_ptr<boost::interprocess::named_upgradable_mutex> get_named_mutex(); 
+    std::shared_ptr<boost::interprocess::named_upgradable_mutex> get_named_mutex(const std::string& s3_resource_name); 
 }
 
 #endif

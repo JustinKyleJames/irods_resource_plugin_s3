@@ -11,14 +11,12 @@
 
 namespace bi = boost::interprocess;
 
-extern std::string s3_resource_name;
-
 namespace irods_s3_cacheless {
 
     // a map which maps the resource name to the shared memory segment for that resource
     std::map<std::string, std::shared_ptr<bi::managed_shared_memory> > shared_memory_segments;
 
-    std::shared_ptr<bi::managed_shared_memory> get_shared_memory_segment() {
+    std::shared_ptr<bi::managed_shared_memory> get_shared_memory_segment(const std::string& s3_resource_name) {
 
         auto iter = shared_memory_segments.find(s3_resource_name);
         if (iter != shared_memory_segments.end()) {

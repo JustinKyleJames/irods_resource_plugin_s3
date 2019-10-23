@@ -3739,6 +3739,8 @@ int S3fsCurl::MultipartUploadRequest(const char* tpath, headers_t& meta, int fd,
     b_partdata_size     = partdata.size;
     partdata.add_etag_list(&list);
 
+rodsLog(LOG_NOTICE, "%s:%d (%s) UPLOAD [start=%d][size=%d]", __FILE__, __LINE__, __FUNCTION__, partdata.startpos, partdata.size);
+
     // upload part
     if(0 != (result = UploadMultipartPostRequest(tpath, list.size(), upload_id))){
       S3FS_PRN_ERR("failed uploading part(%d)", result);

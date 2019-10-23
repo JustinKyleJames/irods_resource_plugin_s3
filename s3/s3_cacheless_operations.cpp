@@ -184,13 +184,6 @@ namespace irods_s3_cacheless {
         //service_path = "";
         strncpy(host, s3GetHostname(_prop_map).c_str(), MAX_NAME_LEN-1);
 
-        ret = _prop_map.get< std::string >( irods::RESOURCE_NAME, s3_resource_name );
-        if (!ret.ok()) {
-            std::stringstream msg;
-            msg << __FUNCTION__ << " - Could not read resource name to open shared memory.";
-            return PASSMSG(msg.str(), ret);
-        }
-
         std::string endpoint_str;
         _prop_map.get< std::string >(s3_region_name, endpoint_str); // if this fails use default
         strncpy(endpoint, endpoint_str.c_str(), MAX_NAME_LEN-1);
@@ -212,9 +205,9 @@ namespace irods_s3_cacheless {
         return s3fscurl.PutRequest(path.c_str(), meta, -1);    // fd=-1 means for creating zero byte object.
     }
 
-    void flush_buffer(std::string& path, int fh) {
+    void flush_buffer(std::string& path, int fh, const std::string& resource_name) {
         FdEntity* ent;
-        if (NULL != (ent = FdManager::get()->ExistOpen(path.c_str(), fh))) {
+        if (NULL != (ent = FdManager::get()->ExistOpen(path.c_str(), resource_name, fh))) {
             //ent->UpdateMtime();
             ent->Flush(false);
         }
@@ -283,7 +276,7 @@ namespace irods_s3_cacheless {
         FdEntity*   ent;
         headers_t   meta;
         get_object_attribute(key.c_str(), NULL, &meta, true, NULL, true);    // no truncate cache
-        if(NULL == (ent = FdManager::get()->Open(key.c_str(), &meta, 0, -1, false, true))){
+        if(NULL == (ent = FdManager::get()->Open(key.c_str(), get_resource_name(_ctx.prop_map()), &meta, 0, -1, false, true))){
             StatCache::getStatCacheData()->DelStat(key.c_str());
             return ERROR(S3_PUT_ERROR, boost::str(boost::format("[resource_name=%s] code is EIO") 
                         % get_resource_name(_ctx.prop_map()).c_str()));
@@ -300,8 +293,8 @@ namespace irods_s3_cacheless {
         // add pid to shared memory
         int pid = getpid();
 
-        auto segment = get_shared_memory_segment();
-        auto named_mtx = get_named_mutex();
+        auto segment = get_shared_memory_segment(get_resource_name(_ctx.prop_map()));
+        auto named_mtx = get_named_mutex(get_resource_name(_ctx.prop_map()));
         void_allocator alloc_inst (segment->get_segment_manager());
 
         named_mtx->lock();
@@ -404,9 +397,9 @@ namespace irods_s3_cacheless {
         }
 
         FdEntity*   ent;
-        ent = FdManager::get()->Open(key.c_str(), &meta, st.st_size, -1, false, true);
+        ent = FdManager::get()->Open(key.c_str(), get_resource_name(_ctx.prop_map()), &meta, st.st_size, -1, false, true);
 rodsLog(LOG_NOTICE, "%s:%d (%s) Open(path=%s) [ent=%p]", __FILE__, __LINE__, __FUNCTION__, key.c_str(), ent);
-        if(NULL == (ent = FdManager::get()->Open(key.c_str(), &meta, st.st_size, -1, false, true))){
+        if(NULL == (ent = FdManager::get()->Open(key.c_str(), get_resource_name(_ctx.prop_map()), &meta, st.st_size, -1, false, true))){
           StatCache::getStatCacheData()->DelStat(key.c_str());
 
           // TODO create S3_OPEN_ERROR
@@ -442,8 +435,8 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) Open(path=%s) [ent=%p]", __FILE__, __LINE__, __F
         // add this pid into the map in shared memory if it does not already exist
         int pid = getpid();
 
-        auto segment = get_shared_memory_segment();
-        auto named_mtx = get_named_mutex();
+        auto segment = get_shared_memory_segment(get_resource_name(_ctx.prop_map()));
+        auto named_mtx = get_named_mutex(get_resource_name(_ctx.prop_map()));
         void_allocator alloc_inst (segment->get_segment_manager());
 
         named_mtx->lock();
@@ -530,7 +523,7 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) Open(path=%s) [ent=%p]", __FILE__, __LINE__, __F
         ssize_t readReturnVal;
 
         FdEntity* ent;
-        if(NULL == (ent = FdManager::get()->ExistOpen(key.c_str(), fd))) {
+        if(NULL == (ent = FdManager::get()->ExistOpen(key.c_str(), get_resource_name(_ctx.prop_map()), fd))) {
           S3FS_PRN_ERR("could not find opened fd(%d) for %s", fd, key.c_str());
           return ERROR(S3_GET_ERROR, boost::str(boost::format("[resource_name=%s] Could not find opened fd(%d) for %s") 
                       % get_resource_name(_ctx.prop_map()).c_str() % fd % key.c_str()));
@@ -626,6 +619,10 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) [realsize=%zu]", __FILE__, __LINE__, __FUNCTION_
                                     void*               _buf,
                                     int                 _len ) {
 
+std::string write_str;
+write_str.append(static_cast<char*>(_buf), _len);
+rodsLog(LOG_NOTICE, "%s:%d (%s) _buf=[%s]", __FILE__, __LINE__, __FUNCTION__, write_str.c_str());
+
         // =-=-=-=-=-=-=-
         // check incoming parameters
         irods::error ret = s3CheckParams( _ctx );
@@ -664,7 +661,7 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) [realsize=%zu]", __FILE__, __LINE__, __FUNCTION_
         S3FS_PRN_DBG("[path=%s][size=%zu][fd=%llu]", key.c_str(), _len, (unsigned long long)(fd));
 
         FdEntity* ent;
-        if(NULL == (ent = FdManager::get()->ExistOpen(key.c_str(), static_cast<int>(fd)))){
+        if(NULL == (ent = FdManager::get()->ExistOpen(key.c_str(), get_resource_name(_ctx.prop_map()), static_cast<int>(fd)))){
             S3FS_PRN_ERR("could not find opened fd(%s)", key.c_str());
             return ERROR(S3_PUT_ERROR, boost::str(boost::format("[resource_name=%s] Could not find opened fd(%d)") 
                         % get_resource_name(_ctx.prop_map()).c_str() % fd));
@@ -724,18 +721,18 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) [path=%s][key=%s]", __FILE__, __LINE__, __FUNCTI
 
 
         FdEntity*   ent;
-        ent = FdManager::get()->ExistOpen(key.c_str());
-rodsLog(LOG_NOTICE, "%s:%d (%s) ExistsOpen(path=%s) [ent=%p]", __FILE__, __LINE__, __FUNCTION__, key.c_str(), ent);
+        ent = FdManager::get()->ExistOpen(key.c_str(), get_resource_name(_ctx.prop_map()));
+rodsLog(LOG_NOTICE, "%s:%d (%s) ExistOpen(path=%s) [ent=%p]", __FILE__, __LINE__, __FUNCTION__, key.c_str(), ent);
 
         // we are finished with only close if only one is open 
-        if(NULL != (ent = FdManager::get()->ExistOpen(key.c_str())) && !FileOffsetManager::get()->fd_exists(ent->GetFd())){
+        if(NULL != (ent = FdManager::get()->ExistOpen(key.c_str(), get_resource_name(_ctx.prop_map()))) && !FileOffsetManager::get()->fd_exists(ent->GetFd())){
 
 rodsLog(LOG_NOTICE, "%s:%d (%s) This ran!", __FILE__, __LINE__, __FUNCTION__);
             // this is the last thread with this pid.  remove the pid from the shared memory pid map.
             int pid = getpid();
     
-            auto segment = get_shared_memory_segment();
-            auto named_mtx = get_named_mutex();
+            auto segment = get_shared_memory_segment(get_resource_name(_ctx.prop_map()));
+            auto named_mtx = get_named_mutex(get_resource_name(_ctx.prop_map()));
             void_allocator alloc_inst (segment->get_segment_manager());
     
             named_mtx->lock();
@@ -759,7 +756,7 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) This ran!", __FILE__, __LINE__, __FUNCTION__);
                     pid_map->erase(pid_map_iter, pid_map->end());
                     rodsLog(LOG_NOTICE, "%s:%d (%s) SHMEM: **** flushing to S3 ****", __FILE__, __LINE__, __FUNCTION__);
                     //ent->Load(); 
-                    flush_buffer(key, ent->GetFd());
+                    flush_buffer(key, ent->GetFd(), get_resource_name(_ctx.prop_map()));
                     FdManager::get()->Close(ent);
                     StatCache::getStatCacheData()->DelStat(key.c_str());
                     FdManager::DeleteCacheFile(key.c_str());
@@ -873,7 +870,7 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) This ran!", __FILE__, __LINE__, __FUNCTION__);
         if(_statbuf){
           FdEntity*   ent;
       
-          if(NULL != (ent = FdManager::get()->ExistOpen(key.c_str()))){
+          if(NULL != (ent = FdManager::get()->ExistOpen(key.c_str(), get_resource_name(_ctx.prop_map())))){
             struct stat tmpstbuf;
             if(ent->GetStats(tmpstbuf)){
               _statbuf->st_size = tmpstbuf.st_size;
@@ -937,7 +934,7 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) This ran!", __FILE__, __LINE__, __FUNCTION__);
         }
 
         FdEntity* ent;
-        if(NULL == (ent = FdManager::get()->ExistOpen(key.c_str(), static_cast<int>(fd)))){
+        if(NULL == (ent = FdManager::get()->ExistOpen(key.c_str(), get_resource_name(_ctx.prop_map()), static_cast<int>(fd)))){
           S3FS_PRN_ERR("could not find opened fd(%s)", key.c_str());
           return ERROR(S3_FILE_STAT_ERR, boost::str(boost::format("[resource_name=%s] Could not find opened fd(%d)") 
                       % get_resource_name(_ctx.prop_map()).c_str() % fd));
@@ -1154,9 +1151,9 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) This ran!", __FILE__, __LINE__, __FUNCTION__);
             result = rename_large_object(from_key.c_str(), new_file_key.c_str());
         } else {
             if(!nocopyapi && !norenameapi){
-                result = rename_object(from_key.c_str(), new_file_key.c_str());
+                result = rename_object(from_key.c_str(), new_file_key.c_str(), get_resource_name(_ctx.prop_map()));
             } else {
-                result = rename_object_nocopy(from_key.c_str(), new_file_key.c_str());
+                result = rename_object_nocopy(from_key.c_str(), new_file_key.c_str(), get_resource_name(_ctx.prop_map()));
             }
         }
         S3FS_MALLOCTRIM(0);

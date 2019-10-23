@@ -22,6 +22,6 @@ namespace irods_s3_cacheless {
     std::shared_ptr<boost::interprocess::managed_shared_memory> prepareNonServerSharedMemory( const std::string& _key ); 
     irods::error getSharedMemoryName( const std::string&, std::string &shared_memory_name );
 
-    std::shared_ptr<boost::interprocess::managed_shared_memory> get_shared_memory_segment();
+    std::shared_ptr<boost::interprocess::managed_shared_memory> get_shared_memory_segment(const std::string& s3_resource_name);
 }
 #endif /* S3_CACHELESS_SHAREDMEMORY_HPP */

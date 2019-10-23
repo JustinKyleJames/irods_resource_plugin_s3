@@ -128,6 +128,7 @@ class PageList
   friend class FdEntity;    // only one method access directly pages.
 
   private:
+    std::string s3_resource_name;
     fdpage_list_t *pages = nullptr;
     std::string path;
 
@@ -140,7 +141,7 @@ class PageList
     static void FreeList(fdpage_list_t& list);
     static void FreeList(fdpage_list_non_shared_t& list);
 
-    explicit PageList(size_t size = 0, bool is_loaded = false);
+    explicit PageList(const std::string& resource_name, size_t size = 0, bool is_loaded = false);
     ~PageList();
 
     bool Init(size_t size, bool is_loaded);
@@ -196,7 +197,7 @@ class FdEntity
     unsigned int incrementSimultaneousReadCount(); 
 
   public:
-    explicit FdEntity(const char* tpath = NULL, const char* cpath = NULL);
+    explicit FdEntity(const std::string& resource_name, const char* tpath = NULL, const char* cpath = NULL);
     ~FdEntity();
 
     void Close(void);
@@ -260,7 +261,7 @@ class FdManager
 
   private:
     static uint64_t GetFreeDiskSpace(const char* path);
-    void CleanupCacheDirInternal(const std::string &path = "");
+    void CleanupCacheDirInternal(const std::string &path = "", const std::string& resource_name = "");
 
   public:
     FdManager();
@@ -287,8 +288,8 @@ class FdManager
     bool ReserveDiskSpace(size_t size);
 
     FdEntity* GetFdEntity(const char* path, int existfd = -1);
-    FdEntity* Open(const char* path, headers_t* pmeta = NULL, ssize_t size = -1, time_t time = -1, bool force_tmpfile = false, bool is_create = true, bool no_fd_lock_wait = false);
-    FdEntity* ExistOpen(const char* path, int existfd = -1, bool ignore_existfd = false);
+    FdEntity* Open(const char* path, const std::string& resource_name, headers_t* pmeta = NULL, ssize_t size = -1, time_t time = -1, bool force_tmpfile = false, bool is_create = true, bool no_fd_lock_wait = false);
+    FdEntity* ExistOpen(const char* path, const std::string& resource_name, int existfd = -1, bool ignore_existfd = false);
     void Rename(const std::string &from, const std::string &to);
     bool Close(FdEntity* ent);
     bool ChangeEntityToTempPath(FdEntity* ent, const char* path);
