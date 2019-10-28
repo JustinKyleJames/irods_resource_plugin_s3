@@ -45,6 +45,8 @@
 
 #include <rodsLog.h>
 
+#include <boost/interprocess/sync/interprocess_recursive_mutex.hpp>
+
 using namespace std;
 
 //-------------------------------------------------------------------
@@ -447,6 +449,36 @@ AutoLock::~AutoLock()
   }
 }
 
+//-------------------------------------------------------------------
+// Class AutoLockInterprocessResursiveMutex
+//-------------------------------------------------------------------
+AutoLockInterprocessResursiveMutex::AutoLockInterprocessResursiveMutex(boost::interprocess::interprocess_recursive_mutex *mutex, bool no_wait) : auto_mutex(mutex)
+{
+rodsLog(LOG_NOTICE, "%s:%d (%s) Wait for AutoLockInterprocessResursiveMutex lock", __FILE__, __LINE__, __FUNCTION__);
+/*  if (no_wait) {
+    is_lock_acquired = auto_mutex->try_lock() == true;
+  } else {*/
+    auto_mutex->lock();
+    is_lock_acquired = true; 
+//  }
+rodsLog(LOG_NOTICE, "%s:%d (%s) Acquired AutoLockInterprocessResursiveMutex lock", __FILE__, __LINE__, __FUNCTION__);
+}
+
+bool AutoLockInterprocessResursiveMutex::isLockAcquired() const
+{
+  return is_lock_acquired;
+}
+
+AutoLockInterprocessResursiveMutex::~AutoLockInterprocessResursiveMutex()
+{
+  if (is_lock_acquired) {
+rodsLog(LOG_NOTICE, "%s:%d (%s) Release AutoLockInterprocessResursiveMutex lock", __FILE__, __LINE__, __FUNCTION__);
+    auto_mutex->unlock();
+    
+  }
+}
+
+//-------------------------------------------------------------------
 //-------------------------------------------------------------------
 // Utility for UID/GID
 //-------------------------------------------------------------------
