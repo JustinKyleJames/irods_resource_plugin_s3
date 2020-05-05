@@ -10,6 +10,7 @@
 #include "s3fs/s3fs_util.h"
 #include "s3fs/s3fs_auth.h"
 #include "s3fs/common.h"
+#include "s3_transport.hpp"
 
 
 // =-=-=-=-=-=-=-
@@ -28,6 +29,7 @@
 #include <irods_stacktrace.hpp>
 #include <irods_random.hpp>
 #include <irods/irods_resource_backport.hpp>
+#include <dstream.hpp>
 
 // =-=-=-=-=-=-=-
 // boost includes
@@ -51,7 +53,47 @@ extern size_t g_retry_wait;
 
 extern S3ResponseProperties savedProperties;
 
+using odstream            = irods::experimental::io::odstream;
+using idstream            = irods::experimental::io::idstream;
+using dstream             = irods::experimental::io::dstream;
+using s3_transport        = irods::experimental::io::s3_transport::s3_transport<char>;
+using s3_transport_config = irods::experimental::io::s3_transport::config;
+
 namespace irods_s3_cacheless {
+
+    thread_local s3_transport *transport = nullptr;
+    thread_local dstream *ds = nullptr;
+
+    std::ios_base::openmode translate_open_mode_posix_to_stream(int oflag) noexcept
+    {
+        using std::ios_base;
+
+        printf("%s:%d (%s) oflag=%d\n", __FILE__, __LINE__, __FUNCTION__, oflag);
+        printf("%s:%d (%s) O_WRONLY=%d, O_RDWR=%d, O_RDONLY=%d, O_TRUNC=%d, O_CREAT=%d, O_APPEND=%d\n", __FILE__, __LINE__, __FUNCTION__,
+               O_WRONLY, O_RDWR, O_RDONLY, O_TRUNC, O_CREAT, O_APPEND);
+
+        ios_base::openmode mode = 0;
+
+        if ((oflag & O_ACCMODE) == O_WRONLY || (oflag & O_ACCMODE) == O_RDWR) {
+            mode |= ios_base::out;
+        }
+
+        if ((oflag & O_ACCMODE) == O_RDONLY || (oflag & O_ACCMODE) == O_RDWR) {
+            mode |= ios_base::in;
+        }
+
+        if (oflag & O_TRUNC || oflag & O_CREAT) {
+            mode |= ios_base::trunc;
+        }
+
+        if (oflag & O_APPEND) {
+            mode |= ios_base::app;
+        }
+
+        return mode;
+
+    }
+
 
     int get64RandomBytes( char *buf ) {
         const int num_random_bytes = 32;
@@ -66,19 +108,19 @@ namespace irods_s3_cacheless {
 
         snprintf( buf, num_hex_bytes + 1, "%s", ss.str().c_str() );
         return 0;
-    }   
+    }
 
     irods::error set_s3_configuration_from_context(irods::plugin_property_map& _prop_map) {
 
         static bool already_destroyed = false;
 
         // this is taken from s3fs.cpp - main() with adjustments
-        
+
         irods::error ret = s3Init( _prop_map );
         if (!ret.ok()) {
             return PASS(ret);
         }
-        
+
         // get keys
         std::string key_id, access_key;
         ret = _prop_map.get< std::string >(s3_key_id, key_id);
@@ -93,7 +135,7 @@ namespace irods_s3_cacheless {
             rodsLog(LOG_ERROR, error_str.c_str());
             return ERROR(S3_INIT_ERROR, error_str.c_str());
         }
-    
+
         ret = _prop_map.get< std::string >(s3_access_key, access_key);
         if (!ret.ok()) {
             if (!already_destroyed) {
@@ -106,7 +148,7 @@ namespace irods_s3_cacheless {
             rodsLog(LOG_ERROR, error_str.c_str());
             return ERROR(S3_INIT_ERROR, error_str.c_str());
         }
-    
+
         // save keys
         if(!S3fsCurl::SetAccessKey(key_id.c_str(), access_key.c_str())){
             if (!already_destroyed) {
@@ -121,7 +163,7 @@ namespace irods_s3_cacheless {
             return ERROR(S3_INIT_ERROR, error_str.c_str());
         }
         S3fsCurl::InitUserAgent();
-    
+
         ret = _prop_map.get< std::string >(s3_proto, s3_protocol_str);
         if (!ret.ok()) {
             if (!already_destroyed) {
@@ -147,7 +189,7 @@ namespace irods_s3_cacheless {
             _prop_map.set< std::string >(s3_cache_dir, s3_cache_dir_str);
         }
         FdManager::SetCacheDir(s3_cache_dir_str);
-    
+
         if (boost::iequals(s3_protocol_str, "https")) {
             s3_protocol_str = "https";
         } else if (boost::iequals(s3_protocol_str, "http")) {
@@ -155,27 +197,27 @@ namespace irods_s3_cacheless {
         } else {
             s3_protocol_str = "";
         }
-    
+
         S3SignatureVersion signature_version = s3GetSignatureVersion(_prop_map);
-    
+
         if (signature_version == S3SignatureV4) {
             S3fsCurl::SetSignatureV4(true);
         } else {
             S3fsCurl::SetSignatureV4(false);
         }
-    
+
         nomultipart = !s3GetEnableMultiPartUpload(_prop_map);
 
         // set multipart size
         //    Note:  SetMultipartSize takes value in MB so need to convert back from bytes to MB.
         S3fsCurl::SetMultipartSize(s3GetMPUChunksize(_prop_map) / (1024ULL * 1024ULL));
-    
+
         // set number of simultaneous threads
         S3fsCurl::SetMaxParallelCount(s3GetMPUThreads(_prop_map));
 
         // set the MD5 flag
         S3fsCurl::SetContentMd5(s3GetEnableMD5(_prop_map));
-    
+
         //service_path = "";
         strncpy(host, s3GetHostname(_prop_map).c_str(), MAX_NAME_LEN-1);
 
@@ -186,7 +228,7 @@ namespace irods_s3_cacheless {
         return SUCCESS();
     }
 
-    int create_file_object(std::string& path) 
+    int create_file_object(std::string& path)
     {
 
         headers_t meta;
@@ -233,56 +275,57 @@ namespace irods_s3_cacheless {
 
     irods::error s3FileCreatePlugin( irods::plugin_context& _ctx) {
 
-        // =-=-=-=-=-=-=-
-        // check incoming parameters
-        irods::error ret = s3CheckParams( _ctx );
+        if (ds) {
+            delete ds;
+            ds = nullptr;
+        }
+
+        if (transport) {
+            delete transport;
+            transport = nullptr;
+        }
+
+        printf("%s:%d (%s)\n", __FILE__, __LINE__, __FUNCTION__);
+
+        irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
+        std::string bucket_name;
+        std::string object_key;
+        std::string access_key;
+        std::string secret_access_key;
+
+        irods::error ret = parseS3Path(file_obj->physical_path(), bucket_name, object_key, _ctx.prop_map());
         if(!ret.ok()) {
             return PASS(ret);
         }
 
-        ret = set_s3_configuration_from_context(_ctx.prop_map());
-        if (!ret.ok()) {
-            return PASS(ret);
-        }
-
-        irods::file_object_ptr fco = boost::dynamic_pointer_cast< irods::file_object >( _ctx.fco() );
-        std::string path = fco->physical_path();
-
-        std::string bucket;
-        std::string key;
-        ret = parseS3Path(path, bucket, key, _ctx.prop_map());
+        ret = s3GetAuthCredentials(_ctx.prop_map(), access_key, secret_access_key);
         if(!ret.ok()) {
             return PASS(ret);
         }
-        strncpy(::bucket, bucket.c_str(), MAX_NAME_LEN-1);
-        key = "/" + key;
 
-        int result;
+        std::ios_base::openmode open_mode = translate_open_mode_posix_to_stream(file_obj->flags());
 
-        result = create_file_object(key);
-        StatCache::getStatCacheData()->DelStat(key.c_str());
-        if(result != 0){
-            return ERROR(S3_PUT_ERROR, boost::str(boost::format("[resource_name=%s] Code is %d") 
-                        % get_resource_name(_ctx.prop_map()).c_str() % result));
+        s3_transport_config s3_config;
+        //s3_config.object_size = file_size;
+        s3_config.number_of_transfer_threads = 20;
+        s3_config.part_size = 0;
+        s3_config.bucket_name = bucket_name;
+        s3_config.access_key = access_key;
+        s3_config.secret_access_key = secret_access_key;
+        //s3_config.thread_identifier = thread_number;
+        s3_config.debug_flag = true;
+        s3_config.multipart_flag = false;
+        s3_config.shared_memory_timeout_in_seconds = 60;
+
+        // TODO if transport/dstream already exist, close and open new file
+
+        transport = new s3_transport{s3_config};
+
+        ds = new dstream{*transport, object_key, open_mode};
+
+        if (!ds->is_open()) {
+            return ERROR(S3_FILE_OPEN_ERR, "Open failed.");
         }
-
-
-        FdEntity*   ent;
-        headers_t   meta;
-        get_object_attribute(key.c_str(), NULL, &meta, true, NULL, true);    // no truncate cache
-        if(NULL == (ent = FdManager::get()->Open(key.c_str(), &meta, 0, -1, false, true))){
-            StatCache::getStatCacheData()->DelStat(key.c_str());
-            return ERROR(S3_PUT_ERROR, boost::str(boost::format("[resource_name=%s] code is EIO") 
-                        % get_resource_name(_ctx.prop_map()).c_str()));
-        }
-
-        // create an iRODS file descriptor
-        int irods_fd = FileOffsetManager::get()->create_entry(ent->GetFd());
-
-        // save iRODS file descriptor 
-        fco->file_descriptor(irods_fd);
-
-        S3FS_MALLOCTRIM(0);
 
         return SUCCESS();
     }
@@ -291,86 +334,51 @@ namespace irods_s3_cacheless {
     // interface for POSIX Open
     irods::error s3FileOpenPlugin( irods::plugin_context& _ctx) {
 
-        irods::error ret = set_s3_configuration_from_context(_ctx.prop_map());
-        if (!ret.ok()) {
-            return PASS(ret);
-        }
+        printf("%s:%d (%s)\n", __FILE__, __LINE__, __FUNCTION__);
 
-        // =-=-=-=-=-=-=-
-        // check incoming parameters
-        ret = s3CheckParams( _ctx );
+        irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
+        std::string bucket_name;
+        std::string object_key;
+        std::string access_key;
+        std::string secret_access_key;
+
+        irods::error ret = parseS3Path(file_obj->physical_path(), bucket_name, object_key, _ctx.prop_map());
         if(!ret.ok()) {
             return PASS(ret);
         }
 
-        bool needs_flush = false;
 
-        irods::file_object_ptr fco = boost::dynamic_pointer_cast< irods::file_object >( _ctx.fco() );
-        std::string path = fco->physical_path();
+        printf("%s:%d (%s) [physical_path=%s][bucket_name=%s]\n", __FILE__, __LINE__, __FUNCTION__, file_obj->physical_path().c_str(), bucket_name.c_str());
 
-        std::string bucket;
-        std::string key;
-        ret = parseS3Path(path, bucket, key, _ctx.prop_map());
+        ret = s3GetAuthCredentials(_ctx.prop_map(), access_key, secret_access_key);
         if(!ret.ok()) {
             return PASS(ret);
         }
-        strncpy(::bucket, bucket.c_str(), MAX_NAME_LEN-1);
-        key = "/" + key;
+        printf("%s:%d (%s) [access_key=%s][secret_access_key=%s]\n", __FILE__, __LINE__, __FUNCTION__, access_key.c_str(), secret_access_key.c_str());
 
-        // clear stat for reading fresh stat.
-        // (if object stat is changed, we refresh it. then s3fs gets always
-        // stat when s3fs open the object).
-        StatCache::getStatCacheData()->DelStat(key.c_str());
+        std::ios_base::openmode open_mode = translate_open_mode_posix_to_stream(file_obj->flags());
 
-        int flags = fco->flags();
+        s3_transport_config s3_config;
+        //s3_config.object_size = file_size;
+        s3_config.number_of_transfer_threads = 20;
+        s3_config.part_size = 0;
+        s3_config.bucket_name = bucket_name;
+        s3_config.access_key = access_key;
+        s3_config.secret_access_key = secret_access_key;
+        //s3_config.thread_identifier = thread_number;
+        s3_config.debug_flag = true;
+        s3_config.multipart_flag = false;
+        s3_config.shared_memory_timeout_in_seconds = 60;
 
-        // get file size 
-        struct stat st;
+        // TODO if transport/dstream already exist, close and open new file
 
-        headers_t meta;
-        int returnVal = get_object_attribute(key.c_str(), &st, &meta, true, NULL, true);    // no truncate cache
-        if (0 != returnVal) {
-            StatCache::getStatCacheData()->DelStat(key.c_str());
-            return ERROR(S3_FILE_STAT_ERR, boost::str(boost::format("[resource_name=%s] Failed to perform a stat of %s") 
-                        % get_resource_name(_ctx.prop_map()).c_str() % key.c_str()));
+        transport = new s3_transport{s3_config};
+
+        ds = new dstream{*transport, object_key, open_mode};
+
+        if (!ds->is_open()) {
+            return ERROR(S3_FILE_OPEN_ERR, "Open failed.");
         }
-
-        if((unsigned int)flags & O_TRUNC){
-            if(0 != st.st_size){
-                st.st_size = 0; 
-                needs_flush = true;
-            }    
-        }
-
-        FdEntity*   ent;
-        if(NULL == (ent = FdManager::get()->Open(key.c_str(), &meta, st.st_size, -1, false, true))){
-          StatCache::getStatCacheData()->DelStat(key.c_str());
-
-          // TODO create S3_OPEN_ERROR
-          return ERROR(S3_FILE_STAT_ERR, boost::str(boost::format("[resource_name=%s] Error opening %s.") 
-                      % get_resource_name(_ctx.prop_map()).c_str() % key.c_str()));
-        }
-
-        if (needs_flush){
-            if(0 != (returnVal = ent->RowFlush(key.c_str(), true))){
-                S3FS_PRN_ERR("could not upload file(%s): result=%d", key.c_str(), returnVal);
-
-                FdManager::get()->Close(ent);
-                StatCache::getStatCacheData()->DelStat(key.c_str());
-
-                // TODO create S3_OPEN_ERROR
-                return ERROR(S3_FILE_STAT_ERR, boost::str(boost::format("[resource_name=%s] Error opening %s.") 
-                            % get_resource_name(_ctx.prop_map()).c_str() % key.c_str()));
-            }
-        }
-
-        // create an iRODS file descriptor
-        int irods_fd = FileOffsetManager::get()->create_entry(ent->GetFd());
-
-        // save iRODS file descriptor 
-        fco->file_descriptor(irods_fd);
-
-        S3FS_MALLOCTRIM(0);
 
         return SUCCESS();
     }
@@ -381,127 +389,17 @@ namespace irods_s3_cacheless {
                                    void*               _buf,
                                    int                 _len ) {
 
-
-        // =-=-=-=-=-=-=-
-        // check incoming parameters
-        irods::error ret = s3CheckParams( _ctx );
-        if(!ret.ok()) {
-            return PASS(ret);
+        printf("%s:%d (%s) _len=%d\n", __FILE__, __LINE__, __FUNCTION__, _len);
+        if (!ds->is_open()) {
+            return ERROR(S3_FILE_OPEN_ERR, "Open failed.");
         }
 
-        ret = set_s3_configuration_from_context(_ctx.prop_map());
-        if (!ret.ok()) {
-            return PASS(ret);
-        }
+        ds->read(static_cast<char*>(_buf), _len);
+        std::string read_str((char*)_buf, _len);
+        printf("%s:%d (%s) read_str=%s\n", __FILE__, __LINE__, __FUNCTION__, read_str.c_str());
 
         irods::error result = SUCCESS();
-
-        irods::file_object_ptr fco = boost::dynamic_pointer_cast< irods::file_object >( _ctx.fco() );
-        std::string path = fco->physical_path();
-
-        std::string bucket;
-        std::string key;
-        ret = parseS3Path(path, bucket, key, _ctx.prop_map());
-        if(!ret.ok()) {
-            return PASS(ret);
-        }
-        strncpy(::bucket, bucket.c_str(), MAX_NAME_LEN-1);
-        key = "/" + key;
-
-        int irods_fd = fco->file_descriptor(); 
-        int fd;
-        if (!(FileOffsetManager::get()->getFd(irods_fd, fd))) {
-            return ERROR(S3_PUT_ERROR, boost::str(boost::format("[resource_name=%s] Could not look up file descriptor [irods_fd=%d]") 
-                        % get_resource_name(_ctx.prop_map()).c_str() % irods_fd));
-        }
-
-        ssize_t readReturnVal;
-
-        FdEntity* ent;
-        if(NULL == (ent = FdManager::get()->ExistOpen(key.c_str(), fd))) {
-          S3FS_PRN_ERR("could not find opened fd(%d) for %s", fd, key.c_str());
-          return ERROR(S3_GET_ERROR, boost::str(boost::format("[resource_name=%s] Could not find opened fd(%d) for %s") 
-                      % get_resource_name(_ctx.prop_map()).c_str() % fd % key.c_str()));
-        }
-        if(ent->GetFd() != fd){
-          S3FS_PRN_WARN("different fd(%d - %llu)", ent->GetFd(), (unsigned long long)(fd));
-        }
-
-        // read the offset from the cache
-        off_t offset = 0;
-        if (!(FileOffsetManager::get()->getOffset(irods_fd, offset))) {
-            return ERROR(S3_PUT_ERROR, boost::str(boost::format("[resource_name=%s] Could not read offset for read (%llu)") 
-                        % get_resource_name(_ctx.prop_map()).c_str() % offset));
-        }
-        S3FS_PRN_DBG("[path=%s][size=%zu][offset=%jd][fd=%llu]", key.c_str(), _len, (intmax_t)offset, (unsigned long long)(fd));
-      
-        // check real file size
-        size_t realsize;
-        if(!ent->GetSize(realsize) || realsize == 0){
-          S3FS_PRN_DBG("file size is 0, so break to read.");
-          result.code(0);
-          return result;
-        }
-
-        // read the file size into st.st_size to mimic posix read semantics
-        struct stat st;
-        headers_t meta;
-        int returnVal = get_object_attribute(key.c_str(), &st, &meta);
-        if (0 != returnVal) {
-            return ERROR(S3_FILE_STAT_ERR, boost::str(boost::format("[resource_name=%s] Failed to perform a stat of %s") 
-                        % get_resource_name(_ctx.prop_map()).c_str() % key.c_str()));
-        }
-
-        if (offset >= st.st_size) {
-            result.code(0);
-            return result;
-        }
-
-        // - First thread will just get the mutex below and return immediately
-        //   and get the data from S3 when Read() is called.
-        // - Second thread will do a full load of data into cache.
-        // - Third and subsequent threads will wait for this load (due to mutex lock)
-        //   and then read their part from cache.
-        {
-	        std::unique_lock<std::mutex> lck(ent->cv_mtx);
-
-	        ++(ent->simultaneous_read_count);
-
-            if (ent->simultaneous_read_count == 2) {
-
-                // This thread is doing a full load. 
-                ent->Load(0, realsize);
-            }
-        }
-
-    
-        // now this should just read from cache unless we are the first reader
-        readReturnVal = ent->Read(static_cast<char*>(_buf), offset, _len, false);
-        if(0 > readReturnVal){
-          S3FS_PRN_WARN("failed to read file(%s). result=%jd", key.c_str(), (intmax_t)readReturnVal);
-          return ERROR(S3_GET_ERROR, boost::str(boost::format("[resource_name=%s] failed to read file(%s)") 
-                      % get_resource_name(_ctx.prop_map()).c_str() % key.c_str()));
-        }
-
-        {
-	        std::unique_lock<std::mutex> lck(ent->cv_mtx);
-	        --(ent->simultaneous_read_count);
-        }
-
-        // ent->Read returns the size of the buffer but posix requires
-        // we return the actual amount read 
-        int bytes_read = 0;
-        if (offset + readReturnVal > st.st_size) {
-            bytes_read = st.st_size - offset; 
-        } else { 
-            bytes_read = readReturnVal;
-        }
-
-        FileOffsetManager::get()->adjustOffset(irods_fd, bytes_read);
-
-        off_t offset2;
-        FileOffsetManager::getOffset(fd, offset2); 
-        result.code(bytes_read);
+        result.code(_len);
         return result;
 
     }
@@ -512,6 +410,8 @@ namespace irods_s3_cacheless {
                                     void*               _buf,
                                     int                 _len ) {
 
+        printf("%s:%d (%s)\n", __FILE__, __LINE__, __FUNCTION__);
+
         // =-=-=-=-=-=-=-
         // check incoming parameters
         irods::error ret = s3CheckParams( _ctx );
@@ -538,10 +438,10 @@ namespace irods_s3_cacheless {
         strncpy(::bucket, bucket.c_str(), MAX_NAME_LEN-1);
         key = "/" + key;
 
-        int irods_fd = fco->file_descriptor(); 
+        int irods_fd = fco->file_descriptor();
         int fd;
         if (!(FileOffsetManager::get()->getFd(irods_fd, fd))) {
-            return ERROR(S3_PUT_ERROR, boost::str(boost::format("[resource_name=%s] Could not look up file descriptor") 
+            return ERROR(S3_PUT_ERROR, boost::str(boost::format("[resource_name=%s] Could not look up file descriptor")
                         % get_resource_name(_ctx.prop_map()).c_str()));
         }
 
@@ -552,7 +452,7 @@ namespace irods_s3_cacheless {
         FdEntity* ent;
         if(NULL == (ent = FdManager::get()->ExistOpen(key.c_str(), static_cast<int>(fd)))){
             S3FS_PRN_ERR("could not find opened fd(%s)", key.c_str());
-            return ERROR(S3_PUT_ERROR, boost::str(boost::format("[resource_name=%s] Could not find opened fd(%d)") 
+            return ERROR(S3_PUT_ERROR, boost::str(boost::format("[resource_name=%s] Could not find opened fd(%d)")
                         % get_resource_name(_ctx.prop_map()).c_str() % fd));
         }
         if(ent->GetFd() != fd) {
@@ -562,7 +462,7 @@ namespace irods_s3_cacheless {
         // read the offset from the cache
         off_t offset = 0;
         if (!(FileOffsetManager::get()->getOffset(irods_fd, offset))) {
-            return ERROR(S3_PUT_ERROR, boost::str(boost::format("[resource_name=%s] Could not read offset for write (%llu)") 
+            return ERROR(S3_PUT_ERROR, boost::str(boost::format("[resource_name=%s] Could not read offset for write (%llu)")
                         % get_resource_name(_ctx.prop_map()).c_str() % offset));
         }
         S3FS_PRN_DBG("[offset=%llu]", offset);
@@ -582,49 +482,19 @@ namespace irods_s3_cacheless {
     // interface for POSIX Close
     irods::error s3FileClosePlugin(  irods::plugin_context& _ctx ) {
 
-        irods::error result = SUCCESS();
+        printf("%s:%d (%s)\n", __FILE__, __LINE__, __FUNCTION__);
 
-        result = set_s3_configuration_from_context(_ctx.prop_map());
-        if (!result.ok()) {
-            return PASS(result);
-        }
+        delete ds;
+        delete transport;
+        ds = nullptr;
+        transport = nullptr;
 
-        irods::file_object_ptr fco = boost::dynamic_pointer_cast< irods::file_object >( _ctx.fco() );
-        std::string path = fco->physical_path();
-
-        std::string bucket;
-        std::string key;
-
-        result = parseS3Path(path, bucket, key, _ctx.prop_map());
-        if(!result.ok()) {
-            return PASS(result);
-        }
-        strncpy(::bucket, bucket.c_str(), MAX_NAME_LEN-1);
-        key = "/" + key;
-
-        // remove entry from FileOffsetManager
-        int irods_fd = fco->file_descriptor(); 
-
-        FileOffsetManager::get()->delete_entry(irods_fd);
-
-
-        FdEntity*   ent;
- 
-        // we are finished with only close if only one is open 
-        if(NULL != (ent = FdManager::get()->ExistOpen(key.c_str())) && !FileOffsetManager::get()->fd_exists(ent->GetFd())) {
-            flush_buffer(key, ent->GetFd());
-            FdManager::get()->Close(ent);
-            StatCache::getStatCacheData()->DelStat(key.c_str());
-            FdManager::DeleteCacheFile(key.c_str());
-        }
-        S3FS_MALLOCTRIM(0);
-        result.code(0);
-        return result;
+        return SUCCESS();
     }
 
     // =-=-=-=-=-=-=-
     // interface for POSIX Unlink
-    irods::error s3FileUnlinkPlugin( 
+    irods::error s3FileUnlinkPlugin(
         irods::plugin_context& _ctx) {
 
         // =-=-=-=-=-=-=-
@@ -661,12 +531,12 @@ namespace irods_s3_cacheless {
         S3FS_MALLOCTRIM(0);
 
         if (result < 0) {
-          return ERROR(S3_FILE_UNLINK_ERR, boost::str(boost::format("[resource_name=%s] Could not unlink file %s") 
+          return ERROR(S3_FILE_UNLINK_ERR, boost::str(boost::format("[resource_name=%s] Could not unlink file %s")
                       % get_resource_name(_ctx.prop_map()).c_str() % key.c_str()));
         }
         return SUCCESS();
 
-    } // s3FileUnlinkPlugin 
+    } // s3FileUnlinkPlugin
 
     // =-=-=-=-=-=-=-
     // interface for POSIX Stat
@@ -702,15 +572,15 @@ namespace irods_s3_cacheless {
         int returnVal;
         returnVal = get_object_attribute(key.c_str(), _statbuf);
         if (0 != returnVal) {
-            return ERROR(S3_FILE_STAT_ERR, boost::str(boost::format("[resource_name=%s] Failed to perform a stat of %s") 
+            return ERROR(S3_FILE_STAT_ERR, boost::str(boost::format("[resource_name=%s] Failed to perform a stat of %s")
                         % get_resource_name(_ctx.prop_map()).c_str() % key.c_str()));
         }
-      
+
         // If has already opened fd, the st_size should be instead.
         // (See: Issue 241)
         if(_statbuf){
           FdEntity*   ent;
-      
+
           if(NULL != (ent = FdManager::get()->ExistOpen(key.c_str()))){
             struct stat tmpstbuf;
             if(ent->GetStats(tmpstbuf)){
@@ -722,7 +592,7 @@ namespace irods_s3_cacheless {
           S3FS_PRN_DBG("[path=%s] uid=%u, gid=%u, mode=%04o", key.c_str(), (unsigned int)(_statbuf->st_uid), (unsigned int)(_statbuf->st_gid), _statbuf->st_mode);
         }
         S3FS_MALLOCTRIM(0);
-      
+
         return SUCCESS();
     }
 
@@ -740,89 +610,19 @@ namespace irods_s3_cacheless {
                                      long long            _offset,
                                      int                 _whence ) {
 
+        printf("%s:%d (%s)\n", __FILE__, __LINE__, __FUNCTION__);
 
-        // =-=-=-=-=-=-=-
-        // check incoming parameters
-        irods::error ret = s3CheckParams( _ctx );
-        if(!ret.ok()) {
-            return PASS(ret);
+        if (!ds || !ds->is_open()) {
+            return ERROR(S3_FILE_OPEN_ERR, "lseek failed.");
         }
 
-        // TODO create S3_FILE_SEEK_ERR 
-        
-        irods::file_object_ptr fco = boost::dynamic_pointer_cast< irods::file_object >( _ctx.fco() );
-        std::string path = fco->physical_path();
+        std::ios_base::seekdir seek_directive =
+            _whence == SEEK_SET ? std::ios_base::beg : (
+                    _whence == SEEK_END ? std::ios_base::end : std::ios_base::cur);
 
-        std::string bucket;
-        std::string key;
-        ret = parseS3Path(path, bucket, key, _ctx.prop_map());
-        if(!ret.ok()) {
-            return PASS(ret);
-        }
-        strncpy(::bucket, bucket.c_str(), MAX_NAME_LEN-1);
-        key = "/" + key;
+        ds->seekg(_offset, seek_directive);
 
-        // clear stat for reading fresh stat.
-        // (if object stat is changed, we refresh it. then s3fs gets always
-        // stat when s3fs open the object).
-        StatCache::getStatCacheData()->DelStat(key.c_str());
-
-        int irods_fd = fco->file_descriptor(); 
-        int fd;
-        if (!(FileOffsetManager::get()->getFd(irods_fd, fd))) {
-            return ERROR(S3_PUT_ERROR, boost::str(boost::format("[resource_name=%s] Could not look up file descriptor") 
-                        % get_resource_name(_ctx.prop_map()).c_str()));
-        }
-
-        FdEntity* ent;
-        if(NULL == (ent = FdManager::get()->ExistOpen(key.c_str(), static_cast<int>(fd)))){
-          S3FS_PRN_ERR("could not find opened fd(%s)", key.c_str());
-          return ERROR(S3_FILE_STAT_ERR, boost::str(boost::format("[resource_name=%s] Could not find opened fd(%d)") 
-                      % get_resource_name(_ctx.prop_map()).c_str() % fd));
-        }
-        if(ent->GetFd() != fd) {
-            S3FS_PRN_WARN("different fd(%d - %llu)", ent->GetFd(), fd);
-        }
-
-        // update the position based on the _offset and _whence
-        // note:  we have a valid fd so no need to check errors from GetOffset and AdjustOffset below
-        switch (_whence) {
-            case SEEK_SET:
-                FileOffsetManager::get()->setOffset(irods_fd, _offset);
-                //ent->SetOffset(_offset);
-                break;
-            case SEEK_CUR:
-                FileOffsetManager::get()->adjustOffset(irods_fd, _offset);
-                //ent->AdjustOffset(_offset);
-                break;
-            case SEEK_END:
-
-                // need to do a stat to get the the file size to determine the end point
-                { 
-                    struct stat st;
-                    headers_t meta;
-                    int returnVal = get_object_attribute(key.c_str(), &st, &meta, true, NULL, true);    // no truncate cache
-                    if (0 != returnVal) {
-                        return ERROR(S3_FILE_STAT_ERR, boost::str(boost::format("[resource_name=%s] Failed to perform a stat of %s") 
-                                    % get_resource_name(_ctx.prop_map()).c_str() % key.c_str()));
-                    }
-
-                    FileOffsetManager::get()->setOffset(irods_fd, st.st_size + _offset);
-                    //ent->SetOffset(st.st_size + _offset);
-                    break;
-                }
-            default:
-                S3FS_PRN_ERR("invalid whence argument (%d) on lseek for object (%s)", _whence, key.c_str());
-                return ERROR(S3_FILE_STAT_ERR, boost::str(boost::format("[resource_name=%s] Setting seek failed (%lld)") 
-                            % get_resource_name(_ctx.prop_map()).c_str() % _offset));
-        }
-
-        // read the new offset and set in ret.code
-        off_t new_offset;
-        FileOffsetManager::get()->getOffset(irods_fd, new_offset);
-        ret.code(new_offset);
-
-        return ret;
+        return SUCCESS();
 
     } // s3FileLseekPlugin
 
@@ -893,7 +693,7 @@ namespace irods_s3_cacheless {
 
             // get a list of all the objects
             if ((result = list_bucket(key.c_str(), head, "/")) != 0) {
-              return ERROR(S3_FILE_STAT_ERR, boost::str(boost::format("[resource_name=%s] list_bucket returns error(%d).") 
+              return ERROR(S3_FILE_STAT_ERR, boost::str(boost::format("[resource_name=%s] list_bucket returns error(%d).")
                           % get_resource_name(_ctx.prop_map()).c_str() % result));
             }
 
@@ -923,12 +723,12 @@ namespace irods_s3_cacheless {
            struct stat st;
            headers_t meta;
            if (0 != (result = get_object_attribute(object_key.c_str(), &st, &meta, true, NULL, true))) {
-               return ERROR(S3_FILE_STAT_ERR, boost::str(boost::format("[resource_name=%s] get_object_attribute on %s returns error(%d).") 
+               return ERROR(S3_FILE_STAT_ERR, boost::str(boost::format("[resource_name=%s] get_object_attribute on %s returns error(%d).")
                            % get_resource_name(_ctx.prop_map()).c_str() % object_key.c_str() % result));
            }
            *_dirent_ptr = ( rodsDirent_t* ) malloc( sizeof( rodsDirent_t ) );
            boost::filesystem::path p(object_key.c_str());
-           strcpy((*_dirent_ptr)->d_name, p.filename().string().c_str()); 
+           strcpy((*_dirent_ptr)->d_name, p.filename().string().c_str());
 
         }
 
@@ -978,12 +778,12 @@ namespace irods_s3_cacheless {
 
         struct stat buf;
         int result;
-      
+
         S3FS_PRN_DBG("[from=%s][to=%s]", from_key.c_str(), new_file_key.c_str());
 
         ret = s3FileStatPlugin(_ctx, &buf);
         if(!ret.ok()) {
-            return ERROR(S3_FILE_STAT_ERR, boost::str(boost::format("[resource_name=%s] Failed to stat file (%s) during move to (%s)") 
+            return ERROR(S3_FILE_STAT_ERR, boost::str(boost::format("[resource_name=%s] Failed to stat file (%s) during move to (%s)")
                         % get_resource_name(_ctx.prop_map()).c_str() % from.c_str() % _new_file_name));
         }
 
@@ -998,15 +798,15 @@ namespace irods_s3_cacheless {
             }
         }
         S3FS_MALLOCTRIM(0);
-     
-        if (result != 0) { 
-            return ERROR(S3_FILE_COPY_ERR, boost::str(boost::format("[resource_name=%s] Failed to rename file from (%s) to (%s) result = %d") 
+
+        if (result != 0) {
+            return ERROR(S3_FILE_COPY_ERR, boost::str(boost::format("[resource_name=%s] Failed to rename file from (%s) to (%s) result = %d")
                         % get_resource_name(_ctx.prop_map()).c_str() % from.c_str() % _new_file_name % result));
         }
 
         // issue 1855 (irods issue 4326) - resources must now set physical path
         fco->physical_path(_new_file_name);
- 
+
         return SUCCESS();
 
     } // s3FileRenamePlugin
@@ -1175,7 +975,7 @@ namespace irods_s3_cacheless {
 
         return result;
 
-    } // S3RedirectOpen 
+    } // S3RedirectOpen
 
     // =-=-=-=-=-=-=-
     // used to allow the resource to determine which host
@@ -1224,25 +1024,25 @@ namespace irods_s3_cacheless {
                         rodsLong_t resc_id = 0;
 
                         ret = _ctx.prop_map().get<rodsLong_t>( irods::RESOURCE_ID, resc_id );
-                        if ( !ret.ok() ) { 
+                        if ( !ret.ok() ) {
                             std::string msg = boost::str(boost::format("[resource_name=%s] get_property in s3RedirectPlugin failed to get irods::RESOURCE _ID") % resc_name.c_str() );
                             return PASSMSG( msg, ret );
                         }
 
                         ret = irods::get_resource_property< rodsServerHost_t* >( resc_id, irods::RESOURCE_HOST, host );
-                        if ( !ret.ok() ) { 
+                        if ( !ret.ok() ) {
                             std::string msg = boost::str(boost::format("[resource_name=%s] get_resource_property (irods::RESOURCE_HOST) in s3RedirectPlugin for detached mode failed") % resc_name.c_str() );
                             return PASSMSG( msg, ret );
                         }
-                      
-                        // pave over host->hostName->name in rodsServerHost_t 
+
+                        // pave over host->hostName->name in rodsServerHost_t
                         free(host->hostName->name);
                         host->hostName->name = static_cast<char*>(malloc(strlen(_curr_host->c_str()) + 1));
-                        strcpy(host->hostName->name, _curr_host->c_str()); 
+                        strcpy(host->hostName->name, _curr_host->c_str());
                         host->localFlag = LOCAL_HOST;
 
                         ret = irods::set_resource_property< rodsServerHost_t* >( resc_name, irods::RESOURCE_HOST, host );
-                        if ( !ret.ok() ) { 
+                        if ( !ret.ok() ) {
                             std::string msg = boost::str(boost::format("[resource_name=%s] set_resource_property (irods::RESOURCE_HOST) in s3RedirectPlugin for detached mode failed") % resc_name.c_str() );
                             return PASSMSG( msg, ret );
                         }
@@ -1291,7 +1091,7 @@ namespace irods_s3_cacheless {
 
     } // s3FileRebalance
 
-    irods::error s3FileNotifyPlugin( irods::plugin_context& _ctx, 
+    irods::error s3FileNotifyPlugin( irods::plugin_context& _ctx,
         const std::string* str ) {
         return SUCCESS();
     } // s3FileNotifyPlugin

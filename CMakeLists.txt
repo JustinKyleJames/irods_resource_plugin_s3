@@ -53,7 +53,7 @@ add_compile_options(-Wno-unused-function) # due to OPENSSL_NO_DEPRECATED_1_1_0
 add_compile_options(-Wno-unused-parameter) # Until fix of irods_re_plugin.hpp
 add_compile_options(-Wno-unneeded-internal-declaration) # Until fix of https://github.com/irods/irods/issues/3396
 add_compile_options(-Wno-unused-function) # Due to opensll_unusued_function
-link_libraries(c++abi curl xml2 crypto pthread)
+link_libraries(c++abi curl xml2 crypto pthread rt)
 include_directories(${IRODS_EXTERNALS_FULLPATH_CLANG}/include/c++/v1
                     ${IRODS_EXTERNALS_FULLPATH_JSON}/include)
 
@@ -80,12 +80,14 @@ add_library(
   ${CMAKE_SOURCE_DIR}/s3/s3fs/s3fs.cpp
   ${CMAKE_SOURCE_DIR}/s3/s3fs/s3fs_util.cpp
   ${CMAKE_SOURCE_DIR}/s3/s3fs/string_util.cpp
+  ${CMAKE_SOURCE_DIR}/s3/s3_transport/src/s3_transport.cpp
   )
 target_include_directories(
   irods_s3_plugin
   PRIVATE
   ${IRODS_INCLUDE_DIRS}
   ${CMAKE_SOURCE_DIR}
+  ${CMAKE_SOURCE_DIR}/s3/s3_transport/include
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/include
   ${IRODS_EXTERNALS_FULLPATH_S3}/include
   /usr/include/libxml2
