@@ -1,4 +1,3 @@
-
 // =-=-=-=-=-=-=-
 // local includes
 #include "s3_archive_operations.hpp"
@@ -64,11 +63,15 @@ using s3_transport_config = irods::experimental::io::s3_transport::config;
 
 namespace irods_s3_cacheless {
 
-    //thread_local s3_transport *transport = nullptr;
-    //thread_local dstream *ds = nullptr;
-
+    std::mutex file_descriptor_map_mutex;
     std::map<int, std::shared_ptr<dstream>> file_descriptor_to_dstream_map;
     std::map<int, std::shared_ptr<s3_transport>> file_descriptor_to_transport_map;
+
+    // used to overwrite open mode if necessary
+    int overwrite_open_mode = 0;
+
+    thread_local std::shared_ptr<dstream> dstream_ptr;
+    thread_local std::shared_ptr<s3_transport> s3_transport_ptr;
 
     std::ios_base::openmode translate_open_mode_posix_to_stream(int oflag, const std::string& call_from) noexcept
     {
@@ -91,7 +94,6 @@ namespace irods_s3_cacheless {
         }
 
         if ((oflag & O_TRUNC) || (oflag & O_CREAT)) {
-            printf("%s:%d (%s) [[%lu]] this ran!\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
             mode |= ios_base::trunc;
         }
 
@@ -294,10 +296,6 @@ namespace irods_s3_cacheless {
 
         headers_t meta;
         meta["Content-Type"]     = S3fsCurl::LookupMimeType(path);
-        //meta["x-amz-meta-uid"]   = "999";
-        //meta["x-amz-meta-gid"]   = "999";
-        //meta["x-amz-meta-mode"]  = "33204";
-        //meta["x-amz-meta-mtime"] = std::string(time(NULL));
 
         S3fsCurl s3fscurl(true);
         return s3fscurl.PutRequest(path.c_str(), meta, -1);    // fd=-1 means for creating zero byte object.
@@ -340,15 +338,12 @@ namespace irods_s3_cacheless {
 
         unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
 
-        int l1descInx = file_obj->l1_desc_idx();
-        printf("%s:%d (%s) [[%lu]] l1descInx=%d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, l1descInx);
-        //int number_of_threads = L1desc[l1descInx].dataObjInp->numThreads;
-        //printf("%s:%d (%s) [[%lu]] number_of_threads=%d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, number_of_threads);
-
         std::string bucket_name;
         std::string object_key;
         std::string access_key;
         std::string secret_access_key;
+
+        printf("%s:%d (%s) [[%lu]] open_mode=%d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, file_obj->flags());
 
         printf("%s:%d (%s) [[%lu]] calling translate_open_mode_posix_to_stream\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
         std::ios_base::openmode open_mode = translate_open_mode_posix_to_stream(O_CREAT | O_WRONLY, __FUNCTION__);
@@ -366,19 +361,26 @@ namespace irods_s3_cacheless {
             return PASS(ret);
         }
 
+        uint64_t data_size = 0;
+        ret = _ctx.prop_map().get< uint64_t >(DATA_SIZE_KW, data_size);
+        if (!ret.ok()) {
+            data_size = 0;
+        }
+
+        printf("%s:%d (%s) [[%lu]] data_size=%lu\n", __FILE__, __LINE__, __FUNCTION__, thread_id, data_size);
+
         int number_of_threads = 16; // TODO
-        uint64_t file_size = 610836482;  // TODO
 
 
         s3_transport_config s3_config;
-        s3_config.object_size = file_size;
+        s3_config.object_size = data_size;
         s3_config.number_of_transfer_threads = 20;
-        s3_config.part_size = file_size / number_of_threads;  // TODO last thread has more bytes???
+        s3_config.part_size = data_size / number_of_threads;
         s3_config.bucket_name = bucket_name;
         s3_config.access_key = access_key;
         s3_config.secret_access_key = secret_access_key;
         s3_config.debug_flag = true;
-        s3_config.multipart_flag = true;
+        s3_config.multipart_upload_flag = true;
         s3_config.shared_memory_timeout_in_seconds = 60;
 
         s3_transport *transport = new s3_transport{s3_config};
@@ -389,9 +391,11 @@ namespace irods_s3_cacheless {
         }*/
 
         // save the file descriptor to the map
-        printf("%s:%d (%s) [[%lu]] saving file descriptor=%d to map\n", __FILE__, __LINE__, __FUNCTION__, thread_id, transport->file_descriptor());
-        file_descriptor_to_dstream_map[transport->file_descriptor()] = std::shared_ptr<dstream>(ds);
-        file_descriptor_to_transport_map[transport->file_descriptor()] = std::shared_ptr<s3_transport>(transport);
+        {
+            std::lock_guard lock(file_descriptor_map_mutex);
+            file_descriptor_to_dstream_map[transport->file_descriptor()] = std::shared_ptr<dstream>(ds);
+            file_descriptor_to_transport_map[transport->file_descriptor()] = std::shared_ptr<s3_transport>(transport);
+        }
 
         file_obj->file_descriptor(transport->file_descriptor());
 
@@ -404,9 +408,6 @@ namespace irods_s3_cacheless {
 
         irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
         unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
-
-        int l1descInx = file_obj->l1_desc_idx();
-        printf("%s:%d (%s) [[%lu]] l1descInx=%d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, l1descInx);
 
         std::string bucket_name;
         std::string object_key;
@@ -428,22 +429,34 @@ namespace irods_s3_cacheless {
             return PASS(ret);
         }
 
+        uint64_t data_size = 0;
+        ret = _ctx.prop_map().get< uint64_t >(DATA_SIZE_KW, data_size);
+        if (!ret.ok()) {
+            data_size = 0;
+        }
+
+        printf("%s:%d (%s) [[%lu]] data_size=%lu\n", __FILE__, __LINE__, __FUNCTION__, thread_id, data_size);
 
         printf("%s:%d (%s) [[%lu]] calling translate_open_mode_posix_to_stream\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
-        std::ios_base::openmode open_mode = translate_open_mode_posix_to_stream(file_obj->flags(), __FUNCTION__);
+
+        std::ios_base::openmode open_mode;
+        if (0 != overwrite_open_mode) {
+            open_mode = translate_open_mode_posix_to_stream(overwrite_open_mode, __FUNCTION__);
+        } else {
+            open_mode = translate_open_mode_posix_to_stream(file_obj->flags(), __FUNCTION__);
+        }
 
         int number_of_threads = 16; // TODO
-        int file_size = 610836482;  // TODO
 
         s3_transport_config s3_config;
-        s3_config.object_size = file_size;
+        s3_config.object_size = data_size;
         s3_config.number_of_transfer_threads = 20;
-        s3_config.part_size = file_size / number_of_threads;
+        s3_config.part_size = data_size / number_of_threads;
         s3_config.bucket_name = bucket_name;
         s3_config.access_key = access_key;
         s3_config.secret_access_key = secret_access_key;
         s3_config.debug_flag = true;
-        s3_config.multipart_flag = true;
+        s3_config.multipart_upload_flag = true;
         s3_config.shared_memory_timeout_in_seconds = 60;
 
         s3_transport *transport = new s3_transport{s3_config};
@@ -453,10 +466,13 @@ namespace irods_s3_cacheless {
             return ERROR(S3_FILE_OPEN_ERR, "Open failed.");
         }
 
+        // TODO lazy instantiation - defer to read/write - factory function
         // save the file descriptor to the map
-        printf("%s:%d (%s) [[%lu]] saving file descriptor=%d to map\n", __FILE__, __LINE__, __FUNCTION__, thread_id, transport->file_descriptor());
-        file_descriptor_to_dstream_map[transport->file_descriptor()] = std::shared_ptr<dstream>(ds);
-        file_descriptor_to_transport_map[transport->file_descriptor()] = std::shared_ptr<s3_transport>(transport);
+        {
+            std::lock_guard lock(file_descriptor_map_mutex);
+            file_descriptor_to_dstream_map[transport->file_descriptor()] = std::shared_ptr<dstream>(ds);
+            file_descriptor_to_transport_map[transport->file_descriptor()] = std::shared_ptr<s3_transport>(transport);
+        }
 
         file_obj->file_descriptor(transport->file_descriptor());
 
@@ -473,8 +489,12 @@ namespace irods_s3_cacheless {
 
         irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
 
+        std::shared_ptr<dstream> ds;
         int file_descriptor = file_obj->file_descriptor();
-        std::shared_ptr<dstream> ds = file_descriptor_to_dstream_map[file_descriptor];
+        {
+            std::lock_guard lock(file_descriptor_map_mutex);
+            ds = file_descriptor_to_dstream_map[file_descriptor];
+        }
 
         if (!ds || !ds->is_open()) {
             return ERROR(S3_FILE_OPEN_ERR, "No valid dstream found.");
@@ -496,18 +516,26 @@ namespace irods_s3_cacheless {
                                     void*               _buf,
                                     int                 _len ) {
 
+        unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+
+
+        //ret = _ctx.prop_map().get<std::string>(ARCHIVE_NAMING_POLICY_KW, archive_naming_policy); // get plugin context property
+
         irods::error result = SUCCESS();
 
         irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
-        unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
 
         int file_descriptor = file_obj->file_descriptor();
-        std::shared_ptr<dstream> ds = file_descriptor_to_dstream_map[file_descriptor];
-        std::shared_ptr<s3_transport> transport = file_descriptor_to_transport_map[file_descriptor];
+
+        std::shared_ptr<dstream> ds;
+        std::shared_ptr<s3_transport> transport;
+        {
+            std::lock_guard lock(file_descriptor_map_mutex);
+            ds = file_descriptor_to_dstream_map[file_descriptor];
+            transport = file_descriptor_to_transport_map[file_descriptor];
+        }
 
         std::stringstream msg;
-
-        printf("%s:%d (%s) [[%lu]] looking up dstream for fd=%d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, file_descriptor);
 
         if (!ds || !transport) {
             msg << "No valid dstream or transport found for file_descriptor " << file_descriptor;
@@ -521,13 +549,18 @@ namespace irods_s3_cacheless {
         off_t offset = ds->tellg();
         printf("%s:%d (%s) [[%lu]] offset=%ld, len=%d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, offset, _len);
 
-        uint64_t file_size = 610836482;  // TODO
         int number_of_threads = 16; // TODO
 
+        uint64_t data_size = 0;
+        irods::error ret = _ctx.prop_map().get< uint64_t >(DATA_SIZE_KW, data_size);
+        if (!ret.ok()) {
+            data_size = 0;
+        }
+
         // determine the part size based on the offset
-        uint64_t part_size = file_size / number_of_threads;
+        uint64_t part_size = data_size / number_of_threads;
         if (static_cast<uint64_t>(offset) >= part_size * (number_of_threads-1)) {
-            part_size += file_size % number_of_threads;
+            part_size += data_size % number_of_threads;
         }
         printf("%s:%d (%s) [[%lu]] offset=%ld,part_size=%ld\n", __FILE__, __LINE__, __FUNCTION__, thread_id, offset, part_size);
 
@@ -561,11 +594,16 @@ namespace irods_s3_cacheless {
 
         printf("%s:%d (%s) [[%lu]] looking up dstream for fd=%d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, file_descriptor);
 
-        std::shared_ptr<dstream> ds = file_descriptor_to_dstream_map[file_descriptor];
+        std::shared_ptr<dstream> ds;
+        {
+            std::lock_guard lock(file_descriptor_map_mutex);
+            ds = file_descriptor_to_dstream_map[file_descriptor];
+        }
 
         if (!ds || !ds->is_open()) {
             return ERROR(S3_FILE_OPEN_ERR, "No valid dstream found in close.");
         }
+
         ds->close();
 
         file_descriptor_to_dstream_map.erase(file_descriptor);
@@ -698,7 +736,11 @@ namespace irods_s3_cacheless {
 
         int file_descriptor = file_obj->file_descriptor();
 
-        std::shared_ptr<dstream> ds = file_descriptor_to_dstream_map[file_descriptor];
+        std::shared_ptr<dstream> ds;
+        {
+            std::lock_guard lock(file_descriptor_map_mutex);
+            ds = file_descriptor_to_dstream_map[file_descriptor];
+        }
 
         if (!ds || !ds->is_open()) {
             return ERROR(S3_FILE_OPEN_ERR, "failed on datastream lookup.");
@@ -954,6 +996,7 @@ namespace irods_s3_cacheless {
 
         irods::error result = SUCCESS();
 
+
         // =-=-=-=-=-=-=-
         // initially set a good default
         _out_vote = 0.0;
@@ -1083,6 +1126,46 @@ namespace irods_s3_cacheless {
     {
         irods::error result = SUCCESS();
         irods::error ret;
+
+        unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+        printf("%s:%d (%s) [[%lu]] opr=%s\n", __FILE__, __LINE__, __FUNCTION__, thread_id, _opr->c_str());
+
+        // fix open mode so that multipart uploads will work
+        if (irods::WRITE_OPERATION == (*_opr)) {
+            overwrite_open_mode = O_CREAT | O_WRONLY | O_TRUNC;
+        } else {
+            overwrite_open_mode = 0;
+        }
+
+        irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
+
+
+
+        // read the data size and save and save it under the property plugin property map
+        uint64_t data_size = 0;
+        char *data_size_str = getValByKey(&file_obj->cond_input(), DATA_SIZE_KW);
+        if (data_size_str) {
+            try {
+                data_size = boost::lexical_cast<uint64_t>(data_size_str);
+            } catch (boost::bad_lexical_cast const& e) {
+                data_size = 0;
+            }
+        }
+
+        _ctx.prop_map().set<uint64_t>(DATA_SIZE_KW, data_size);
+
+        // use L1desc[] and move to open
+        int requested_number_of_threads = 0;
+
+        int number_of_threads = getNumThreads( _ctx.comm(),
+                data_size,
+                requested_number_of_threads,
+                const_cast<KeyValPair*>(&file_obj->cond_input()),
+                nullptr,                     // destination resc hier
+                nullptr,                     // source resc hier
+                0 );                         // opr type - not used
+
+        printf("%s:%d (%s) [[%lu]] number_of_threads=%d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, number_of_threads);
 
         // =-=-=-=-=-=-=-
         // check the context validity
