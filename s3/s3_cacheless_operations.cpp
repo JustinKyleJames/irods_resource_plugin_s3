@@ -532,7 +532,6 @@ namespace irods_s3_cacheless {
         }
 
         std::shared_ptr<dstream> dstream_ptr;
-        std::shared_ptr<s3_transport> s3_transport_ptr;
 
         // if dstream doesn't exist just return
         {
@@ -552,8 +551,9 @@ namespace irods_s3_cacheless {
 
         {
             std::lock_guard lock(s3_cacheless_plugin_mutex);
-            //file_descriptor_to_dstream_map.erase(fd);
-            //file_descriptor_to_transport_map.erase(fd);
+            file_descriptor_to_dstream_map.erase(fd);
+            dstream_ptr.reset();  // make sure dstream is destructed first
+            file_descriptor_to_transport_map.erase(fd);
         }
 
         return SUCCESS();
