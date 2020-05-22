@@ -106,7 +106,9 @@ namespace irods_s3_cacheless {
 
     }
 
-    irods::error make_dstream(irods::plugin_context& _ctx, const std::string& call_from)
+    std::tuple<irods::error, std::shared_ptr<dstream>, std::shared_ptr<s3_transport>> make_dstream(
+            irods::plugin_context& _ctx,
+            const std::string& call_from)
     {
 
         unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
@@ -116,11 +118,14 @@ namespace irods_s3_cacheless {
         // get the file descriptor
         int fd = file_obj->file_descriptor();
 
+        std::shared_ptr<dstream> dstream_ptr;
+        std::shared_ptr<s3_transport> s3_transport_ptr;
+
         // if already done just return
         {
             std::lock_guard lock(s3_cacheless_plugin_mutex);
             if (file_descriptor_to_dstream_map.find(fd) != file_descriptor_to_dstream_map.end()) {
-                return SUCCESS();
+                return make_tuple(SUCCESS(), file_descriptor_to_dstream_map[fd], file_descriptor_to_transport_map[fd]);
             }
         }
 
@@ -131,14 +136,14 @@ namespace irods_s3_cacheless {
 
         irods::error ret = parseS3Path(file_obj->physical_path(), bucket_name, object_key, _ctx.prop_map());
         if(!ret.ok()) {
-            return PASS(ret);
+            return std::make_tuple(PASS(ret), dstream_ptr, s3_transport_ptr);
         }
 
         printf("%s:%d (%s) [physical_path=%s][bucket_name=%s]\n", __FILE__, __LINE__, __FUNCTION__, file_obj->physical_path().c_str(), bucket_name.c_str());
 
         ret = s3GetAuthCredentials(_ctx.prop_map(), access_key, secret_access_key);
         if(!ret.ok()) {
-            return PASS(ret);
+            return std::make_tuple(PASS(ret), dstream_ptr, s3_transport_ptr);
         }
         printf("%s:%d (%s) [access_key=%s][secret_access_key=%s]\n", __FILE__, __LINE__, __FUNCTION__, access_key.c_str(), secret_access_key.c_str());
 
@@ -191,15 +196,17 @@ namespace irods_s3_cacheless {
 
         {
             std::lock_guard lock(s3_cacheless_plugin_mutex);
-            file_descriptor_to_transport_map[fd] = std::make_shared<s3_transport>(s3_config);
-            file_descriptor_to_dstream_map[fd] = std::make_shared<dstream>(*(file_descriptor_to_transport_map[fd]), object_key, open_mode);
+            s3_transport_ptr = std::make_shared<s3_transport>(s3_config);
+            file_descriptor_to_transport_map[fd] = s3_transport_ptr;
+            dstream_ptr = std::make_shared<dstream>(*s3_transport_ptr, object_key, open_mode);
+            file_descriptor_to_dstream_map[fd] = dstream_ptr;
         }
 
         /*if (!dstream_ptr->is_open()) {
             return ERROR(S3_FILE_OPEN_ERR, "Failed to create dstream.");
         }*/
 
-        return SUCCESS();
+        return std::make_tuple(SUCCESS(), dstream_ptr, s3_transport_ptr);
     }
 
     irods::error set_s3_configuration_from_context(irods::plugin_property_map& _prop_map) {
@@ -401,17 +408,13 @@ namespace irods_s3_cacheless {
 
         irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
 
-        result = make_dstream(_ctx, __FUNCTION__);
+        std::shared_ptr<dstream> dstream_ptr;
+        std::shared_ptr<s3_transport> s3_transport_ptr;
+
+        std::tie(result, dstream_ptr, s3_transport_ptr) = make_dstream(_ctx, __FUNCTION__);
 
         if (!result.ok()) {
             return PASS(result);
-        }
-
-        int fd = file_obj->file_descriptor();
-        std::shared_ptr<dstream> dstream_ptr;
-        {
-            std::lock_guard lock(s3_cacheless_plugin_mutex);
-            dstream_ptr = file_descriptor_to_dstream_map[fd];
         }
 
         if (!dstream_ptr || !dstream_ptr->is_open()) {
@@ -443,18 +446,13 @@ namespace irods_s3_cacheless {
         int fd = file_obj->file_descriptor();
 
         // make and read dstream_ptr
-        result = make_dstream(_ctx, __FUNCTION__);
+        std::shared_ptr<dstream> dstream_ptr;
+        std::shared_ptr<s3_transport> s3_transport_ptr;
+
+        std::tie(result, dstream_ptr, s3_transport_ptr) = make_dstream(_ctx, __FUNCTION__);
 
         if (!result.ok()) {
             return PASS(result);
-        }
-
-        std::shared_ptr<dstream> dstream_ptr;
-        std::shared_ptr<s3_transport> s3_transport_ptr;
-        {
-            std::lock_guard lock(s3_cacheless_plugin_mutex);
-            dstream_ptr = file_descriptor_to_dstream_map[fd];
-            s3_transport_ptr = file_descriptor_to_transport_map[fd];
         }
 
         if (!dstream_ptr || !dstream_ptr->is_open()) {
@@ -464,7 +462,7 @@ namespace irods_s3_cacheless {
         std::stringstream msg;
 
         if (!s3_transport_ptr) {
-            msg << "No valid dstream found for fd " << fd;
+            msg << "No valid transport found for fd " << fd;
             return ERROR(S3_FILE_OPEN_ERR, msg.str());
         }
 
@@ -518,7 +516,7 @@ namespace irods_s3_cacheless {
 
     // =-=-=-=-=-=-=-
     // interface for POSIX Close
-    irods::error s3_file_close_operation(  irods::plugin_context& _ctx ) {
+    irods::error s3_file_close_operation( irods::plugin_context& _ctx ) {
 
         unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
         printf("%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
@@ -687,18 +685,13 @@ namespace irods_s3_cacheless {
         // read fd
         int fd = file_obj->file_descriptor();
 
-        result = make_dstream(_ctx, __FUNCTION__);
+        std::shared_ptr<dstream> dstream_ptr;
+        std::shared_ptr<s3_transport> s3_transport_ptr;
+
+        std::tie(result, dstream_ptr, s3_transport_ptr) = make_dstream(_ctx, __FUNCTION__);
 
         if (!result.ok()) {
             return PASS(result);
-        }
-
-        std::shared_ptr<dstream> dstream_ptr;
-        std::shared_ptr<s3_transport> s3_transport_ptr;
-        {
-            std::lock_guard lock(s3_cacheless_plugin_mutex);
-            dstream_ptr = file_descriptor_to_dstream_map[fd];
-            s3_transport_ptr = file_descriptor_to_transport_map[fd];
         }
 
         if (!dstream_ptr || !dstream_ptr->is_open()) {
