@@ -126,7 +126,7 @@ typedef struct multirange_data
 // at the same time (dogpile effect)
 void s3_sleep(
     int _s,
-    int _ms ); 
+    int _ms );
 
 void responseCompleteCallback(
     S3Status status,
@@ -144,8 +144,8 @@ irods::error parseS3Path (
     std::string&       _key,
     irods::plugin_property_map& _prop_map );
 
-irods::error s3Init ( irods::plugin_property_map& _prop_map ); 
-irods::error s3InitPerOperation ( irods::plugin_property_map& _prop_map ); 
+irods::error s3Init ( irods::plugin_property_map& _prop_map );
+irods::error s3InitPerOperation ( irods::plugin_property_map& _prop_map );
 
 S3Protocol s3GetProto( irods::plugin_property_map& _prop_map);
 
@@ -180,18 +180,18 @@ irods::error s3CopyFile(
 
 // =-=-=-=-=-=-=-
 /// @brief Checks the basic operation parameters and updates the physical path in the file object
-irods::error s3CheckParams(irods::plugin_context& _ctx ); 
+irods::error s3CheckParams(irods::plugin_context& _ctx );
 
 
-void get_modes_from_properties(irods::plugin_property_map& _prop_map, 
-        bool& attached_mode, bool& cacheless_mode); 
+void get_modes_from_properties(irods::plugin_property_map& _prop_map,
+        bool& attached_mode, bool& cacheless_mode);
 
 std::string get_resource_name(irods::plugin_property_map& _prop_map);
- 
+
 bool determine_unlink_for_repl_policy(
     rsComm_t*          _comm,
     const std::string& _logical_path,
-    const std::string& _vault_path); 
+    const std::string& _vault_path);
 
 // =-=-=-=-=-=-=-
 // redirect_get - code to determine redirection for get operation
@@ -200,7 +200,7 @@ irods::error s3RedirectCreate(
     irods::file_object&         _file_obj,
     const std::string&          _resc_name,
     const std::string&          _curr_host,
-    float&                      _out_vote ); 
+    float&                      _out_vote );
 
 // =-=-=-=-=-=-=-
 // redirect_get - code to determine redirection for get operation
@@ -210,7 +210,7 @@ irods::error s3RedirectOpen(
     irods::file_object_ptr      _file_obj,
     const std::string&          _resc_name,
     const std::string&          _curr_host,
-    float&                      _out_vote ); 
+    float&                      _out_vote );
 
 irods::error s3GetAuthCredentials(
     irods::plugin_property_map& _prop_map,

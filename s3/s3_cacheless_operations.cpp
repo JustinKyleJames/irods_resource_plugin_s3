@@ -322,26 +322,26 @@ namespace irods_s3_cacheless {
 
     // =-=-=-=-=-=-=-
     // interface for file registration
-    irods::error s3RegisteredPlugin( irods::plugin_context& _ctx) {
+    irods::error s3_registered_operation( irods::plugin_context& _ctx) {
         return SUCCESS();
     }
 
     // =-=-=-=-=-=-=-
     // interface for file unregistration
-    irods::error s3UnregisteredPlugin( irods::plugin_context& _ctx) {
+    irods::error s3_unregistered_operation( irods::plugin_context& _ctx) {
         return SUCCESS();
     }
 
     // =-=-=-=-=-=-=-
     // interface for file modification
-    irods::error s3ModifiedPlugin( irods::plugin_context& _ctx) {
+    irods::error s3_modified_operation( irods::plugin_context& _ctx) {
         return SUCCESS();
     }
 
     // =-=-=-=-=-=-=-
     // interface for POSIX create
 
-    irods::error s3FileCreatePlugin( irods::plugin_context& _ctx) {
+    irods::error s3_file_create_operation( irods::plugin_context& _ctx) {
 
         irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
 
@@ -365,7 +365,7 @@ namespace irods_s3_cacheless {
 
     // =-=-=-=-=-=-=-
     // interface for POSIX Open
-    irods::error s3FileOpenPlugin( irods::plugin_context& _ctx) {
+    irods::error s3_file_open_operation( irods::plugin_context& _ctx) {
 
         irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
         unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
@@ -393,7 +393,7 @@ namespace irods_s3_cacheless {
 
     // =-=-=-=-=-=-=-
     // interface for POSIX Read
-    irods::error s3FileReadPlugin( irods::plugin_context& _ctx,
+    irods::error s3_file_read_operation( irods::plugin_context& _ctx,
                                    void*               _buf,
                                    int                 _len ) {
 
@@ -430,7 +430,7 @@ namespace irods_s3_cacheless {
 
     // =-=-=-=-=-=-=-
     // interface for POSIX Write
-    irods::error s3FileWritePlugin( irods::plugin_context& _ctx,
+    irods::error s3_file_write_operation( irods::plugin_context& _ctx,
                                     void*               _buf,
                                     int                 _len ) {
 
@@ -518,7 +518,7 @@ namespace irods_s3_cacheless {
 
     // =-=-=-=-=-=-=-
     // interface for POSIX Close
-    irods::error s3FileClosePlugin(  irods::plugin_context& _ctx ) {
+    irods::error s3_file_close_operation(  irods::plugin_context& _ctx ) {
 
         unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
         printf("%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
@@ -561,7 +561,7 @@ namespace irods_s3_cacheless {
 
     // =-=-=-=-=-=-=-
     // interface for POSIX Unlink
-    irods::error s3FileUnlinkPlugin(
+    irods::error s3_file_unlink_operation(
         irods::plugin_context& _ctx) {
 
         // =-=-=-=-=-=-=-
@@ -603,11 +603,11 @@ namespace irods_s3_cacheless {
         }
         return SUCCESS();
 
-    } // s3FileUnlinkPlugin
+    } // s3_file_unlink_operation
 
     // =-=-=-=-=-=-=-
     // interface for POSIX Stat
-    irods::error s3FileStatPlugin(
+    irods::error s3_file_stat_operation(
         irods::plugin_context& _ctx,
         struct stat* _statbuf )
     {
@@ -673,7 +673,7 @@ namespace irods_s3_cacheless {
 
     // =-=-=-=-=-=-=-
     // interface for POSIX lseek
-    irods::error s3FileLseekPlugin(  irods::plugin_context& _ctx,
+    irods::error s3_file_lseek_operation(  irods::plugin_context& _ctx,
                                      long long              _offset,
                                      int                    _whence ) {
 
@@ -727,36 +727,36 @@ namespace irods_s3_cacheless {
 
         return result;
 
-    } // s3FileLseekPlugin
+    } // s3_file_lseek_operation
 
     // =-=-=-=-=-=-=-
     // interface for POSIX mkdir
-    irods::error s3FileMkdirPlugin(  irods::plugin_context& _ctx ) {
+    irods::error s3_file_mkdir_operation(  irods::plugin_context& _ctx ) {
         return SUCCESS();
 
-    } // s3FileMkdirPlugin
+    } // s3_file_mkdir_operation
 
     // =-=-=-=-=-=-=-
     // interface for POSIX mkdir
-    irods::error s3FileRmdirPlugin(  irods::plugin_context& _ctx ) {
+    irods::error s3_rmdir_operation(  irods::plugin_context& _ctx ) {
         return SUCCESS();
-    } // s3FileRmdirPlugin
+    } // s3_rmdir_operation
 
     // =-=-=-=-=-=-=-
     // interface for POSIX opendir
-    irods::error s3FileOpendirPlugin( irods::plugin_context& _ctx ) {
+    irods::error s3_opendir_operation( irods::plugin_context& _ctx ) {
         return SUCCESS();
-    } // s3FileOpendirPlugin
+    } // s3_opendir_operation
 
     // =-=-=-=-=-=-=-
     // interface for POSIX closedir
-    irods::error s3FileClosedirPlugin( irods::plugin_context& _ctx) {
+    irods::error s3_closedir_operation( irods::plugin_context& _ctx) {
         return SUCCESS();
-    } // s3FileClosedirPlugin
+    } // s3_closedir_operation
 
     // =-=-=-=-=-=-=-
     // interface for POSIX readdir
-    irods::error s3FileReaddirPlugin( irods::plugin_context& _ctx,
+    irods::error s3_readdir_operation( irods::plugin_context& _ctx,
                                       struct rodsDirent**     _dirent_ptr ) {
 
 
@@ -837,11 +837,11 @@ namespace irods_s3_cacheless {
 
         return SUCCESS();
 
-    } // s3FileReaddirPlugin
+    } // s3_readdir_operation
 
     // =-=-=-=-=-=-=-
     // interface for POSIX rename
-    irods::error s3FileRenamePlugin( irods::plugin_context& _ctx,
+    irods::error s3_file_rename_operation( irods::plugin_context& _ctx,
                                      const char*         _new_file_name )
     {
 
@@ -884,7 +884,7 @@ namespace irods_s3_cacheless {
 
         S3FS_PRN_DBG("[from=%s][to=%s]", from_key.c_str(), new_file_key.c_str());
 
-        ret = s3FileStatPlugin(_ctx, &buf);
+        ret = s3_file_stat_operation(_ctx, &buf);
         if(!ret.ok()) {
             return ERROR(S3_FILE_STAT_ERR, boost::str(boost::format("[resource_name=%s] Failed to stat file (%s) during move to (%s)")
                         % get_resource_name(_ctx.prop_map()).c_str() % from.c_str() % _new_file_name));
@@ -912,7 +912,7 @@ namespace irods_s3_cacheless {
 
         return SUCCESS();
 
-    } // s3FileRenamePlugin
+    } // s3_file_rename_operation
 
     // =-=-=-=-=-=-=-
     // interface for POSIX truncate
@@ -924,17 +924,17 @@ namespace irods_s3_cacheless {
 
 
     // interface to determine free space on a device given a path
-    irods::error s3FileGetFsFreeSpacePlugin(
+    irods::error s3_get_fs_freespace_operation(
         irods::plugin_context& _ctx )
     {
         return SUCCESS();
-    } // s3FileGetFsFreeSpacePlugin
+    } // s3_get_fs_freespace_operation
 
     // =-=-=-=-=-=-=-
     // s3StageToCache - This routine is for testing the TEST_STAGE_FILE_TYPE.
     // Just copy the file from filename to cacheFilename. optionalInfo info
     // is not used.
-    irods::error s3StageToCachePlugin(
+    irods::error s3_stage_to_cache_operation(
         irods::plugin_context& _ctx,
         const char*                               _cache_file_name )
     {
@@ -945,7 +945,7 @@ namespace irods_s3_cacheless {
     // s3SyncToArch - This routine is for testing the TEST_STAGE_FILE_TYPE.
     // Just copy the file from cacheFilename to filename. optionalInfo info
     // is not used.
-    irods::error s3SyncToArchPlugin(
+    irods::error s3_sync_to_arch_operation(
         irods::plugin_context& _ctx,
         const char* _cache_file_name )
     {
@@ -954,7 +954,7 @@ namespace irods_s3_cacheless {
 
     // =-=-=-=-=-=-=-
     // redirect_open - code to determine redirection for open operation
-    irods::error s3RedirectOpen(
+    irods::error s3_resolve_resc_hier_open(
         irods::plugin_property_map&   _prop_map,
         irods::file_object_ptr        _file_obj,
         const std::string&             _resc_name,
@@ -1085,7 +1085,7 @@ namespace irods_s3_cacheless {
     // =-=-=-=-=-=-=-
     // used to allow the resource to determine which host
     // should provide the requested operation
-    irods::error s3RedirectPlugin(
+    irods::error s3_resolve_resc_hier_operation(
         irods::plugin_context& _ctx,
         const std::string*                  _opr,
         const std::string*                  _curr_host,
@@ -1156,13 +1156,13 @@ namespace irods_s3_cacheless {
 
                         ret = _ctx.prop_map().get<rodsLong_t>( irods::RESOURCE_ID, resc_id );
                         if ( !ret.ok() ) {
-                            std::string msg = boost::str(boost::format("[resource_name=%s] get_property in s3RedirectPlugin failed to get irods::RESOURCE _ID") % resc_name.c_str() );
+                            std::string msg = boost::str(boost::format("[resource_name=%s] get_property in s3_resolve_resc_hier_operation failed to get irods::RESOURCE _ID") % resc_name.c_str() );
                             return PASSMSG( msg, ret );
                         }
 
                         ret = irods::get_resource_property< rodsServerHost_t* >( resc_id, irods::RESOURCE_HOST, host );
                         if ( !ret.ok() ) {
-                            std::string msg = boost::str(boost::format("[resource_name=%s] get_resource_property (irods::RESOURCE_HOST) in s3RedirectPlugin for detached mode failed") % resc_name.c_str() );
+                            std::string msg = boost::str(boost::format("[resource_name=%s] get_resource_property (irods::RESOURCE_HOST) in s3_resolve_resc_hier_operation for detached mode failed") % resc_name.c_str() );
                             return PASSMSG( msg, ret );
                         }
 
@@ -1174,7 +1174,7 @@ namespace irods_s3_cacheless {
 
                         ret = irods::set_resource_property< rodsServerHost_t* >( resc_name, irods::RESOURCE_HOST, host );
                         if ( !ret.ok() ) {
-                            std::string msg = boost::str(boost::format("[resource_name=%s] set_resource_property (irods::RESOURCE_HOST) in s3RedirectPlugin for detached mode failed") % resc_name.c_str() );
+                            std::string msg = boost::str(boost::format("[resource_name=%s] set_resource_property (irods::RESOURCE_HOST) in s3_resolve_resc_hier_operation for detached mode failed") % resc_name.c_str() );
                             return PASSMSG( msg, ret );
                         }
 
@@ -1192,7 +1192,7 @@ namespace irods_s3_cacheless {
                             irods::UNLINK_OPERATION == (*_opr) ) {
                         // =-=-=-=-=-=-=-
                         // call redirect determination for 'get' operation
-                        result = irods_s3_cacheless::s3RedirectOpen(
+                        result = irods_s3_cacheless::s3_resolve_resc_hier_open(
                                      _ctx.prop_map(),
                                      file_obj,
                                      resc_name,
@@ -1212,19 +1212,19 @@ namespace irods_s3_cacheless {
         }
 
         return result;
-    } // s3RedirectPlugin
+    } // s3_resolve_resc_hier_operation
 
     // =-=-=-=-=-=-=-
     // code which would rebalance the resource, S3 does not rebalance.
-    irods::error s3FileRebalance(
+    irods::error s3_rebalance_operation(
         irods::plugin_context& _ctx ) {
         return SUCCESS();
 
-    } // s3FileRebalance
+    } // s3_rebalance_operation
 
-    irods::error s3FileNotifyPlugin( irods::plugin_context& _ctx,
+    irods::error s3_notify_operation( irods::plugin_context& _ctx,
         const std::string* str ) {
         return SUCCESS();
-    } // s3FileNotifyPlugin
+    } // s3_notify_operation
 
 }
