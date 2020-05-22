@@ -157,18 +157,12 @@ namespace irods_s3_cacheless {
         }
 
         // get number of threads
-        for (int i = 0; i < NUM_L1_DESC; ++i) {
-           if (L1desc[i].inuseFlag) {
-               printf("%s:%d (%s) [[%lu]] l1descInx=%d, numThreads=%d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, i, L1desc[i].dataObjInp->numThreads);
-           }
-        }
-
         int requested_number_of_threads = 0;
-        int l1descInx = file_obj->l1_desc_idx();
-        printf("%s:%d (%s) [[%lu]] l1descInx=%d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, l1descInx);
-        if (l1descInx >= 3) {
-            requested_number_of_threads = L1desc[l1descInx].dataObjInp->numThreads;
-            printf("%s:%d (%s) [[%lu]] requested_number_of_threads=%d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, requested_number_of_threads);
+        for (int i = 0; i < NUM_L1_DESC; ++i) {
+           if (L1desc[i].inuseFlag && L1desc[i].dataObjInp->objPath == file_obj->logical_path()) {
+               requested_number_of_threads = L1desc[i].dataObjInp->numThreads;
+               printf("%s:%d (%s) [[%lu]] l1descInx=%d, numThreads=%d, objPath=%s\n", __FILE__, __LINE__, __FUNCTION__, thread_id, i, L1desc[i].dataObjInp->numThreads, L1desc[i].dataObjInp->objPath );
+           }
         }
 
         int number_of_threads = getNumThreads( _ctx.comm(),
@@ -352,6 +346,10 @@ namespace irods_s3_cacheless {
         irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
 
         unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+
+        int l1descInx = file_obj->l1_desc_idx();
+        printf("%s:%d (%s) [[%lu]] l1descInx=%d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, l1descInx);
+
         std::ios_base::openmode open_mode = translate_open_mode_posix_to_stream(O_CREAT | O_WRONLY, __FUNCTION__);
 
         printf("%s:%d (%s) [[%lu]] open_mode=%d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, file_obj->flags());
@@ -480,11 +478,11 @@ namespace irods_s3_cacheless {
         }
 
         int requested_number_of_threads = 0;
-        int l1descInx = file_obj->l1_desc_idx();
-        printf("%s:%d (%s) [[%lu]] l1descInx=%d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, l1descInx);
-        if (l1descInx >= 3) {
-            requested_number_of_threads = L1desc[l1descInx].dataObjInp->numThreads;
-            printf("%s:%d (%s) [[%lu]] requested_number_of_threads=%d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, requested_number_of_threads);
+        for (int i = 0; i < NUM_L1_DESC; ++i) {
+           if (L1desc[i].inuseFlag && L1desc[i].dataObjInp->objPath == file_obj->logical_path()) {
+               requested_number_of_threads = L1desc[i].dataObjInp->numThreads;
+               printf("%s:%d (%s) [[%lu]] l1descInx=%d, numThreads=%d, objPath=%s\n", __FILE__, __LINE__, __FUNCTION__, thread_id, i, L1desc[i].dataObjInp->numThreads, L1desc[i].dataObjInp->objPath );
+           }
         }
 
         int number_of_threads = getNumThreads( _ctx.comm(),
