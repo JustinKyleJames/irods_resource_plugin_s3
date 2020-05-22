@@ -179,6 +179,10 @@ namespace irods_s3_cacheless {
                 nullptr,                     // source resc hier
                 0 );                         // opr type - not used
 
+        printf("%s:%d (%s) [[%lu]] number_of_threads=%d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, number_of_threads);
+        if (number_of_threads < 1) {
+            number_of_threads = 1;
+        }
 
         s3_transport_config s3_config;
         s3_config.object_size = data_size;
@@ -188,7 +192,7 @@ namespace irods_s3_cacheless {
         s3_config.access_key = access_key;
         s3_config.secret_access_key = secret_access_key;
         s3_config.debug_flag = true;
-        s3_config.multipart_upload_flag = true;
+        s3_config.multipart_upload_flag = number_of_threads > 1;
         s3_config.shared_memory_timeout_in_seconds = 60;
 
         {
@@ -490,6 +494,10 @@ namespace irods_s3_cacheless {
                 nullptr,                     // destination resc hier
                 nullptr,                     // source resc hier
                 0 );                         // opr type - not used
+
+        if (number_of_threads < 1) {
+            number_of_threads = 1;
+        }
 
         // determine the part size based on the offset
         uint64_t part_size = data_size / number_of_threads;
