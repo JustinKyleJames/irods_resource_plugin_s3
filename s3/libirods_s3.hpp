@@ -46,9 +46,11 @@ const std::string s3_region_name{"S3_REGIONNAME"};
 const std::string REPL_POLICY_KEY{"repl_policy"};
 const std::string REPL_POLICY_VAL{"reg_repl"};
 const std::string s3_cache_dir{"S3_CACHE_DIR"};
+const std::string s3_circular_buffer_size{"S3_CIRCULAR_BUFFER_SIZE"};
 
 const size_t S3_DEFAULT_RETRY_WAIT_SEC = 1;
 const size_t S3_DEFAULT_RETRY_COUNT = 1;
+const int    S3_DEFAULT_CIRCULAR_BUFFER_SIZE = 10;
 
 std::string s3GetHostname(irods::plugin_property_map& _prop_map);
 S3SignatureVersion s3GetSignatureVersion(irods::plugin_property_map& _prop_map);

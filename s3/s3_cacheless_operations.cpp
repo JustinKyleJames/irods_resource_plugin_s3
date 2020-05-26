@@ -109,13 +109,22 @@ namespace irods_s3_cacheless {
 
     }
 
+    std::string get_protocol_as_string(irods::plugin_property_map& _prop_map)
+    {
+        std::string proto_str;
+        irods::error ret = _prop_map.get< std::string >(s3_proto, proto_str );
+        if (!ret.ok()) { // Default to original behavior
+            return "https";
+        }
+        return proto_str;
+    }
+
     std::tuple<irods::error, std::shared_ptr<dstream>, std::shared_ptr<s3_transport>> make_dstream(
             irods::plugin_context& _ctx,
             const std::string& call_from)
     {
 
         unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
-        printf("%s:%d (%s) [[%lu]] call_from=%s\n", __FILE__, __LINE__, __FUNCTION__, thread_id, call_from.c_str());
         irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
 
         // get the file descriptor
@@ -186,7 +195,22 @@ namespace irods_s3_cacheless {
             number_of_threads = 1;
         }
 
+        // read the size of the circular buffer from configuration
+        unsigned int circular_buffer_size = S3_DEFAULT_CIRCULAR_BUFFER_SIZE;
+        std::string circular_buffer_size_str;
+        ret = _ctx.prop_map().get<std::string>(s3_circular_buffer_size, circular_buffer_size_str);
+        if (ret.ok()) {
+            try {
+                circular_buffer_size = boost::lexical_cast<unsigned int>(circular_buffer_size_str);
+            } catch (boost::bad_lexical_cast &) {}
+        }
+
+        printf("%s:%d (%s) [[%lu] circular_buffer_size=%u\n", __FILE__, __LINE__, __FUNCTION__, thread_id, circular_buffer_size);
+
+        std::string&& hostname = s3GetHostname(_ctx.prop_map());
+
         s3_transport_config s3_config;
+        s3_config.hostname = hostname;
         s3_config.object_size = data_size;
         s3_config.number_of_transfer_threads = 20;
         s3_config.part_size = data_size / number_of_threads;
@@ -196,6 +220,10 @@ namespace irods_s3_cacheless {
         s3_config.debug_flag = true;
         s3_config.multipart_upload_flag = number_of_threads > 1;
         s3_config.shared_memory_timeout_in_seconds = 60;
+        s3_config.circular_buffer_size = circular_buffer_size;
+        // TODO
+        s3_config.s3_signature_version_str = "v2";
+        s3_config.s3_protocol_str = get_protocol_as_string(_ctx.prop_map());
 
         {
             std::lock_guard lock(s3_cacheless_plugin_mutex);
@@ -421,7 +449,9 @@ namespace irods_s3_cacheless {
         }
 
         if (!dstream_ptr || !dstream_ptr->is_open()) {
-            return ERROR(S3_FILE_OPEN_ERR, "No valid dstream found.");
+            std::stringstream message; 
+            message << "No valid dstream found.  dstream_ptr=" << static_cast<void*>(dstream_ptr.get());
+            return ERROR(S3_FILE_OPEN_ERR, message.str().c_str());
         }
 
         off_t offset = dstream_ptr->tellg();
@@ -729,7 +759,8 @@ namespace irods_s3_cacheless {
                         if((result = ASSERT_PASS(ret, "[resource_name=%s] Failed to get the S3 credentials properties.", get_resource_name(_ctx.prop_map()).c_str())).ok()) {
 
                             callback_data_t data;
-                            S3BucketContext bucketContext = {};
+                            S3BucketContext bucketContext;// = {};
+                            bzero(&bucketContext, sizeof(bucketContext));
 
                             bucketContext.bucketName = bucket.c_str();
                             bucketContext.protocol = s3GetProto(_ctx.prop_map());
@@ -833,10 +864,10 @@ namespace irods_s3_cacheless {
 
         dstream_ptr->seekg(_offset, seek_directive);
 
-        int pos = dstream_ptr->tellg();
+        uint64_t pos = dstream_ptr->tellg();
         result.code(pos);
 
-        printf("%s:%d (%s) [[%lu] tellg=%d\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()), pos);
+        printf("%s:%d (%s) [[%lu] tellg=%lu\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()), pos);
 
         return result;
 
@@ -873,7 +904,107 @@ namespace irods_s3_cacheless {
     irods::error s3_readdir_operation( irods::plugin_context& _ctx,
                                       struct rodsDirent**     _dirent_ptr ) {
 
-        return ERROR( SYS_NOT_SUPPORTED, boost::str(boost::format("[resource_name=%s] %s") % get_resource_name(_ctx.prop_map()) % __FUNCTION__) );
+        return SUCCESS();
+        /*
+        static std::vector<std::string>
+
+        irods::error result = SUCCESS();
+
+        size_t retry_count_limit = S3_DEFAULT_RETRY_COUNT;
+        _ctx.prop_map().get<size_t>(s3_retry_count_size_t, retry_count_limit);
+
+        size_t retry_wait = S3_DEFAULT_RETRY_WAIT_SEC;
+        _ctx.prop_map().get<size_t>(s3_wait_time_sec_size_t, retry_wait);
+
+        // check incoming parameters
+        irods::error ret = s3CheckParams( _ctx );
+        if (!ret.ok()) {
+            return PASS(ret);
+        }
+
+        irods::collection_object_ptr fco = boost::dynamic_pointer_cast< irods::collection_object >( _ctx.fco() );
+        std::string path = fco->physical_path();
+
+        std::string bucket;
+        std::string key;
+        result = parseS3Path(path, bucket, key, _ctx.prop_map());
+        if(!result.ok()) {
+            return PASS(result);
+        }
+
+        result = s3InitPerOperation( _ctx.prop_map() );
+        if(!result.ok()) {
+            return PASS(result);
+        }
+
+        result = s3GetAuthCredentials(_ctx.prop_map(), key_id, access_key);
+        if(!result.ok()) {
+            return PASS(result);
+        }
+
+        callback_data_t data;
+        S3BucketContext bucketContext = {};
+
+        bucketContext.bucketName = bucket.c_str();
+        bucketContext.protocol = s3GetProto(_ctx.prop_map());
+        bucketContext.stsDate = s3GetSTSDate(_ctx.prop_map());
+        bucketContext.uriStyle = S3UriStylePath;
+        bucketContext.accessKeyId = key_id.c_str();
+        bucketContext.secretAccessKey = access_key.c_str();
+
+        S3ListBucketHandler list_bucket_handler = { &responsePropertiesCallback, &responseCompleteCallback };
+        size_t retry_cnt = 0;
+        do {
+            bzero (&data, sizeof (data));
+            std::string&& hostname = s3GetHostname(_ctx.prop_map());
+            bucketContext.hostName = hostname.c_str();
+            data.pCtx = &bucketContext;
+
+            S3_list_bucket(&bucketContext, // S3BucketContext
+                    key.c_str(),           // prefix
+                    nullptr,               // TODO marker
+                    "/",                   // delimiter
+                    1024,                  // TODO cache these rather than one at a time
+                    nullptr,               // S3RequestContext
+                    &list_bucket_handler,  // S3ListBucketHandler
+                    &data                  // void* callback data
+                    );
+
+            if (data.status != S3StatusOK) s3_sleep( retry_wait, 0 );
+
+            *_dirent_ptr = ( rodsDirent_t* ) malloc( sizeof( rodsDirent_t ) );
+            boost::filesystem::path p(object_key.c_str());
+            strcpy((*_dirent_ptr)->d_name, p.filename().string().c_str());
+
+        } while ( (data.status != S3StatusOK) && S3_status_is_retryable(data.status) && (++retry_cnt < retry_count_limit ) );
+
+        if (data.status != S3StatusOK) {
+            std::stringstream msg;
+            msg << "[resource_name=" << get_resource_name(_ctx.prop_map()) << "] ";
+            msg << " - Error in S3 listing: \"" << key.c_str() << "\"";
+            if (data.status >= 0) {
+                msg << " - \"" << S3_get_status_name((S3Status)data.status) << "\"";
+            }
+            result = ERROR(S3_FILE_STAT_ERR, msg.str());
+        }
+
+        else {
+            _statbuf->st_mode = S_IFREG;
+            _statbuf->st_nlink = 1;
+            _statbuf->st_uid = getuid ();
+            _statbuf->st_gid = getgid ();
+            _statbuf->st_atime = _statbuf->st_mtime = _statbuf->st_ctime = savedProperties.lastModified;
+            _statbuf->st_size = savedProperties.contentLength;
+        }
+        if( !result.ok() ) {
+            std::stringstream msg;
+            msg << "[resource_name=" << get_resource_name(_ctx.prop_map()) << "] "
+                << result.result();
+            rodsLog(LOG_ERROR, msg.str().c_str());
+        }
+        return result;*/
+        // TODO this really only makes sense with consistent naming scheme
+        //
 
         // =-=-=-=-=-=-=-
         // check incoming parameters
