@@ -32,9 +32,9 @@
 #include "irods_resource_backport.hpp"
 #include "irods_query.hpp"
 
-#include "s3fs/s3fs.h"
-#include "s3fs/curl.h"
-#include "s3fs/s3fs_auth.h"
+//#include "s3fs/s3fs.h"
+//#include "s3fs/curl.h"
+//#include "s3fs/s3fs_auth.h"
 
 // =-=-=-=-=-=-=-
 // stl includes
@@ -1774,7 +1774,7 @@ irods::error s3CopyFile(
     std::string resource_name = get_resource_name(_src_ctx.prop_map());
 
     // Check the size, and if too large punt to the multipart copy/put routine
-    struct stat statbuf;
+    struct stat statbuf = {};
     ret = irods_s3_archive::s3_file_stat_operation( _src_ctx, &statbuf );
     if (( result = ASSERT_PASS(ret, "[resource_name=%s] Unable to get original object size for source file name: \"%s\".", resource_name.c_str(),
                                _src_file.c_str())).ok()) {
@@ -1914,7 +1914,7 @@ irods:: error s3StartOperation(irods::plugin_property_map& _prop_map)
         _prop_map.set<std::string>(irods::RESOURCE_LOCATION, resource_location);
     }
 
-    if (cacheless_mode) {
+    /*if (cacheless_mode) {
 
         xmlInitParser();
 
@@ -1935,7 +1935,7 @@ irods:: error s3StartOperation(irods::plugin_property_map& _prop_map)
 
         // init curl
         S3fsCurl::InitS3fsCurl("/etc/mime.types");
-    }
+    }*/
 
 
     return result;

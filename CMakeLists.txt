@@ -69,17 +69,17 @@ add_library(
   ${CMAKE_SOURCE_DIR}/s3/libirods_s3.cpp
   ${CMAKE_SOURCE_DIR}/s3/s3_archive_operations.cpp
   ${CMAKE_SOURCE_DIR}/s3/s3_cacheless_operations.cpp
-  ${CMAKE_SOURCE_DIR}/s3/s3fs/curl.cpp
-  ${CMAKE_SOURCE_DIR}/s3/s3fs/addhead.cpp
-  ${CMAKE_SOURCE_DIR}/s3/s3fs/cache.cpp
-  ${CMAKE_SOURCE_DIR}/s3/s3fs/common_auth.cpp
-  ${CMAKE_SOURCE_DIR}/s3/s3fs/fdcache.cpp
+  #${CMAKE_SOURCE_DIR}/s3/s3fs/curl.cpp
+  #${CMAKE_SOURCE_DIR}/s3/s3fs/addhead.cpp
+  #${CMAKE_SOURCE_DIR}/s3/s3fs/cache.cpp
+  #${CMAKE_SOURCE_DIR}/s3/s3fs/common_auth.cpp
+  #${CMAKE_SOURCE_DIR}/s3/s3fs/fdcache.cpp
   #${CMAKE_SOURCE_DIR}/s3/s3fs/gnutls_auth.cpp
   #${CMAKE_SOURCE_DIR}/s3/s3fs/nss_auth.cpp
-  ${CMAKE_SOURCE_DIR}/s3/s3fs/openssl_auth.cpp
-  ${CMAKE_SOURCE_DIR}/s3/s3fs/s3fs.cpp
-  ${CMAKE_SOURCE_DIR}/s3/s3fs/s3fs_util.cpp
-  ${CMAKE_SOURCE_DIR}/s3/s3fs/string_util.cpp
+  #${CMAKE_SOURCE_DIR}/s3/s3fs/openssl_auth.cpp
+  #${CMAKE_SOURCE_DIR}/s3/s3fs/s3fs.cpp
+  #${CMAKE_SOURCE_DIR}/s3/s3fs/s3fs_util.cpp
+  #${CMAKE_SOURCE_DIR}/s3/s3fs/string_util.cpp
   ${CMAKE_SOURCE_DIR}/s3/s3_transport/src/s3_transport.cpp
   )
 target_include_directories(
