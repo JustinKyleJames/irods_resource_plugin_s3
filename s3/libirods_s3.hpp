@@ -58,6 +58,10 @@ long s3GetMPUChunksize(irods::plugin_property_map& _prop_map);
 ssize_t s3GetMPUThreads(irods::plugin_property_map& _prop_map);
 bool s3GetEnableMD5(irods::plugin_property_map& _prop_map);
 bool s3GetEnableMultiPartUpload (irods::plugin_property_map& _prop_map );
+void StoreAndLogStatus(S3Status status, const S3ErrorDetails *error,
+        const char *function, const S3BucketContext *pCtx, S3Status *pStatus,
+        bool ignore_not_found_error = false);
+
 
 typedef struct S3Auth {
     char accessKeyId[MAX_NAME_LEN];
@@ -131,6 +135,11 @@ void s3_sleep(
     int _ms );
 
 void responseCompleteCallback(
+    S3Status status,
+    const S3ErrorDetails *error,
+    void *callbackData);
+
+void responseCompleteCallbackIgnoreLogNotFound(
     S3Status status,
     const S3ErrorDetails *error,
     void *callbackData);

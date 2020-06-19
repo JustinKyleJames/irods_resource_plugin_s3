@@ -288,16 +288,22 @@ std::string s3GetHostname(irods::plugin_property_map& _prop_map)
 
 
 // Callbacks for S3
-static void StoreAndLogStatus (
+void StoreAndLogStatus (
     S3Status status,
     const S3ErrorDetails *error,
     const char *function,
     const S3BucketContext *pCtx,
-    S3Status *pStatus )
+    S3Status *pStatus,
+    bool ignore_not_found_error )
 {
     int i;
 
     *pStatus = status;
+
+    if (status == S3StatusHttpErrorNotFound && ignore_not_found_error) {
+        return;
+    }
+
     if( status != S3StatusOK ) {
         rodsLog( LOG_ERROR, "  S3Status: [%s] - %d\n", S3_get_status_name( status ), (int) status );
         rodsLog( LOG_ERROR, "    S3Host: %s", pCtx->hostName );
@@ -326,6 +332,15 @@ void responseCompleteCallback(
 {
     callback_data_t *data = (callback_data_t*)callbackData;
     StoreAndLogStatus( status, error, __FUNCTION__, data->pCtx, &(data->status) );
+}
+
+void responseCompleteCallbackIgnoreLogNotFound(
+    S3Status status,
+    const S3ErrorDetails *error,
+    void *callbackData)
+{
+    callback_data_t *data = (callback_data_t*)callbackData;
+    StoreAndLogStatus( status, error, __FUNCTION__, data->pCtx, &(data->status), true );
 }
 
 S3Status responsePropertiesCallback(

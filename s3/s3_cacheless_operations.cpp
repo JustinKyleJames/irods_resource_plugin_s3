@@ -2,15 +2,7 @@
 // local includes
 #include "s3_archive_operations.hpp"
 #include "libirods_s3.hpp"
-//#include "s3fs/curl.h"
-//#include "s3fs/cache.h"
-//#include "s3fs/fdcache.h"
-//#include "s3fs/s3fs.h"
-//#include "s3fs/s3fs_util.h"
-//#include "s3fs/s3fs_auth.h"
-//#include "s3fs/common.h"
 #include "s3_transport.hpp"
-
 
 // =-=-=-=-=-=-=-
 // irods includes
@@ -49,6 +41,8 @@
 #include <libxml/xpathInternals.h>
 #include <libxml/tree.h>
 #include <cstdlib>
+#include <list>
+#include <map>
 
 #include <curl/curl.h>
 
@@ -117,6 +111,20 @@ namespace irods_s3_cacheless {
             return "https";
         }
         return proto_str;
+    }
+
+    std::string get_signature_version_as_string(irods::plugin_property_map& _prop_map)
+    {
+        std::string version_str;
+
+        irods::error ret = _prop_map.get< std::string >(s3_signature_version, version_str);
+        if (ret.ok()) {
+            if (version_str == "4" || boost::iequals(version_str, "V4")) {
+                return "v4";
+            }
+        }
+
+        return "v2";
     }
 
     std::tuple<irods::error, std::shared_ptr<dstream>, std::shared_ptr<s3_transport>> make_dstream(
@@ -221,8 +229,7 @@ namespace irods_s3_cacheless {
         s3_config.multipart_upload_flag = number_of_threads > 1;
         s3_config.shared_memory_timeout_in_seconds = 60;
         s3_config.circular_buffer_size = circular_buffer_size;
-        // TODO
-        s3_config.s3_signature_version_str = "v2";
+        s3_config.s3_signature_version_str = get_signature_version_as_string(_ctx.prop_map());
         s3_config.s3_protocol_str = get_protocol_as_string(_ctx.prop_map());
 
         {
@@ -449,7 +456,7 @@ namespace irods_s3_cacheless {
         }
 
         if (!dstream_ptr || !dstream_ptr->is_open()) {
-            std::stringstream message; 
+            std::stringstream message;
             message << "No valid dstream found.  dstream_ptr=" << static_cast<void*>(dstream_ptr.get());
             return ERROR(S3_FILE_OPEN_ERR, message.str().c_str());
         }
@@ -733,71 +740,74 @@ namespace irods_s3_cacheless {
 
             // =-=-=-=-=-=-=-
             // get ref to fco
-            irods::data_object_ptr _object = boost::dynamic_pointer_cast<irods::data_object>(_ctx.fco());
+            irods::data_object_ptr object = boost::dynamic_pointer_cast<irods::data_object>(_ctx.fco());
 
             bzero (_statbuf, sizeof (struct stat));
 
-            if(_object->physical_path().find("/", _object->physical_path().size()) != std::string::npos) {
-                // A directory
-                _statbuf->st_mode = S_IFDIR;
-            } else {
+            boost::filesystem::path p(object->physical_path());
+            std::string filename = p.filename().string();
 
-                irods::error ret;
-                std::string bucket;
-                std::string key;
-                std::string key_id;
-                std::string access_key;
+            irods::error ret;
+            std::string bucket;
+            std::string key;
+            std::string key_id;
+            std::string access_key;
 
-                ret = parseS3Path(_object->physical_path(), bucket, key, _ctx.prop_map());
-                if((result = ASSERT_PASS(ret, "[resource_name=%s] Failed parsing the S3 bucket and key from the physical path: \"%s\".", get_resource_name(_ctx.prop_map()).c_str(),
-                                         _object->physical_path().c_str())).ok()) {
+            ret = parseS3Path(object->physical_path(), bucket, key, _ctx.prop_map());
+            if((result = ASSERT_PASS(ret, "[resource_name=%s] Failed parsing the S3 bucket and key from the physical path: \"%s\".", get_resource_name(_ctx.prop_map()).c_str(),
+                                     object->physical_path().c_str())).ok()) {
 
-                    ret = s3InitPerOperation( _ctx.prop_map() );
-                    if((result = ASSERT_PASS(ret, "[resource_name=%s] Failed to initialize the S3 system.", get_resource_name(_ctx.prop_map()).c_str())).ok()) {
+                ret = s3InitPerOperation( _ctx.prop_map() );
+                if((result = ASSERT_PASS(ret, "[resource_name=%s] Failed to initialize the S3 system.", get_resource_name(_ctx.prop_map()).c_str())).ok()) {
 
-                        ret = s3GetAuthCredentials(_ctx.prop_map(), key_id, access_key);
-                        if((result = ASSERT_PASS(ret, "[resource_name=%s] Failed to get the S3 credentials properties.", get_resource_name(_ctx.prop_map()).c_str())).ok()) {
+                    ret = s3GetAuthCredentials(_ctx.prop_map(), key_id, access_key);
+                    if((result = ASSERT_PASS(ret, "[resource_name=%s] Failed to get the S3 credentials properties.", get_resource_name(_ctx.prop_map()).c_str())).ok()) {
 
-                            callback_data_t data;
-                            S3BucketContext bucketContext;// = {};
-                            bzero(&bucketContext, sizeof(bucketContext));
+                        callback_data_t data;
+                        S3BucketContext bucketContext;// = {};
+                        bzero(&bucketContext, sizeof(bucketContext));
 
-                            bucketContext.bucketName = bucket.c_str();
-                            bucketContext.protocol = s3GetProto(_ctx.prop_map());
-                            bucketContext.stsDate = s3GetSTSDate(_ctx.prop_map());
-                            bucketContext.uriStyle = S3UriStylePath;
-                            bucketContext.accessKeyId = key_id.c_str();
-                            bucketContext.secretAccessKey = access_key.c_str();
+                        bucketContext.bucketName = bucket.c_str();
+                        bucketContext.protocol = s3GetProto(_ctx.prop_map());
+                        bucketContext.stsDate = s3GetSTSDate(_ctx.prop_map());
+                        bucketContext.uriStyle = S3UriStylePath;
+                        bucketContext.accessKeyId = key_id.c_str();
+                        bucketContext.secretAccessKey = access_key.c_str();
 
-                            S3ResponseHandler headObjectHandler = { &responsePropertiesCallback, &responseCompleteCallback };
-                            size_t retry_cnt = 0;
-                            do {
-                                bzero (&data, sizeof (data));
-                                std::string&& hostname = s3GetHostname(_ctx.prop_map());
-                                bucketContext.hostName = hostname.c_str();
-                                data.pCtx = &bucketContext;
-                                S3_head_object(&bucketContext, key.c_str(), 0, &headObjectHandler, &data);
-                                if (data.status != S3StatusOK) s3_sleep( retry_wait, 0 );
-                            } while ( (data.status != S3StatusOK) && S3_status_is_retryable(data.status) && (++retry_cnt < retry_count_limit ) );
+                        S3ResponseHandler headObjectHandler = { &responsePropertiesCallback, &responseCompleteCallbackIgnoreLogNotFound};
+                        size_t retry_cnt = 0;
+                        do {
+                            bzero (&data, sizeof (data));
+                            std::string&& hostname = s3GetHostname(_ctx.prop_map());
+                            bucketContext.hostName = hostname.c_str();
+                            data.pCtx = &bucketContext;
+                            S3_head_object(&bucketContext, key.c_str(), 0, &headObjectHandler, &data);
+                            if (data.status != S3StatusOK && data.status != S3StatusHttpErrorNotFound) s3_sleep( retry_wait, 0 );
+                        } while ( (data.status != S3StatusOK && data.status != S3StatusHttpErrorNotFound) && S3_status_is_retryable(data.status) && (++retry_cnt < retry_count_limit ) );
 
-                            if (data.status != S3StatusOK) {
-                                std::stringstream msg;
-                                msg << "[resource_name=" << get_resource_name(_ctx.prop_map()) << "] ";
-                                msg << " - Error stat'ing the S3 object: \"" << _object->physical_path() << "\"";
-                                if (data.status >= 0) {
-                                    msg << " - \"" << S3_get_status_name((S3Status)data.status) << "\"";
-                                }
-                                result = ERROR(S3_FILE_STAT_ERR, msg.str());
+                        if (data.status == S3StatusOK) {
+
+                            _statbuf->st_mode = S_IFREG;
+                            _statbuf->st_nlink = 1;
+                            _statbuf->st_uid = getuid ();
+                            _statbuf->st_gid = getgid ();
+                            _statbuf->st_atime = _statbuf->st_mtime = _statbuf->st_ctime = savedProperties.lastModified;
+                            _statbuf->st_size = savedProperties.contentLength;
+
+                        } else if (data.status == S3StatusHttpErrorNotFound) {
+
+                            // assume this is a collection if the key is not found
+                            _statbuf->st_mode = S_IFDIR;
+
+                        } else {
+
+                            std::stringstream msg;
+                            msg << "[resource_name=" << get_resource_name(_ctx.prop_map()) << "] ";
+                            msg << " - Error stat'ing the S3 object: \"" << object->physical_path() << "\"";
+                            if (data.status >= 0) {
+                                msg << " - \"" << S3_get_status_name((S3Status)data.status) << "\"";
                             }
-
-                            else {
-                                _statbuf->st_mode = S_IFREG;
-                                _statbuf->st_nlink = 1;
-                                _statbuf->st_uid = getuid ();
-                                _statbuf->st_gid = getgid ();
-                                _statbuf->st_atime = _statbuf->st_mtime = _statbuf->st_ctime = savedProperties.lastModified;
-                                _statbuf->st_size = savedProperties.contentLength;
-                            }
+                            result = ERROR(S3_FILE_STAT_ERR, msg.str());
                         }
                     }
                 }
@@ -900,21 +910,74 @@ namespace irods_s3_cacheless {
 
     // =-=-=-=-=-=-=-
     // interface for POSIX readdir
-    // TODO do without s3fs
     irods::error s3_readdir_operation( irods::plugin_context& _ctx,
                                       struct rodsDirent**     _dirent_ptr ) {
 
-        return SUCCESS();
-        /*
-        static std::vector<std::string>
+        struct readdir_callback_data {
+
+            struct query_results {
+
+                query_results()
+                    : is_truncated(true)
+                    , next_marker("")
+                    , status(S3StatusOK)
+                    , pCtx(nullptr)
+                {}
+
+                bool is_truncated;
+                std::list<std::string> returned_objects;
+                std::list<std::string> returned_collections;
+                std::string next_marker;
+                S3Status status;
+                S3BucketContext *pCtx; /* To enable more detailed error messages */
+            };
+
+            std::map<std::string, query_results> result_map;
+            std::string query_string;
+        };
+
+        S3ListBucketHandler list_bucket_handler = {
+            {
+                [] (const S3ResponseProperties *properties, void *callback_data) -> S3Status {
+                    return S3StatusOK;
+                },
+                [] (S3Status status, const S3ErrorDetails *error, void *callback_data) -> void {
+
+                    readdir_callback_data *data = static_cast<readdir_callback_data*>(callback_data);
+                    std::string query_string = data->query_string;
+
+                    readdir_callback_data::query_results &results = data->result_map[query_string];
+                    StoreAndLogStatus( status, error, __FUNCTION__, results.pCtx, &(results.status) );
+                }
+            },
+            [] (int is_truncated, const char *next_marker, int contents_count,
+                    const S3ListBucketContent *contents, int common_prefixes_count,
+                    const char **common_prefixes, void *callback_data) -> S3Status {
+
+                readdir_callback_data *data = static_cast<readdir_callback_data*>(callback_data);
+                std::string query_string = data->query_string;
+                readdir_callback_data::query_results &results = data->result_map[query_string];
+
+                results.is_truncated = is_truncated;
+                results.next_marker = (next_marker == nullptr ? "" : next_marker);
+                for (int i = 0; i < contents_count; ++i) {
+                    results.returned_objects.push_back(contents[i].key);
+                }
+
+                for (int i = 0; i < common_prefixes_count; ++i) {
+                    // remove trailing slash
+                    std::string dir_name(common_prefixes[i]);
+                    if('/' == dir_name.back()) {
+                        dir_name.pop_back();
+                    }
+                    results.returned_collections.push_back(dir_name);
+                }
+                return S3StatusOK;
+            }
+        };
 
         irods::error result = SUCCESS();
 
-        size_t retry_count_limit = S3_DEFAULT_RETRY_COUNT;
-        _ctx.prop_map().get<size_t>(s3_retry_count_size_t, retry_count_limit);
-
-        size_t retry_wait = S3_DEFAULT_RETRY_WAIT_SEC;
-        _ctx.prop_map().get<size_t>(s3_wait_time_sec_size_t, retry_wait);
 
         // check incoming parameters
         irods::error ret = s3CheckParams( _ctx );
@@ -932,158 +995,115 @@ namespace irods_s3_cacheless {
             return PASS(result);
         }
 
-        result = s3InitPerOperation( _ctx.prop_map() );
-        if(!result.ok()) {
-            return PASS(result);
+        thread_local readdir_callback_data cb_data{ {}, "" };
+
+        // add a trailing slash if it is not there
+        std::string search_key = key;
+        if('/' != search_key.back()) {
+             search_key += "/";
+        }
+        cb_data.query_string = search_key;
+
+        readdir_callback_data::query_results& data = cb_data.result_map[search_key];
+
+        // see if we need to get more data
+        if (data.returned_objects.size() == 0 && data.returned_collections.size() == 0 && data.is_truncated) {
+
+            size_t retry_count_limit = S3_DEFAULT_RETRY_COUNT;
+            _ctx.prop_map().get<size_t>(s3_retry_count_size_t, retry_count_limit);
+
+            size_t retry_wait = S3_DEFAULT_RETRY_WAIT_SEC;
+            _ctx.prop_map().get<size_t>(s3_wait_time_sec_size_t, retry_wait);
+
+            result = s3InitPerOperation( _ctx.prop_map() );
+            if(!result.ok()) {
+                return PASS(result);
+            }
+
+            std::string key_id, access_key;
+            result = s3GetAuthCredentials(_ctx.prop_map(), key_id, access_key);
+            if(!result.ok()) {
+                return PASS(result);
+            }
+
+            S3BucketContext bucketContext = {};
+
+            bucketContext.bucketName = bucket.c_str();
+            bucketContext.protocol = s3GetProto(_ctx.prop_map());
+            bucketContext.stsDate = s3GetSTSDate(_ctx.prop_map());
+            bucketContext.uriStyle = S3UriStylePath;
+            bucketContext.accessKeyId = key_id.c_str();
+            bucketContext.secretAccessKey = access_key.c_str();
+
+            size_t retry_cnt = 0;
+            do {
+
+                std::string&& hostname = s3GetHostname(_ctx.prop_map());
+                bucketContext.hostName = hostname.c_str();
+                data.pCtx = &bucketContext;
+
+                S3_list_bucket(&bucketContext,                                       // S3BucketContext
+                        search_key.c_str(),                                          // prefix
+                        data.next_marker == "" ? nullptr : data.next_marker.c_str(), // marker
+                        "/",                                                         // delimiter
+                        1024,                                                        // max number returned
+                        nullptr,                                                     // S3RequestContext
+                        &list_bucket_handler,                                        // S3ListBucketHandler
+                        &cb_data                                                        // void* callback data
+                        );
+
+                if (data.status != S3StatusOK) s3_sleep( retry_wait, 0 );
+
+            } while ( (data.status != S3StatusOK) && S3_status_is_retryable(data.status) && (++retry_cnt < retry_count_limit ) );
+
+            if (data.status != S3StatusOK) {
+                std::stringstream msg;
+                msg << "[resource_name=" << get_resource_name(_ctx.prop_map()) << "] ";
+                msg << " - Error in S3 listing: \"" << search_key.c_str() << "\"";
+                if (data.status >= 0) {
+                    msg << " - \"" << S3_get_status_name((S3Status)data.status) << "\"";
+                }
+                return ERROR(S3_FILE_STAT_ERR, msg.str());
+            }
         }
 
-        result = s3GetAuthCredentials(_ctx.prop_map(), key_id, access_key);
-        if(!result.ok()) {
-            return PASS(result);
-        }
+        *_dirent_ptr = nullptr;
+        if (data.returned_objects.size() > 0) {
 
-        callback_data_t data;
-        S3BucketContext bucketContext = {};
+            std::string current_key = data.returned_objects.front();
+            data.returned_objects.pop_front();
 
-        bucketContext.bucketName = bucket.c_str();
-        bucketContext.protocol = s3GetProto(_ctx.prop_map());
-        bucketContext.stsDate = s3GetSTSDate(_ctx.prop_map());
-        bucketContext.uriStyle = S3UriStylePath;
-        bucketContext.accessKeyId = key_id.c_str();
-        bucketContext.secretAccessKey = access_key.c_str();
-
-        S3ListBucketHandler list_bucket_handler = { &responsePropertiesCallback, &responseCompleteCallback };
-        size_t retry_cnt = 0;
-        do {
-            bzero (&data, sizeof (data));
-            std::string&& hostname = s3GetHostname(_ctx.prop_map());
-            bucketContext.hostName = hostname.c_str();
-            data.pCtx = &bucketContext;
-
-            S3_list_bucket(&bucketContext, // S3BucketContext
-                    key.c_str(),           // prefix
-                    nullptr,               // TODO marker
-                    "/",                   // delimiter
-                    1024,                  // TODO cache these rather than one at a time
-                    nullptr,               // S3RequestContext
-                    &list_bucket_handler,  // S3ListBucketHandler
-                    &data                  // void* callback data
-                    );
-
-            if (data.status != S3StatusOK) s3_sleep( retry_wait, 0 );
+            // a trailing slash indicates a "directory", remove it
+            // for boost::filesystem::path can get dir name then add
+            // it back in
+            //bool add_trailing_slash = false;
+            //if('/' == current_key.back()) {
+            //    add_trailing_slash = true;
+            //    current_key.pop_back();
+            //}
 
             *_dirent_ptr = ( rodsDirent_t* ) malloc( sizeof( rodsDirent_t ) );
-            boost::filesystem::path p(object_key.c_str());
-            strcpy((*_dirent_ptr)->d_name, p.filename().string().c_str());
-
-        } while ( (data.status != S3StatusOK) && S3_status_is_retryable(data.status) && (++retry_cnt < retry_count_limit ) );
-
-        if (data.status != S3StatusOK) {
-            std::stringstream msg;
-            msg << "[resource_name=" << get_resource_name(_ctx.prop_map()) << "] ";
-            msg << " - Error in S3 listing: \"" << key.c_str() << "\"";
-            if (data.status >= 0) {
-                msg << " - \"" << S3_get_status_name((S3Status)data.status) << "\"";
-            }
-            result = ERROR(S3_FILE_STAT_ERR, msg.str());
+            boost::filesystem::path p(current_key.c_str());
+            current_key = p.filename().string();
+            //if (add_trailing_slash) {
+            //    current_key += "/";
+            //}
+            strcpy((*_dirent_ptr)->d_name, current_key.c_str());
+            return result;
         }
 
-        else {
-            _statbuf->st_mode = S_IFREG;
-            _statbuf->st_nlink = 1;
-            _statbuf->st_uid = getuid ();
-            _statbuf->st_gid = getgid ();
-            _statbuf->st_atime = _statbuf->st_mtime = _statbuf->st_ctime = savedProperties.lastModified;
-            _statbuf->st_size = savedProperties.contentLength;
-        }
-        if( !result.ok() ) {
-            std::stringstream msg;
-            msg << "[resource_name=" << get_resource_name(_ctx.prop_map()) << "] "
-                << result.result();
-            rodsLog(LOG_ERROR, msg.str().c_str());
-        }
-        return result;*/
-        // TODO this really only makes sense with consistent naming scheme
-        //
+        if (data.returned_collections.size() > 0) {
 
-        // =-=-=-=-=-=-=-
-        // check incoming parameters
-        /*irods::error ret = s3CheckParams( _ctx );
-        if (!ret.ok()) {
-            return PASS(ret);
+            std::string current_key = data.returned_collections.front();
+            data.returned_collections.pop_front();
+            *_dirent_ptr = ( rodsDirent_t* ) malloc( sizeof( rodsDirent_t ) );
+            boost::filesystem::path p(current_key.c_str());
+            current_key = p.filename().string();
+            strcpy((*_dirent_ptr)->d_name, current_key.c_str());
+            return result;
         }
 
-        ret = set_s3_configuration_from_context(_ctx.prop_map());
-        if (!ret.ok()) {
-            return PASS(ret);
-        }
-
-        irods::collection_object_ptr fco = boost::dynamic_pointer_cast< irods::collection_object >( _ctx.fco() );
-        std::string path = fco->physical_path();
-
-        std::string bucket;
-        std::string key;
-        ret = parseS3Path(path, bucket, key, _ctx.prop_map());
-        if(!ret.ok()) {
-            return PASS(ret);
-        }
-
-        strncpy(::bucket, bucket.c_str(), MAX_NAME_LEN-1);
-        key = "/" + key;
-
-        S3ObjList head;
-        int result;
-
-        S3FS_PRN_INFO("[path=%s]", path.c_str());
-
-        if (!(DirectoryListStreamManager::get()->key_exists(key))) {
-
-            // Do not have entries cached.  Go ahead and retrieve them
-
-            // get a list of all the objects
-            if ((result = list_bucket(key.c_str(), head, "/")) != 0) {
-              return ERROR(S3_FILE_STAT_ERR,
-                      boost::str(boost::format("[resource_name=%s] list_bucket returns error(%d).") %
-                          get_resource_name(_ctx.prop_map()).c_str() % result));
-            }
-
-            if (head.IsEmpty()) {
-                return SUCCESS();
-            }
-
-            // Send stats caching.
-            std::string strpath = path;
-            if (strcmp(path.c_str(), "/") != 0) {
-                strpath += "/";
-            }
-
-            s3obj_list_t objects;
-            head.GetNameList(objects);
-
-            for (auto& object : objects) {
-                DirectoryListStreamManager::get()->add_entry(key, object);
-            }
-        }
-
-
-        std::string next_entry;
-        if (DirectoryListStreamManager::get()->get_next_entry(key, next_entry)) {
-
-           std::string object_key = key + "/" + next_entry;
-           struct stat st;
-           headers_t meta;
-           if (0 != (result = get_object_attribute(object_key.c_str(), &st, &meta, true, NULL, true))) {
-               return ERROR(S3_FILE_STAT_ERR,
-                       boost::str(boost::format("[resource_name=%s] get_object_attribute on %s returns error(%d).") %
-                           get_resource_name(_ctx.prop_map()).c_str() % object_key.c_str() % result));
-           }
-           *_dirent_ptr = ( rodsDirent_t* ) malloc( sizeof( rodsDirent_t ) );
-           boost::filesystem::path p(object_key.c_str());
-           strcpy((*_dirent_ptr)->d_name, p.filename().string().c_str());
-
-        }
-
-        return SUCCESS();*/
+        return result;
 
     } // s3_readdir_operation
 
