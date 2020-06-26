@@ -175,10 +175,10 @@ namespace irods_s3_cacheless {
         }
 
         // get the file size
-        uint64_t data_size = 0;
+        uint64_t data_size = s3_transport_config::UNKNOWN_OBJECT_SIZE;
         ret = _ctx.prop_map().get< uint64_t >(DATA_SIZE_KW, data_size);
         if (!ret.ok()) {
-            data_size = 0;
+            data_size = s3_transport_config::UNKNOWN_OBJECT_SIZE;
         }
 
         // get number of threads
@@ -221,7 +221,7 @@ namespace irods_s3_cacheless {
         s3_config.hostname = hostname;
         s3_config.object_size = data_size;
         s3_config.number_of_transfer_threads = 20;
-        s3_config.part_size = data_size / number_of_threads;
+        s3_config.part_size = data_size == s3_transport_config::UNKNOWN_OBJECT_SIZE ? 0 : data_size / number_of_threads;
         s3_config.bucket_name = bucket_name;
         s3_config.access_key = access_key;
         s3_config.secret_access_key = secret_access_key;
@@ -392,17 +392,14 @@ namespace irods_s3_cacheless {
 
         unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
 
-        int l1descInx = file_obj->l1_desc_idx();
-        printf("%s:%d (%s) [[%lu]] l1descInx=%d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, l1descInx);
-
         std::ios_base::openmode open_mode = translate_open_mode_posix_to_stream(O_CREAT | O_WRONLY, __FUNCTION__);
 
-        printf("%s:%d (%s) [[%lu]] open_mode=%d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, file_obj->flags());
         {
             std::lock_guard lock(s3_cacheless_plugin_mutex);
             int fd = fd_counter++;
             file_obj->file_descriptor(fd);
             fd_to_open_mode_map[fd] = open_mode;
+            printf("%s:%d (%s) [[%lu]] fd=%d open_mode=%d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, fd, file_obj->flags());
         }
 
         return SUCCESS();
@@ -414,8 +411,6 @@ namespace irods_s3_cacheless {
 
         irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
         unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
-
-        printf("%s:%d (%s) [[%lu]] open_mode=%d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, file_obj->flags());
 
         std::ios_base::openmode open_mode;
         if (0 != overwrite_open_mode) {
@@ -430,6 +425,7 @@ namespace irods_s3_cacheless {
             int fd = fd_counter++;
             file_obj->file_descriptor(fd);
             fd_to_open_mode_map[fd] = open_mode;
+            printf("%s:%d (%s) [[%lu]] fd=%d open_mode=%d overwrite_open_mode=%d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, fd, file_obj->flags(), overwrite_open_mode);
         }
 
         return SUCCESS();
@@ -442,6 +438,7 @@ namespace irods_s3_cacheless {
                                    void*               _buf,
                                    int                 _len ) {
 
+        printf("%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()));
         irods::error result = SUCCESS();
 
         irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
@@ -461,12 +458,15 @@ namespace irods_s3_cacheless {
             return ERROR(S3_FILE_OPEN_ERR, message.str().c_str());
         }
 
+
         off_t offset = dstream_ptr->tellg();
-        printf("%s:%d (%s) [[%lu]] offset=%ld, len=%d\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()), offset, _len);
 
         dstream_ptr->read(static_cast<char*>(_buf), _len);
+        off_t offset2 = dstream_ptr->tellg();
+        int diff = static_cast<int>(offset2 - offset);
 
-        result.code(_len);
+        result.code(diff);
+        //result.code(_len);
         return result;
 
     }
@@ -506,8 +506,6 @@ namespace irods_s3_cacheless {
             return ERROR(S3_FILE_OPEN_ERR, msg.str());
         }
 
-        off_t offset = dstream_ptr->tellg();
-        printf("%s:%d (%s) [[%lu]] offset=%ld, len=%d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, offset, _len);
 
         uint64_t data_size = 0;
         irods::error ret = _ctx.prop_map().get< uint64_t >(DATA_SIZE_KW, data_size);
@@ -536,19 +534,18 @@ namespace irods_s3_cacheless {
         }
 
         // determine the part size based on the offset
+        off_t offset = dstream_ptr->tellg();
         uint64_t part_size = data_size / number_of_threads;
         if (static_cast<uint64_t>(offset) >= part_size * (number_of_threads-1)) {
             part_size += data_size % number_of_threads;
         }
-        printf("%s:%d (%s) [[%lu]] offset=%ld,part_size=%ld\n", __FILE__, __LINE__, __FUNCTION__, thread_id, offset, part_size);
-
 
         s3_transport_ptr->set_part_size(part_size);
 
         dstream_ptr->write(static_cast<char*>(_buf), _len);
-        offset = dstream_ptr->tellg();
-        printf("%s:%d (%s) [[%lu]] after write offset=%ld\n", __FILE__, __LINE__, __FUNCTION__, thread_id, offset);
+        //off_t after_offset = dstream_ptr->tellg();
 
+        //result.code(after_offset - offset);
         result.code(_len);
         return result;
 
@@ -559,11 +556,11 @@ namespace irods_s3_cacheless {
     irods::error s3_file_close_operation( irods::plugin_context& _ctx ) {
 
         unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
-        printf("%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
 
         irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
 
         int fd = file_obj->file_descriptor();
+        printf("%s:%d (%s) [[%lu]] fd=%d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, fd);
 
         if (fd == 0) {
             return SUCCESS();
@@ -592,6 +589,9 @@ namespace irods_s3_cacheless {
             file_descriptor_to_dstream_map.erase(fd);
             dstream_ptr.reset();  // make sure dstream is destructed first
             file_descriptor_to_transport_map.erase(fd);
+            if (file_descriptor_to_dstream_map.size() == 0) {
+                overwrite_open_mode = 0;
+            }
         }
 
         return SUCCESS();
@@ -1352,7 +1352,7 @@ namespace irods_s3_cacheless {
 
 
         // fix open mode so that multipart uploads will work
-        if (irods::WRITE_OPERATION == (*_opr)) {
+        if (irods::WRITE_OPERATION == (*_opr) || irods::CREATE_OPERATION == (*_opr)) {
             overwrite_open_mode = O_CREAT | O_WRONLY | O_TRUNC;
         } else {
             overwrite_open_mode = 0;
