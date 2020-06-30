@@ -168,7 +168,7 @@ namespace irods_s3_archive {
         bucketContext.bucketName = bucket.c_str();
         bucketContext.protocol = s3GetProto(_ctx.prop_map());
         bucketContext.stsDate = s3GetSTSDate(_ctx.prop_map());
-        bucketContext.uriStyle = S3UriStylePath;
+        bucketContext.uriStyle = s3_get_uri_request_style(_ctx.prop_map());
         bucketContext.accessKeyId = key_id.c_str();
         bucketContext.secretAccessKey = access_key.c_str();
 
@@ -264,7 +264,7 @@ namespace irods_s3_archive {
                             bucketContext.bucketName = bucket.c_str();
                             bucketContext.protocol = s3GetProto(_ctx.prop_map());
                             bucketContext.stsDate = s3GetSTSDate(_ctx.prop_map());
-                            bucketContext.uriStyle = S3UriStylePath;
+                            bucketContext.uriStyle = s3_get_uri_request_style(_ctx.prop_map());
                             bucketContext.accessKeyId = key_id.c_str();
                             bucketContext.secretAccessKey = access_key.c_str();
 
@@ -401,7 +401,7 @@ namespace irods_s3_archive {
 
             // copy the file to the new location
             ret = s3CopyFile(_ctx, object->physical_path(), _new_file_name, key_id, access_key,
-                             s3GetProto(_ctx.prop_map()), s3GetSTSDate(_ctx.prop_map()));
+                             s3GetProto(_ctx.prop_map()), s3GetSTSDate(_ctx.prop_map()), s3_get_uri_request_style(_ctx.prop_map()));
             if((result = ASSERT_PASS(ret, "[resource_name=%s] Failed to copy file from: \"%s\" to \"%s\".", get_resource_name(_ctx.prop_map()).c_str(),
                                      object->physical_path().c_str(), _new_file_name)).ok()) {
                 // delete the old file

@@ -741,6 +741,26 @@ S3Protocol s3GetProto( irods::plugin_property_map& _prop_map)
     return S3ProtocolHTTPS;
 }
 
+S3UriStyle s3_get_uri_request_style( irods::plugin_property_map& _prop_map)
+{
+    irods::error ret;
+    std::string uri_request_style_string;
+    ret = _prop_map.get< std::string >(
+        s3_uri_request_style,
+        uri_request_style_string );
+    if (!ret.ok()) { // Default to original behavior
+        return S3UriStylePath;
+    }
+    if ( boost::iequals(uri_request_style_string.c_str(), "virtual") ||
+            boost::iequals(uri_request_style_string.c_str(), "host") ||
+            boost::iequals(uri_request_style_string.c_str(), "virtualhost") ) {
+
+        return S3UriStyleVirtualHost;
+
+    }
+    return S3UriStylePath;
+}
+
 // returns the upper limit of the MPU chunk size parameter, in megabytes
 // used for validating the value of S3_MPU_CHUNK
 static long s3GetMaxUploadSize (irods::plugin_property_map& _prop_map)
@@ -1032,7 +1052,7 @@ irods::error s3GetFile(
                 bucketContext.bucketName = bucket.c_str();
                 bucketContext.protocol = s3GetProto(_prop_map);
                 bucketContext.stsDate = s3GetSTSDate(_prop_map);
-                bucketContext.uriStyle = S3UriStylePath;
+                bucketContext.uriStyle = s3_get_uri_request_style(_prop_map);
                 bucketContext.accessKeyId = _key_id.c_str();
                 bucketContext.secretAccessKey = _access_key.c_str();
 
@@ -1482,7 +1502,7 @@ irods::error s3PutCopyFile(
                 bucketContext.bucketName = bucket.c_str();
                 bucketContext.protocol = s3GetProto(_prop_map);
                 bucketContext.stsDate = s3GetSTSDate(_prop_map);
-                bucketContext.uriStyle = S3UriStylePath;
+                bucketContext.uriStyle = s3_get_uri_request_style(_prop_map);
                 bucketContext.accessKeyId = _key_id.c_str();
                 bucketContext.secretAccessKey = _access_key.c_str();
 
@@ -1638,7 +1658,7 @@ irods::error s3PutCopyFile(
                         srcBucketContext.bucketName = srcBucket.c_str();
                         srcBucketContext.protocol = s3GetProto(_prop_map);
                         srcBucketContext.stsDate = s3GetSTSDate(_prop_map);
-                        srcBucketContext.uriStyle = S3UriStylePath;
+                        srcBucketContext.uriStyle = s3_get_uri_request_style(_prop_map);
                         srcBucketContext.accessKeyId = _key_id.c_str();
                         srcBucketContext.secretAccessKey = _access_key.c_str();
                     }
@@ -1771,7 +1791,8 @@ irods::error s3CopyFile(
     const std::string& _key_id,
     const std::string& _access_key,
     const S3Protocol _proto,
-    const S3STSDate _stsDate)
+    const S3STSDate _stsDate,
+    const S3UriStyle _s3_uri_style)
 {
     irods::error result = SUCCESS();
     irods::error ret;
@@ -1818,7 +1839,7 @@ irods::error s3CopyFile(
                 bucketContext.bucketName = src_bucket.c_str();
                 bucketContext.protocol = _proto;
                 bucketContext.stsDate = _stsDate;
-                bucketContext.uriStyle = S3UriStylePath;
+                bucketContext.uriStyle = _s3_uri_style;
                 bucketContext.accessKeyId = _key_id.c_str();
                 bucketContext.secretAccessKey = _access_key.c_str();
 

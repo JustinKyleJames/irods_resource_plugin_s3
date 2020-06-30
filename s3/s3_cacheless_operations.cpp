@@ -231,6 +231,7 @@ namespace irods_s3_cacheless {
         s3_config.circular_buffer_size = circular_buffer_size;
         s3_config.s3_signature_version_str = get_signature_version_as_string(_ctx.prop_map());
         s3_config.s3_protocol_str = get_protocol_as_string(_ctx.prop_map());
+        s3_config.s3_uri_request_style = s3_get_uri_request_style(_ctx.prop_map()) == S3UriStyleVirtualHost ? "host" : "path";
 
         {
             std::lock_guard lock(s3_cacheless_plugin_mutex);
@@ -388,6 +389,8 @@ namespace irods_s3_cacheless {
 
     irods::error s3_file_create_operation( irods::plugin_context& _ctx) {
 
+        printf("%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()));
+
         irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
 
         unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
@@ -408,6 +411,8 @@ namespace irods_s3_cacheless {
     // =-=-=-=-=-=-=-
     // interface for POSIX Open
     irods::error s3_file_open_operation( irods::plugin_context& _ctx) {
+
+        printf("%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()));
 
         irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
         unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
@@ -676,7 +681,7 @@ namespace irods_s3_cacheless {
         bucketContext.bucketName = bucket.c_str();
         bucketContext.protocol = s3GetProto(_ctx.prop_map());
         bucketContext.stsDate = s3GetSTSDate(_ctx.prop_map());
-        bucketContext.uriStyle = S3UriStylePath;
+        bucketContext.uriStyle = s3_get_uri_request_style(_ctx.prop_map());
         bucketContext.accessKeyId = key_id.c_str();
         bucketContext.secretAccessKey = access_key.c_str();
 
@@ -725,6 +730,8 @@ namespace irods_s3_cacheless {
         irods::plugin_context& _ctx,
         struct stat* _statbuf )
     {
+        printf("%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()));
+
         irods::error result = SUCCESS();
 
         size_t retry_count_limit = S3_DEFAULT_RETRY_COUNT;
@@ -770,7 +777,7 @@ namespace irods_s3_cacheless {
                         bucketContext.bucketName = bucket.c_str();
                         bucketContext.protocol = s3GetProto(_ctx.prop_map());
                         bucketContext.stsDate = s3GetSTSDate(_ctx.prop_map());
-                        bucketContext.uriStyle = S3UriStylePath;
+                        bucketContext.uriStyle = s3_get_uri_request_style(_ctx.prop_map());
                         bucketContext.accessKeyId = key_id.c_str();
                         bucketContext.secretAccessKey = access_key.c_str();
 
@@ -1031,7 +1038,7 @@ namespace irods_s3_cacheless {
             bucketContext.bucketName = bucket.c_str();
             bucketContext.protocol = s3GetProto(_ctx.prop_map());
             bucketContext.stsDate = s3GetSTSDate(_ctx.prop_map());
-            bucketContext.uriStyle = S3UriStylePath;
+            bucketContext.uriStyle = s3_get_uri_request_style(_ctx.prop_map());
             bucketContext.accessKeyId = key_id.c_str();
             bucketContext.secretAccessKey = access_key.c_str();
 
@@ -1142,7 +1149,7 @@ namespace irods_s3_cacheless {
 
             // copy the file to the new location
             ret = s3CopyFile(_ctx, object->physical_path(), _new_file_name, key_id, access_key,
-                             s3GetProto(_ctx.prop_map()), s3GetSTSDate(_ctx.prop_map()));
+                             s3GetProto(_ctx.prop_map()), s3GetSTSDate(_ctx.prop_map()), s3_get_uri_request_style(_ctx.prop_map()));
             if((result = ASSERT_PASS(ret, "[resource_name=%s] Failed to copy file from: \"%s\" to \"%s\".", get_resource_name(_ctx.prop_map()).c_str(),
                                      object->physical_path().c_str(), _new_file_name)).ok()) {
                 // delete the old file

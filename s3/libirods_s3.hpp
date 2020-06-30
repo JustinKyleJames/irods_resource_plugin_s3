@@ -47,6 +47,7 @@ const std::string REPL_POLICY_KEY{"repl_policy"};
 const std::string REPL_POLICY_VAL{"reg_repl"};
 const std::string s3_cache_dir{"S3_CACHE_DIR"};
 const std::string s3_circular_buffer_size{"S3_CIRCULAR_BUFFER_SIZE"};
+const std::string s3_uri_request_style{"S3_URI_REQUEST_STYLE"};               //  either "path" or "virtual_hosted" - default "path"
 
 const size_t S3_DEFAULT_RETRY_WAIT_SEC = 1;
 const size_t S3_DEFAULT_RETRY_COUNT = 1;
@@ -58,6 +59,8 @@ long s3GetMPUChunksize(irods::plugin_property_map& _prop_map);
 ssize_t s3GetMPUThreads(irods::plugin_property_map& _prop_map);
 bool s3GetEnableMD5(irods::plugin_property_map& _prop_map);
 bool s3GetEnableMultiPartUpload (irods::plugin_property_map& _prop_map );
+S3UriStyle s3_get_uri_request_style(irods::plugin_property_map& _prop_map);
+
 void StoreAndLogStatus(S3Status status, const S3ErrorDetails *error,
         const char *function, const S3BucketContext *pCtx, S3Status *pStatus,
         bool ignore_not_found_error = false);
@@ -177,7 +180,7 @@ irods::error s3PutCopyFile(
     rodsLong_t _fileSize,
     const std::string& _key_id,
     const std::string& _access_key,
-    irods::plugin_property_map& _prop_map );
+    irods::plugin_property_map& _prop_map);
 
 /// @brief Function to copy the specified src file to the specified dest file
 irods::error s3CopyFile(
@@ -187,7 +190,8 @@ irods::error s3CopyFile(
     const std::string& _key_id,
     const std::string& _access_key,
     const S3Protocol _proto,
-    const S3STSDate _stsDate);
+    const S3STSDate _stsDate,
+    const S3UriStyle _s3_uri_style);
 
 // =-=-=-=-=-=-=-
 /// @brief Checks the basic operation parameters and updates the physical path in the file object
