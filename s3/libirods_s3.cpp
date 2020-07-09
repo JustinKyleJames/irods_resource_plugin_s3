@@ -814,6 +814,28 @@ ssize_t s3GetMPUThreads (
     return threads;
 }
 
+uint64_t s3_get_minimum_part_size(
+    irods::plugin_property_map& _prop_map )
+{
+    irods::error ret;
+    std::string minimum_part_size_str;
+    uint64_t minimum_part_size = S3_DEFAULT_MINIMUM_PART_SIZE;
+
+    ret = _prop_map.get< std::string >( s3_minimum_part_size, minimum_part_size_str );
+    if (ret.ok()) {
+        try {
+            minimum_part_size = boost::lexical_cast<uint64_t>( minimum_part_size_str );
+        } catch ( const boost::bad_lexical_cast& ) {
+            std::string resource_name = get_resource_name(_prop_map);
+            rodsLog(LOG_ERROR, "[resource_name=%s] failed to cast S3_MINIMUM_PART_SIZE [%s] "
+                    "to a uint64_t.  Using default of 5 MB.",
+                    resource_name.c_str(),
+                    minimum_part_size_str.c_str() );
+        }
+    }
+    return minimum_part_size;
+}
+
 bool s3GetEnableMD5 (
     irods::plugin_property_map& _prop_map )
 {

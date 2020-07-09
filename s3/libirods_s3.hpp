@@ -47,18 +47,22 @@ const std::string REPL_POLICY_KEY{"repl_policy"};
 const std::string REPL_POLICY_VAL{"reg_repl"};
 const std::string s3_cache_dir{"S3_CACHE_DIR"};
 const std::string s3_circular_buffer_size{"S3_CIRCULAR_BUFFER_SIZE"};
-const std::string s3_uri_request_style{"S3_URI_REQUEST_STYLE"};               //  either "path" or "virtual_hosted" - default "path"
+const std::string s3_uri_request_style{"S3_URI_REQUEST_STYLE"};        //  either "path" or "virtual_hosted" - default "path"
+const std::string s3_minimum_part_size{"S3_MINIMUM_PART_SIZE"};        //  the minimum part size for s3 multipart parts.  Default
+                                                                       //  is AWS value of 5MB
 
 const size_t S3_DEFAULT_RETRY_WAIT_SEC = 1;
 const size_t S3_DEFAULT_RETRY_COUNT = 1;
 const int    S3_DEFAULT_CIRCULAR_BUFFER_SIZE = 10;
+const size_t S3_DEFAULT_MINIMUM_PART_SIZE = 5*1024*1024;
 
 std::string s3GetHostname(irods::plugin_property_map& _prop_map);
 S3SignatureVersion s3GetSignatureVersion(irods::plugin_property_map& _prop_map);
 long s3GetMPUChunksize(irods::plugin_property_map& _prop_map);
 ssize_t s3GetMPUThreads(irods::plugin_property_map& _prop_map);
 bool s3GetEnableMD5(irods::plugin_property_map& _prop_map);
-bool s3GetEnableMultiPartUpload (irods::plugin_property_map& _prop_map );
+uint64_t s3_get_minimum_part_size(irods::plugin_property_map& _prop_map);
+bool s3GetEnableMultiPartUpload (irods::plugin_property_map& _prop_map);
 S3UriStyle s3_get_uri_request_style(irods::plugin_property_map& _prop_map);
 
 void StoreAndLogStatus(S3Status status, const S3ErrorDetails *error,
