@@ -24,6 +24,7 @@
 #include <irods_hierarchy_parser.hpp>
 #include <irods_virtual_path.hpp>
 #include <irods_query.hpp>
+#include "voting.hpp"
 
 // =-=-=-=-=-=-=-
 // boost includes
@@ -174,19 +175,29 @@ namespace irods_s3_cacheless {
         }
 
         // get the file size
+        // TODO on cp data_size_kw not set
         uint64_t data_size = s3_transport_config::UNKNOWN_OBJECT_SIZE;
-        ret = _ctx.prop_map().get< uint64_t >(DATA_SIZE_KW, data_size);
+rodsLog(LOG_NOTICE, "%s:%d (%s) data_size=%lu\n", __FILE__, __LINE__, __FUNCTION__, data_size);
+        /*ret = _ctx.prop_map().get< uint64_t >(DATA_SIZE_KW, data_size);
         if (!ret.ok()) {
+            //rodsLog(LOG_ERROR, "%s:%d (%s) [[%lu]] DATA_SIZE_KW is not set\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
             data_size = s3_transport_config::UNKNOWN_OBJECT_SIZE;
-        }
+        }*/
 
         // get number of threads
         int requested_number_of_threads = 0;
         for (int i = 0; i < NUM_L1_DESC; ++i) {
            if (L1desc[i].inuseFlag && L1desc[i].dataObjInp->objPath == file_obj->logical_path()) {
                requested_number_of_threads = L1desc[i].dataObjInp->numThreads;
+
+               // if data_size is zero or UNKNOWN, try to get it from L1desc
+               if (data_size == s3_transport_config::UNKNOWN_OBJECT_SIZE) {
+                   data_size = L1desc[i].dataSize;
+rodsLog(LOG_NOTICE, "%s:%d (%s) L1desc[i].data_size=%lu\n", __FILE__, __LINE__, __FUNCTION__, L1desc[i].dataSize);
+               }
            }
         }
+        _ctx.prop_map().set<uint64_t>(DATA_SIZE_KW, data_size);
 
         int number_of_threads = getNumThreads( _ctx.comm(),
                 data_size,
@@ -243,124 +254,6 @@ namespace irods_s3_cacheless {
 
         return std::make_tuple(SUCCESS(), dstream_ptr, s3_transport_ptr);
     }
-
-    /*irods::error set_s3_configuration_from_context(irods::plugin_property_map& _prop_map) {
-
-        static bool already_destroyed = false;
-
-        // this is taken from s3fs.cpp - main() with adjustments
-
-        irods::error ret = s3Init( _prop_map );
-        if (!ret.ok()) {
-            return PASS(ret);
-        }
-
-        // get keys
-        std::string key_id, access_key;
-        ret = _prop_map.get< std::string >(s3_key_id, key_id);
-        if (!ret.ok()) {
-            if (!already_destroyed) {
-                already_destroyed = true;
-                S3fsCurl::DestroyS3fsCurl();
-                s3fs_destroy_global_ssl();
-            }
-            std::string error_str =  boost::str(boost::format("[resource_name=%s] failed to read S3_ACCESS_KEY_ID.")
-                        % get_resource_name(_prop_map).c_str());
-            rodsLog(LOG_ERROR, error_str.c_str());
-            return ERROR(S3_INIT_ERROR, error_str.c_str());
-        }
-
-        ret = _prop_map.get< std::string >(s3_access_key, access_key);
-        if (!ret.ok()) {
-            if (!already_destroyed) {
-                already_destroyed = true;
-                S3fsCurl::DestroyS3fsCurl();
-                s3fs_destroy_global_ssl();
-            }
-            std::string error_str =  boost::str(boost::format("[resource_name=%s] failed to read S3_SECRET_ACCESS_KEY.")
-                        % get_resource_name(_prop_map).c_str());
-            rodsLog(LOG_ERROR, error_str.c_str());
-            return ERROR(S3_INIT_ERROR, error_str.c_str());
-        }
-
-        // save keys
-        if(!S3fsCurl::SetAccessKey(key_id.c_str(), access_key.c_str())){
-            if (!already_destroyed) {
-                already_destroyed = true;
-                S3fsCurl::DestroyS3fsCurl();
-                s3fs_destroy_global_ssl();
-            }
-
-            std::string error_str =  boost::str(boost::format("[resource_name=%s] failed to set internal data for access key/secret key.")
-                        % get_resource_name(_prop_map).c_str());
-            rodsLog(LOG_ERROR, error_str.c_str());
-            return ERROR(S3_INIT_ERROR, error_str.c_str());
-        }
-        S3fsCurl::InitUserAgent();
-
-        ret = _prop_map.get< std::string >(s3_proto, s3_protocol_str);
-        if (!ret.ok()) {
-            if (!already_destroyed) {
-                already_destroyed = true;
-                S3fsCurl::DestroyS3fsCurl();
-                s3fs_destroy_global_ssl();
-            }
-
-            std::string error_str =  boost::str(boost::format("[resource_name=%s] S3_PROTO is not defined for resource.")
-                        % get_resource_name(_prop_map).c_str());
-            rodsLog(LOG_ERROR, error_str.c_str());
-            return ERROR(S3_INIT_ERROR, error_str.c_str());
-        }
-
-        // if cachedir is defined, use that else use /tmp/<resc_name>
-        std::string s3_cache_dir_str;
-        ret = _prop_map.get< std::string >(s3_cache_dir, s3_cache_dir_str);
-        if (!ret.ok()) {
-            const auto& shared_memory_name_salt = irods::get_server_property<const std::string>(irods::CFG_RE_CACHE_SALT_KW);
-            std::string resc_name  = "";
-            ret = _prop_map.get< std::string >( irods::RESOURCE_NAME, resc_name);
-            s3_cache_dir_str = "/tmp/" + resc_name + shared_memory_name_salt;
-            _prop_map.set< std::string >(s3_cache_dir, s3_cache_dir_str);
-        }
-        FdManager::SetCacheDir(s3_cache_dir_str);
-
-        if (boost::iequals(s3_protocol_str, "https")) {
-            s3_protocol_str = "https";
-        } else if (boost::iequals(s3_protocol_str, "http")) {
-            s3_protocol_str = "http";
-        } else {
-            s3_protocol_str = "";
-        }
-
-        S3SignatureVersion signature_version = s3GetSignatureVersion(_prop_map);
-
-        if (signature_version == S3SignatureV4) {
-            S3fsCurl::SetSignatureV4(true);
-        } else {
-            S3fsCurl::SetSignatureV4(false);
-        }
-
-        nomultipart = !s3GetEnableMultiPartUpload(_prop_map);
-
-        // set multipart size
-        //    Note:  SetMultipartSize takes value in MB so need to convert back from bytes to MB.
-        S3fsCurl::SetMultipartSize(s3GetMPUChunksize(_prop_map) / (1024ULL * 1024ULL));
-
-        // set number of simultaneous threads
-        S3fsCurl::SetMaxParallelCount(s3GetMPUThreads(_prop_map));
-
-        // set the MD5 flag
-        S3fsCurl::SetContentMd5(s3GetEnableMD5(_prop_map));
-
-        //service_path = "";
-        strncpy(host, s3GetHostname(_prop_map).c_str(), MAX_NAME_LEN-1);
-
-        std::string endpoint_str;
-        _prop_map.get< std::string >(s3_region_name, endpoint_str); // if this fails use default
-        strncpy(endpoint, endpoint_str.c_str(), MAX_NAME_LEN-1);
-
-        return SUCCESS();
-    }*/
 
     // =-=-=-=-=-=-=-
     // interface for file registration
@@ -601,6 +494,8 @@ namespace irods_s3_cacheless {
     // interface for POSIX Unlink
     irods::error s3_file_unlink_operation(
         irods::plugin_context& _ctx) {
+
+rodsLog(LOG_NOTICE, "%s:%d (%s)\n", __FILE__, __LINE__, __FUNCTION__);
 
         // =-=-=-=-=-=-=-
         // check incoming parameters
@@ -1210,6 +1105,8 @@ namespace irods_s3_cacheless {
         const std::string&             _curr_host,
         float&                         _out_vote ) {
 
+printf("%s:%d (%s)\n", __FILE__, __LINE__, __FUNCTION__);
+
 
         irods::error result = SUCCESS();
 
@@ -1226,10 +1123,12 @@ namespace irods_s3_cacheless {
                         boost::str(boost::format("[resource_name=%s] Failed to get \"status\" property.") %
                             _resc_name.c_str() ) ) ).ok() ) {
 
+printf("%s:%d (%s)\n", __FILE__, __LINE__, __FUNCTION__);
             // =-=-=-=-=-=-=-
             // if the status is down, vote no.
             if ( INT_RESC_STATUS_DOWN != resc_status ) {
 
+printf("%s:%d (%s)\n", __FILE__, __LINE__, __FUNCTION__);
                 // =-=-=-=-=-=-=-
                 // get the resource host for comparison to curr host
                 std::string host_name;
@@ -1238,9 +1137,11 @@ namespace irods_s3_cacheless {
                                 boost::str(boost::format("[resource_name=%s] Failed to get \"location\" property.") %
                                     _resc_name.c_str() ) ) ).ok() ) {
 
+printf("%s:%d (%s)\n", __FILE__, __LINE__, __FUNCTION__);
                     // =-=-=-=-=-=-=-
                     // set a flag to test if were at the curr host, if so we vote higher
                     bool curr_host = ( _curr_host == host_name );
+printf("%s:%d (%s) host_name=%s curr_host=%d\n", __FILE__, __LINE__, __FUNCTION__, host_name.c_str(), curr_host);
 
                     // =-=-=-=-=-=-=-
                     // make some flags to clarify decision making
@@ -1251,6 +1152,7 @@ namespace irods_s3_cacheless {
                     irods::error final_ret = SUCCESS();
                     std::vector< irods::physical_object > objs = _file_obj->replicas();
                     std::vector< irods::physical_object >::iterator itr = objs.begin();
+printf("%s:%d (%s)\n", __FILE__, __LINE__, __FUNCTION__);
 
                     // =-=-=-=-=-=-=-
                     // check to see if the replica is in this resource, if one is requested
@@ -1258,8 +1160,10 @@ namespace irods_s3_cacheless {
                         // =-=-=-=-=-=-=-
                         // run the hier string through the parser and get the last
                         // entry.
+printf("%s:%d (%s)\n", __FILE__, __LINE__, __FUNCTION__);
                         std::string last_resc;
                         irods::hierarchy_parser parser;
+printf("%s:%d (%s) resc_hier=%s\n", __FILE__, __LINE__, __FUNCTION__, itr->resc_hier().c_str());
                         parser.set_string( itr->resc_hier() );
                         parser.last_resc( last_resc );
 
@@ -1267,7 +1171,7 @@ namespace irods_s3_cacheless {
                         // more flags to simplify decision making
                         bool repl_us  = ( _file_obj->repl_requested() == itr->repl_num() );
                         bool resc_us  = ( _resc_name == last_resc );
-                        bool is_dirty = ( itr->is_dirty() != 1 );
+                        bool is_dirty = ( itr->replica_status() != 1 );
 
                         // =-=-=-=-=-=-=-
                         // success - correct resource and don't need a specific
@@ -1278,12 +1182,14 @@ namespace irods_s3_cacheless {
                             // ignore all other criteria
                             if ( need_repl ) {
                                 if ( repl_us ) {
+printf("%s:%d (%s) vote=1.0\n", __FILE__, __LINE__, __FUNCTION__);
                                     _out_vote = 1.0;
                                 }
                                 else {
                                     // =-=-=-=-=-=-=-
                                     // repl requested and we are not it, vote
                                     // very low
+printf("%s:%d (%s) vote=.25\n", __FILE__, __LINE__, __FUNCTION__);
                                     _out_vote = 0.25;
                                 }
                             }
@@ -1293,6 +1199,7 @@ namespace irods_s3_cacheless {
                                 if ( is_dirty ) {
                                     // =-=-=-=-=-=-=-
                                     // repl is dirty, vote very low
+printf("%s:%d (%s) vote=.25\n", __FILE__, __LINE__, __FUNCTION__);
                                     _out_vote = 0.25;
                                 }
                                 else {
@@ -1300,16 +1207,18 @@ namespace irods_s3_cacheless {
                                     // if our repl is not dirty then a local copy
                                     // wins, otherwise vote middle of the road
                                     if ( curr_host ) {
+printf("%s:%d (%s) vote=1.0\n", __FILE__, __LINE__, __FUNCTION__);
                                         _out_vote = 1.0;
                                     }
                                     else {
+printf("%s:%d (%s) vote=.5\n", __FILE__, __LINE__, __FUNCTION__);
                                         _out_vote = 0.5;
                                     }
                                 }
                             }
 
                             rodsLog(
-                                LOG_DEBUG,
+                                LOG_ERROR, // TODO
                                 "open :: resc name [%s] curr host [%s] resc host [%s] vote [%f]",
                                 _resc_name.c_str(),
                                 _curr_host.c_str(),
@@ -1345,12 +1254,7 @@ namespace irods_s3_cacheless {
         irods::hierarchy_parser*           _out_parser,
         float*                              _out_vote )
     {
-        irods::error result = SUCCESS();
-        irods::error ret;
-
-        unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
-        rodsLog(LOG_DEBUG, "%s:%d (%s) [[%lu]] opr=%s\n", __FILE__, __LINE__, __FUNCTION__, thread_id, _opr->c_str());
-
+        irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
 
         // fix open mode so that multipart uploads will work
         if (irods::WRITE_OPERATION == (*_opr) || irods::CREATE_OPERATION == (*_opr)) {
@@ -1358,8 +1262,6 @@ namespace irods_s3_cacheless {
         } else {
             overwrite_open_mode = 0;
         }
-
-        irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
 
         // read the data size and save and save it under the property plugin property map
         uint64_t data_size = 0;
@@ -1371,110 +1273,39 @@ namespace irods_s3_cacheless {
                 data_size = 0;
             }
         }
-
         _ctx.prop_map().set<uint64_t>(DATA_SIZE_KW, data_size);
 
-        // =-=-=-=-=-=-=-
-        // check the context validity
-        ret = _ctx.valid< irods::file_object >();
-        if ( ( result = ASSERT_PASS( ret, "[resource_name=%s] Invalid resource context.",
-                        get_resource_name(_ctx.prop_map()).c_str() ) ).ok() ) {
+        namespace irv = irods::experimental::resource::voting;
 
-            // =-=-=-=-=-=-=-
-            // check incoming parameters
-            if( ( result = ASSERT_ERROR( _opr && _curr_host && _out_parser && _out_vote,
-                            SYS_INVALID_INPUT_PARAM,
-                            "[resource_name=%s] One or more NULL pointer arguments.",
-                            get_resource_name(_ctx.prop_map()).c_str() ) ).ok() ) {
-
-                std::string resc_name;
-
-                // =-=-=-=-=-=-=-
-                // cast down the chain to our understood object type
-                irods::file_object_ptr file_obj = boost::dynamic_pointer_cast< irods::file_object >( _ctx.fco() );
-
-                // =-=-=-=-=-=-=-
-                // get the name of this resource
-                ret = _ctx.prop_map().get< std::string >( irods::RESOURCE_NAME, resc_name );
-                if((result = ASSERT_PASS(ret, "Failed to get resource name property.")).ok() ) {
-
-                    // if we are in detached mode, set the location to current host
-                    bool attached_mode, cacheless_mode;
-                    get_modes_from_properties(_ctx.prop_map(), attached_mode, cacheless_mode);
-
-                    if (!attached_mode && _curr_host) {
-
-                        // set the hostname to the local host
-                        _ctx.prop_map().set<std::string>(irods::RESOURCE_LOCATION, *_curr_host);
-
-                        rodsServerHost_t* host = nullptr;
-                        rodsLong_t resc_id = 0;
-
-                        ret = _ctx.prop_map().get<rodsLong_t>( irods::RESOURCE_ID, resc_id );
-                        if ( !ret.ok() ) {
-
-                            std::string msg = boost::str(boost::format("[resource_name=%s] get irods::RESOURCE_ID in "
-                                        "s3_resolve_resc_hier_operation failed to get irods::RESOURCE _ID") %
-                                    resc_name.c_str() );
-
-                            return PASSMSG( msg, ret );
-                        }
-
-                        ret = irods::get_resource_property< rodsServerHost_t* >( resc_id, irods::RESOURCE_HOST, host );
-                        if ( !ret.ok() ) {
-                            std::string msg = boost::str(boost::format("[resource_name=%s] get irods::RESOURCE_HOST in "
-                                        "s3_resolve_resc_hier_operation for detached mode failed") % resc_name.c_str() );
-                            return PASSMSG( msg, ret );
-                        }
-
-                        // pave over host->hostName->name in rodsServerHost_t
-                        free(host->hostName->name);
-                        host->hostName->name = static_cast<char*>(malloc(strlen(_curr_host->c_str()) + 1));
-                        strcpy(host->hostName->name, _curr_host->c_str());
-                        host->localFlag = LOCAL_HOST;
-
-                        ret = irods::set_resource_property< rodsServerHost_t* >( resc_name, irods::RESOURCE_HOST, host );
-                        if ( !ret.ok() ) {
-                            std::string msg = boost::str(boost::format("[resource_name=%s] set irods::RESOURCE_HOST in "
-                                        "s3_resolve_resc_hier_operation for detached mode failed") % resc_name.c_str() );
-                            return PASSMSG( msg, ret );
-                        }
-
-                    }
-
-
-                    // =-=-=-=-=-=-=-
-                    // add ourselves to the hierarchy parser by default
-                    _out_parser->add_child( resc_name );
-
-                    // =-=-=-=-=-=-=-
-                    // test the operation to determine which choices to make
-                    if( irods::OPEN_OPERATION == (*_opr) ||
-                            irods::WRITE_OPERATION == (*_opr) ||
-                            irods::UNLINK_OPERATION == (*_opr) ) {
-                        // =-=-=-=-=-=-=-
-                        // call redirect determination for 'get' operation
-                        result = irods_s3_cacheless::s3_resolve_resc_hier_open(
-                                     _ctx.prop_map(),
-                                     file_obj,
-                                     resc_name,
-                                     (*_curr_host),
-                                     (*_out_vote));
-                    } else if( irods::CREATE_OPERATION == (*_opr) ) {
-                        // =-=-=-=-=-=-=-
-                        // call redirect determination for 'create' operation
-                        result = s3RedirectCreate( _ctx.prop_map(), *file_obj, resc_name, (*_curr_host), (*_out_vote)  );
-                    }
-                    else {
-                        result = ASSERT_ERROR(false, SYS_INVALID_INPUT_PARAM,
-                                      "[resource_name=%s] Unknown redirect operation: \"%s\".",
-                                      get_resource_name(_ctx.prop_map()).c_str(), _opr->c_str() );
-                    }
-                }
-            }
+        if (irods::error ret = _ctx.valid<irods::file_object>(); !ret.ok()) {
+            return PASSMSG("Invalid resource context.", ret);
         }
 
-        return result;
+        if (!_opr || !_curr_host || !_out_parser || !_out_vote) {
+            return ERROR(SYS_INVALID_INPUT_PARAM, "Invalid input parameter.");
+        }
+
+        if (getValByKey(&file_obj->cond_input(), RECURSIVE_OPR__KW)) {
+            rodsLog(LOG_DEBUG,
+                "%s: %s found in cond_input for file_obj",
+                __FUNCTION__, RECURSIVE_OPR__KW);
+        }
+
+        _out_parser->add_child(irods::get_resource_name(_ctx));
+        *_out_vote = irv::vote::zero;
+        try {
+            *_out_vote = irv::calculate(*_opr, _ctx, *_curr_host, *_out_parser);
+            return SUCCESS();
+        }
+        catch(const std::out_of_range& e) {
+            return ERROR(INVALID_OPERATION, e.what());
+        }
+        catch (const irods::exception& e) {
+            return irods::error(e);
+        }
+
+        return ERROR(SYS_UNKNOWN_ERROR, "An unknown error occurred while resolving hierarchy.");
+
     } // s3_resolve_resc_hier_operation
 
     // =-=-=-=-=-=-=-

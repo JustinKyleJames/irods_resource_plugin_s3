@@ -2,6 +2,7 @@
 // =-=-=-=-=-=-=-
 // local includes
 #include "s3_archive_operations.hpp"
+#include "s3_cacheless_operations.hpp"
 #include "libirods_s3.hpp"
 
 // =-=-=-=-=-=-=-
@@ -578,60 +579,7 @@ namespace irods_s3_archive {
         irods::hierarchy_parser*           _out_parser,
         float*                              _out_vote )
     {
-        irods::error result = SUCCESS();
-        irods::error ret;
-
-        // =-=-=-=-=-=-=-
-        // check the context validity
-        ret = _ctx.valid< irods::file_object >();
-        if((result = ASSERT_PASS(ret, "[resource_name=%s] Invalid resource context.", get_resource_name(_ctx.prop_map()).c_str())).ok()) {
-
-            // =-=-=-=-=-=-=-
-            // check incoming parameters
-            if((result = ASSERT_ERROR(_opr && _curr_host && _out_parser && _out_vote, SYS_INVALID_INPUT_PARAM,
-                                      "[resource_name=%s] One or more NULL pointer arguments.", get_resource_name(_ctx.prop_map()).c_str())).ok()) {
-
-                std::string resc_name;
-
-                // =-=-=-=-=-=-=-
-                // cast down the chain to our understood object type
-                irods::file_object_ptr file_obj = boost::dynamic_pointer_cast< irods::file_object >( _ctx.fco() );
-
-                // =-=-=-=-=-=-=-
-                // get the name of this resource
-                ret = _ctx.prop_map().get< std::string >( irods::RESOURCE_NAME, resc_name );
-                if((result = ASSERT_PASS(ret, "[resource_name=%s] Failed to get resource name property.", get_resource_name(_ctx.prop_map()).c_str())).ok() ) {
-
-                    // =-=-=-=-=-=-=-
-                    // add ourselves to the hierarchy parser by default
-                    _out_parser->add_child( resc_name );
-
-                    // =-=-=-=-=-=-=-
-                    // test the operation to determine which choices to make
-                    if( irods::OPEN_OPERATION == (*_opr) ) {
-                        // =-=-=-=-=-=-=-
-                        // call redirect determination for 'get' operation
-                        result = s3RedirectOpen(
-                                     _ctx.comm(),
-                                     _ctx.prop_map(),
-                                     file_obj,
-                                     resc_name,
-                                     (*_curr_host),
-                                     (*_out_vote));
-                    } else if( irods::CREATE_OPERATION == (*_opr) ) {
-                        // =-=-=-=-=-=-=-
-                        // call redirect determination for 'create' operation
-                        result = s3RedirectCreate( _ctx.prop_map(), *file_obj, resc_name, (*_curr_host), (*_out_vote)  );
-                    }
-                    else {
-                        result = ASSERT_ERROR(false, SYS_INVALID_INPUT_PARAM, "[resource_name=%s] Unknown redirect operation: \"%s\".", get_resource_name(_ctx.prop_map()).c_str(),
-                                              _opr->c_str());
-                    }
-                }
-            }
-        }
-
-        return result;
+        return irods_s3_cacheless::s3_resolve_resc_hier_operation(_ctx, _opr, _curr_host, _out_parser, _out_vote);
     } // s3_resolve_resc_hier_operation
 
     // =-=-=-=-=-=-=-
