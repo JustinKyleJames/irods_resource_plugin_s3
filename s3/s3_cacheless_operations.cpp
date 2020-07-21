@@ -169,13 +169,6 @@ namespace irods_s3_cacheless {
             return std::make_tuple(PASS(ret), dstream_ptr, s3_transport_ptr);
         }
 
-        // get open mode
-        std::ios_base::openmode open_mode;
-        {
-            std::lock_guard lock(s3_cacheless_plugin_mutex);
-            open_mode = fd_to_open_mode_map[fd];
-        }
-
         // get the file size
         // TODO on cp data_size_kw not set
         uint64_t data_size = s3_transport_config::UNKNOWN_OBJECT_SIZE;
@@ -244,6 +237,22 @@ namespace irods_s3_cacheless {
         s3_config.s3_uri_request_style = s3_get_uri_request_style(_ctx.prop_map()) == S3UriStyleVirtualHost ? "host" : "path";
         s3_config.minimum_part_size = s3_get_minimum_part_size(_ctx.prop_map());
 
+        // get open mode
+        std::ios_base::openmode open_mode;
+        {
+            std::lock_guard lock(s3_cacheless_plugin_mutex);
+            open_mode = fd_to_open_mode_map[fd];
+        }
+
+        // if data_size is 0, this is not a put or it is a put with a zero length file
+        // in this case force cache because the user might do seeks and write out
+        // of order
+        if (data_size == 0) {
+            open_mode |= std::ios_base::in;
+            fd_to_open_mode_map[fd] = open_mode;
+        }
+
+
         {
             std::lock_guard lock(s3_cacheless_plugin_mutex);
             s3_transport_ptr = std::make_shared<s3_transport>(s3_config);
@@ -289,6 +298,7 @@ namespace irods_s3_cacheless {
         unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
 
         std::ios_base::openmode open_mode = translate_open_mode_posix_to_stream(O_CREAT | O_WRONLY, __FUNCTION__);
+        //std::ios_base::openmode open_mode = translate_open_mode_posix_to_stream(O_CREAT | O_RDWR, __FUNCTION__);   // force use of cache as this isn't a streaming case
 
         {
             std::lock_guard lock(s3_cacheless_plugin_mutex);
@@ -296,6 +306,24 @@ namespace irods_s3_cacheless {
             file_obj->file_descriptor(fd);
             fd_to_open_mode_map[fd] = open_mode;
             rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] fd=%d open_mode=%d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, fd, file_obj->flags());
+        }
+
+
+        // create a dstream object
+        std::shared_ptr<dstream> dstream_ptr;
+        std::shared_ptr<s3_transport> s3_transport_ptr;
+        irods::error result = SUCCESS();
+
+        std::tie(result, dstream_ptr, s3_transport_ptr) = make_dstream(_ctx, __FUNCTION__);
+
+        if (!result.ok()) {
+            return PASS(result);
+        }
+
+        if (!dstream_ptr || !dstream_ptr->is_open()) {
+            std::stringstream message;
+            message << "No valid dstream found.  dstream_ptr=" << static_cast<void*>(dstream_ptr.get());
+            return ERROR(S3_FILE_OPEN_ERR, message.str().c_str());
         }
 
         return SUCCESS();
@@ -357,12 +385,11 @@ namespace irods_s3_cacheless {
         }
 
 
-        off_t offset = dstream_ptr->tellg();
 
+        off_t offset = s3_transport_ptr->get_offset();
         dstream_ptr->read(static_cast<char*>(_buf), _len);
-        off_t offset2 = dstream_ptr->tellg();
-        int diff = static_cast<int>(offset2 - offset);
-
+        off_t offset2 = s3_transport_ptr->get_offset();
+        off_t diff = offset2 - offset;
         result.code(diff);
         //result.code(_len);
         return result;
@@ -432,7 +459,7 @@ namespace irods_s3_cacheless {
         }
 
         // determine the part size based on the offset
-        off_t offset = dstream_ptr->tellg();
+        off_t offset = s3_transport_ptr->get_offset();
         uint64_t part_size = data_size / number_of_threads;
         if (static_cast<uint64_t>(offset) >= part_size * (number_of_threads-1)) {
             part_size += data_size % number_of_threads;
@@ -442,7 +469,7 @@ namespace irods_s3_cacheless {
 
         dstream_ptr->write(static_cast<char*>(_buf), _len);
 
-        //off_t after_offset = dstream_ptr->tellg();
+        //off_t after_offset = s3_transport_ptr->get_offset();
 
         //result.code(after_offset - offset);
         result.code(_len);
@@ -775,7 +802,7 @@ namespace irods_s3_cacheless {
 
         dstream_ptr->seekg(_offset, seek_directive);
 
-        uint64_t pos = dstream_ptr->tellg();
+        off_t pos = s3_transport_ptr->get_offset();
         result.code(pos);
 
         rodsLog(debug_log_level, "%s:%d (%s) [[%lu] tellg=%lu\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()), pos);
@@ -1115,7 +1142,7 @@ namespace irods_s3_cacheless {
         irods::hierarchy_parser*           _out_parser,
         float*                              _out_vote )
     {
-        rodsLog(debug_log_level, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()));
+        rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] _opr=%s\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()), _opr->c_str());
 
         irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
 

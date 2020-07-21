@@ -318,7 +318,7 @@ class ResourceSuite_S3_NoCache(ResourceBase):
         lib.touch("file.txt")
         for i in range(0, 100):
             self.user0.assert_icommand("iput file.txt " + str(i) + ".txt", "EMPTY")
-        self.admin.assert_icommand("iphymv -r -M -R " + self.testresc + " " + self.admin.session_collection)  # creates replica
+        self.admin.assert_icommand("iphymv -r -M -n0 -R " + self.testresc + " " + self.admin.session_collection)  # creates replica
 
     ###################
     # iput
@@ -743,13 +743,14 @@ class ResourceSuite_S3_NoCache(ResourceBase):
         hostuser = getpass.getuser()
         doublefile = "doublefile.txt"
         lib.execute_command("cat %s %s > %s" % (filename, filename, doublefile), use_unsafe_shell=True)
+        doublesize = str(os.stat(doublefile).st_size)
 
         # assertions
         self.admin.assert_icommand("iadmin mkresc thirdresc s3 %s:/%s/tmp/%s/thirdrescVault %s" %
                                    (hostname, self.s3bucketname, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")   # create third resource
-
         self.admin.assert_icommand("iadmin mkresc fourthresc s3 %s:/%s/tmp/%s/fourthrescVault %s" %
                                    (hostname, self.s3bucketname, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")  # create fourth resource
+
 
         self.admin.assert_icommand("ils -L " + filename, 'STDERR_SINGLELINE', "does not exist")              # should not be listed
         self.admin.assert_icommand("iput " + filename)                                         # put file
@@ -772,7 +773,7 @@ class ResourceSuite_S3_NoCache(ResourceBase):
         # should have a dirty copy
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 3 ", " & " + filename])
 
-        self.admin.assert_icommand("irepl -U " + filename)                                 # update last replica
+        self.admin.assert_icommand(['irepl', '-R', 'fourthresc', filename])                # update last replica
 
         # should have a dirty copy
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", " & " + filename])
@@ -783,7 +784,7 @@ class ResourceSuite_S3_NoCache(ResourceBase):
         # should have a clean copy
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 3 ", " & " + filename])
 
-        self.admin.assert_icommand("irepl -aU " + filename)                                # update all replicas
+        self.admin.assert_icommand("irepl -a " + filename)                                # update all replicas
 
         # should have a clean copy
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", " & " + filename])
@@ -830,6 +831,7 @@ class ResourceSuite_S3_NoCache(ResourceBase):
         # assertions
         self.admin.assert_icommand("iadmin mkresc thirdresc s3 %s:/%s/tmp/%s/thirdrescVault %s" %
                                    (hostname, self.s3bucketname, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")  # create third resource
+
 
 
         self.admin.assert_icommand("ils -L " + filename, 'STDERR_SINGLELINE', "does not exist")  # should not be listed
@@ -913,6 +915,7 @@ class ResourceSuite_S3_NoCache(ResourceBase):
         homepath = "/" + self.admin.zone_name + "/home/" + \
             self.user0.username + "/" + self.user0._session_id
         self.admin.assert_icommand("irepl -r -M -R " + self.testresc + " " + homepath, "EMPTY")  # creates replica
+
 
     ###################
     # irm
@@ -1205,7 +1208,51 @@ class Test_S3_NoCache_Base(ResourceSuite_S3_NoCache):
                 os.unlink(filename_get)
 
 
+    def test_sequential_open_writes(self):
 
+        rule_file_path = 'test_simultaneous_open_writes.r'
+        target_obj = '/'.join([self.user0.session_collection, 'file1.txt'])
+
+        rule_str = '''
+test_simultaneous_open_writes {{
+            msiDataObjCreate("{target_obj}", "destRescName=demoResc", *fd)
+            msiDataObjWrite(*fd, "abcd", *len)
+            msiDataObjClose(*fd, *status)
+
+            # open write close consecutively
+            msiDataObjOpen("objPath={target_obj}++++rescName=demoResc++++openFlags=O_WRONLY", *fd1)
+            msiDataObjLseek(*fd1, 4, "SEEK_SET", *status)
+            msiDataObjWrite(*fd1, "XXXXXXXXXX", *len)
+            msiDataObjClose(*fd1, *status)
+
+            msiDataObjOpen("objPath={target_obj}++++rescName=demoResc++++openFlags=O_WRONLY", *fd2)
+            msiDataObjLseek(*fd2, 14, "SEEK_SET", *status)
+            msiDataObjWrite(*fd2, "YYYYYYYYYY", *len)
+            msiDataObjClose(*fd2, *status)
+
+            msiDataObjOpen("objPath={target_obj}++++rescName=demoResc++++openFlags=O_WRONLY", *fd3)
+            msiDataObjLseek(*fd3, 24, "SEEK_SET", *status)
+            msiDataObjWrite(*fd3, "ZZZZZZZZZZ", *len)
+            msiDataObjClose(*fd3, *status)
+        }}
+INPUT null
+OUTPUT ruleExecOut
+
+        '''.format(**locals())
+
+        try:
+            with open(rule_file_path, 'w') as rule_file:
+                rule_file.write(rule_str)
+
+            self.user0.assert_icommand("irule -F %s" % rule_file_path)
+            self.user0.assert_icommand("iget {target_obj} -".format(**locals()), 'STDOUT_SINGLELINE', 'abcdXXXXXXXXXXYYYYYYYYYYZZZZZZZZZZ')
+        finally:
+            # local cleanup
+            self.user0.assert_icommand("irm -f {target_obj}".format(**locals()))
+            if os.path.exists(rule_file_path):
+                os.unlink(rule_file_path)
+
+    unittest.skip("simulteneous opens are no longer allowed")    
     def test_simultaneous_open_writes(self):
 
         rule_file_path = 'test_simultaneous_open_writes.r'
@@ -1269,6 +1316,8 @@ OUTPUT ruleExecOut
                 os.unlink(rule_file_path)
 
 
+
+    @unittest.skipIf(True, "skip until issue 5018 fixed")
     def test_read_write_zero_length_file_issue_1890(self):
 
         rule_file_path = 'test_issue_1890.r'
@@ -1391,7 +1440,7 @@ OUTPUT ruleExecOut
 
         rule_str_read = '''
 test_small_read {{
-            msiDataObjOpen("objPath={target_obj}++++rescName=demoResc++++openFlags=O_WRONLY", *fd1)
+            msiDataObjOpen("objPath={target_obj}++++rescName=demoResc++++openFlags=O_RDONLY", *fd1)
             msiDataObjLseek(*fd1, 1024000, "SEEK_SET", *status)
             msiDataObjRead(*fd1, 6, *buf)
             msiDataObjClose(*fd1, *status)
@@ -1444,6 +1493,7 @@ OUTPUT ruleExecOut
                 os.unlink(read_rule_file_path)
 
 
+    @unittest.skipIf(True, "TODO")
     def test_detached_mode(self):
 
         # in non-topology HOSTNAME_3 is just local host so it really doesn't test detached mode
