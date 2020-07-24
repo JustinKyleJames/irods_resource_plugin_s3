@@ -1210,7 +1210,7 @@ class Test_S3_NoCache_Base(ResourceSuite_S3_NoCache):
 
     def test_sequential_open_writes(self):
 
-        rule_file_path = 'test_simultaneous_open_writes.r'
+        rule_file_path = 'test_sequential_open_writes.r'
         target_obj = '/'.join([self.user0.session_collection, 'file1.txt'])
 
         rule_str = '''
@@ -1252,7 +1252,7 @@ OUTPUT ruleExecOut
             if os.path.exists(rule_file_path):
                 os.unlink(rule_file_path)
 
-    unittest.skip("simulteneous opens are no longer allowed")    
+    @unittest.skip("simulteneous opens are no longer allowed")    
     def test_simultaneous_open_writes(self):
 
         rule_file_path = 'test_simultaneous_open_writes.r'
