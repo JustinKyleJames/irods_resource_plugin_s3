@@ -137,6 +137,10 @@ namespace irods::experimental::io::s3_transport
         explicit s3_transport(const config _config)
 
             : transport<CharT>{}
+            , root_resc_name_{}
+            , leaf_resc_name_{}
+            , replica_number_{}
+            , replica_token_{}
             , config_{_config}
             , fd_{uninitialized_file_descriptor}
             , fd_info_{}
@@ -253,35 +257,74 @@ namespace irods::experimental::io::s3_transport
         }
 
         bool open(const irods::experimental::filesystem::path& _p,
-                  int _replica_number,
+                  const root_resource_name& _root_resource_name,
                   std::ios_base::openmode _mode) override
         {
             if (is_open()) {
                 return false;
             }
 
-            return open_impl(_p, _mode, [_replica_number](auto& _input) {
-                const auto replica = std::to_string(_replica_number);
-                addKeyVal(&_input.condInput, REPL_NUM_KW, replica.c_str());
-            });
-        }
-
-        bool open(const irods::experimental::filesystem::path& _p,
-                  const std::string& _resource_name,
-                  std::ios_base::openmode _mode) override
-        {
-            if (is_open()) {
-                return false;
-            }
-
-            return open_impl(_p, _mode, [&_resource_name](auto& _input) {
-                addKeyVal(&_input.condInput, RESC_NAME_KW, _resource_name.c_str());
+            return open_impl(_p, _mode, [&_root_resource_name](auto& _input) {
+                addKeyVal(&_input.condInput, RESC_NAME_KW, _root_resource_name.value.c_str());
                 //addKeyVal(&_input.condInput, RESC_HIER_STR_KW, _resource_name.c_str());
             });
         }
 
+        bool open(const irods::experimental::filesystem::path& _path,
+                  const leaf_resource_name& _leaf_resource_name,
+                  std::ios_base::openmode _mode) override
+        {
+            // This is when the client knows exactly where the replica should reside.
+            return open_impl(_path, _mode, [&_leaf_resource_name](auto& _input) {
+                addKeyVal(&_input.condInput, LEAF_RESOURCE_NAME_KW, _leaf_resource_name.value.c_str());
+            });
+        }
 
-        bool close() override
+        bool open(const irods::experimental::filesystem::path& _path,
+                  const replica_number& _replica_number,
+                  std::ios_base::openmode _mode) override
+        {
+            return open_impl(_path, _mode, [_replica_number](auto& _input) {
+                const auto replica = std::to_string(_replica_number.value);
+                addKeyVal(&_input.condInput, REPL_NUM_KW, replica.c_str());
+
+                // Providing a replica number implies that the replica already exists.
+                // This constructor does not support creation of new replicas.
+                _input.openFlags &= ~O_CREAT;
+            });
+        }
+
+
+        bool open(const replica_token& _replica_token,
+                  const irods::experimental::filesystem::path& _path,
+                  const replica_number& _replica_number,
+                  std::ios_base::openmode _mode) override
+        {
+            return open_impl(_path, _mode, [_replica_token, _replica_number](auto& _input) {
+                const auto replica = std::to_string(_replica_number.value);
+                addKeyVal(&_input.condInput, REPLICA_TOKEN_KW, _replica_token.value.data());
+                addKeyVal(&_input.condInput, REPL_NUM_KW, replica.c_str());
+
+                // Providing a replica number implies that the replica already exists.
+                // This constructor does not support creation of new replicas.
+                _input.openFlags &= ~O_CREAT;
+            });
+        }
+
+        bool open(const replica_token& _replica_token,
+                  const irods::experimental::filesystem::path& _path,
+                  const leaf_resource_name& _leaf_resource_name,
+                  std::ios_base::openmode _mode) override
+        {                 
+            return open_impl(_path, _mode, [_replica_token, &_leaf_resource_name](auto& _input) {
+                addKeyVal(&_input.condInput, REPLICA_TOKEN_KW, _replica_token.value.data());
+                addKeyVal(&_input.condInput, LEAF_RESOURCE_NAME_KW, _leaf_resource_name.value.c_str());
+            });
+        }
+
+
+
+        bool close(const on_close_success* _on_close_success = nullptr) override
         {
 
             namespace bi = boost::interprocess;
@@ -531,6 +574,27 @@ namespace irods::experimental::io::s3_transport
         {
             return fd_;
         }
+
+        const root_resource_name& root_resource_name() const override
+        {   
+            return root_resc_name_;
+        }   
+
+        const leaf_resource_name& leaf_resource_name() const override
+        {
+            return leaf_resc_name_;
+        }
+
+        const replica_number& replica_number() const override
+        {
+            return replica_number_;
+        }
+
+        const replica_token& replica_token() const override
+        {
+            return replica_token_;
+        }
+
 
         void set_part_size(uint64_t part_size) {
             config_.part_size = part_size;
@@ -877,7 +941,7 @@ namespace irods::experimental::io::s3_transport
             namespace bf = boost::filesystem;
 
             //rodsLog(config_.debug_log_level, "%s:%d (%s) [[%u]] [_mode & in = %d][_mode & out = %d]"
-            printf("%s:%d (%s) [[%u]] [_mode & in = %d][_mode & out = %d]"
+            rodsLog(config_.debug_log_level, "%s:%d (%s) [[%u]] [_mode & in = %d][_mode & out = %d]"
                 "[_mode & trunc = %d][_mode & app = %d][_mode & ate = %d]"
                 "[_mode & binary = %d]\n",
                 __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
@@ -1696,6 +1760,11 @@ namespace irods::experimental::io::s3_transport
             return error_codes::SUCCESS;
 
         } // end s3_upload_file
+
+        struct root_resource_name root_resc_name_;
+        struct leaf_resource_name leaf_resc_name_;
+        struct replica_number replica_number_;
+        struct replica_token replica_token_;
 
         config                       config_;
         int                          fd_;
