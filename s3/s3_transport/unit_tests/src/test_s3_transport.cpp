@@ -30,7 +30,7 @@ std::string keyfile = "/projects/irods/vsphere-testing/externals/amazon_web_serv
 std::string hostname = "s3.amazonaws.com";
 std::string bucket_name = "justinkylejames1";
 
-static int log_level = LOG_ERROR;
+static int log_level = LOG_NOTICE;
 
 void read_keys(const std::string& keyfile, std::string& access_key, std::string& secret_access_key)
 {
@@ -72,6 +72,7 @@ void download_stage_and_cleanup(const std::string& bucket_name, const std::strin
     std::stringstream ss;
     ss << "aws --endpoint-url http://" << hostname << " s3 cp " << filename << " s3://" << bucket_name << "/" << object_prefix
        << filename;
+    rodsLog(LOG_DEBUG, "%s\n", ss.str().c_str());
     system(ss.str().c_str());
 
     ss.str("");
@@ -86,6 +87,7 @@ void read_write_stage_and_cleanup(const std::string& bucket_name, const std::str
     std::stringstream ss;
     ss << "aws --endpoint-url http://" << hostname << " s3 cp " << filename << " s3://" << bucket_name << "/" << object_prefix
        << filename;
+    rodsLog(LOG_DEBUG, "%s\n", ss.str().c_str());
     system(ss.str().c_str());
 
     std::stringstream filename_ss;
@@ -99,6 +101,7 @@ void read_write_stage_and_cleanup(const std::string& bucket_name, const std::str
 
     ss.str("");
     ss << "cp " << filename << " " << comparison_filename;
+    rodsLog(LOG_DEBUG, "%s\n", ss.str().c_str());
     system(ss.str().c_str());
 }
 
@@ -127,6 +130,7 @@ void check_download_results(const std::string& bucket_name, const std::string& f
     // compare the downloaded file
     std::stringstream ss;
     ss << "cmp -s " << filename << " " << filename << ".downloaded";
+    rodsLog(LOG_DEBUG, "%s\n", ss.str().c_str());
     int cmp_return_val = system(ss.str().c_str());
 
     REQUIRE(0 == cmp_return_val);
@@ -145,12 +149,14 @@ void check_read_write_results(const std::string& bucket_name, const std::string&
     std::stringstream ss;
     ss << "aws --endpoint-url http://" << hostname << " s3 cp s3://" << bucket_name << "/" << object_prefix
        << filename << " " << downloaded_filename;
+    rodsLog(LOG_DEBUG, "%s\n", ss.str().c_str());
     int download_return_val = system(ss.str().c_str());
 
     REQUIRE(0 == download_return_val);
 
     ss.str("");
     ss << "cmp -s " << downloaded_filename << " " << comparison_filename;
+    rodsLog(LOG_DEBUG, "%s\n", ss.str().c_str());
     int cmp_return_val = system(ss.str().c_str());
 
     REQUIRE(0 == cmp_return_val);
@@ -221,6 +227,7 @@ void upload_part(const char* const hostname,
     s3_config.s3_protocol_str = s3_protocol_str;
     s3_config.s3_sts_date_str = s3_sts_date_str;
     s3_config.server_encrypt_flag = server_encrypt_flag;
+    s3_config.debug_log_level = LOG_NOTICE;
 
     s3_transport tp1{s3_config};
     odstream ds1{tp1, std::string(object_prefix)+filename};
@@ -297,6 +304,7 @@ void download_part(const char* const hostname,
     s3_config.secret_access_key = secret_access_key;
     s3_config.multipart_upload_flag = false;
     s3_config.shared_memory_timeout_in_seconds = 20;
+    s3_config.debug_log_level = LOG_NOTICE;
 
     s3_transport tp1{s3_config};
 
@@ -362,6 +370,7 @@ void read_write_on_file(const char *hostname,
     s3_config.secret_access_key = secret_access_key;
     s3_config.multipart_upload_flag = false;
     s3_config.shared_memory_timeout_in_seconds = 20;
+    s3_config.debug_log_level = LOG_NOTICE;
 
     s3_transport tp1{s3_config};
     dstream ds1{tp1, std::string(object_prefix)+filename, open_modes};
@@ -528,7 +537,7 @@ void do_upload_thread(const std::string& bucket_name,
 
 
             upload_part(hostname.c_str(), bucket_name.c_str(), access_key.c_str(), secret_access_key.c_str(),
-                    filename.c_str(), object_prefix.c_str(), thread_count, thread_number, thread_number > 0, s3_signature_version_str,
+                    filename.c_str(), object_prefix.c_str(), thread_count, thread_number, thread_count > 1, s3_signature_version_str,
                     s3_protocol_str, s3_sts_date_str, false);
         });
     }
@@ -633,7 +642,8 @@ TEST_CASE("quick test", "[quick_test]")
 
     SECTION("upload large file with multiple threads")
     {
-        int thread_count = 7;
+        //int thread_count = 7;
+        int thread_count = 2;
         std::string filename = "large_file";
         std::string object_prefix = "dir1/dir2/";
         do_upload_thread(bucket_name, filename, object_prefix, keyfile, thread_count);

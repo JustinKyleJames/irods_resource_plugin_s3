@@ -79,7 +79,7 @@ set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
 list(INSERT CMAKE_MODULE_PATH 0 ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
 # Include helper functions and other utilities.
-include(utils)
+#include(utils)
 
 if (UNIT_TESTS_RUN_AFTER_BUILD)
     set(TEST_RUNNER_ARGS -r ${UNIT_TESTS_REPORTING_STYLE}
@@ -93,7 +93,7 @@ set(TEST_INCLUDE_LIST test_config/irods_s3_transport
    )
 
 foreach(IRODS_TEST_CONFIG ${TEST_INCLUDE_LIST})
-    unset_irods_test_variables()
+    #unset_irods_test_variables()
 
     include(${IRODS_TEST_CONFIG})
     add_executable(${IRODS_TEST_TARGET} ${IRODS_TEST_SOURCE_FILES})
