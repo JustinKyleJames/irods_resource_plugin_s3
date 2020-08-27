@@ -347,7 +347,7 @@ namespace irods::experimental::io::s3_transport
 
             // If the size == 0 and we were not using cache, the call to send() did not
             // pass through transport.  Call send here
-            if (!use_cache_ && config_.object_size == 0) {
+            if ((mode_ & std::ios_base::out) && !use_cache_ && config_.object_size == 0) {
                 send("", 0);
             }
 
