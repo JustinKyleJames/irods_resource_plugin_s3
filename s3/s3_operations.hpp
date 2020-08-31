@@ -1,5 +1,5 @@
-#ifndef _IRODS_S3_ARCHIVE_OPERATIONS_H
-#define _IRODS_S3_ARCHIVE_OPERATIONS_H
+#ifndef _IRODS_S3_CACHELESS_OPERATIONS_H
+#define _IRODS_S3_CACHELESS_OPERATIONS_H
 
 // =-=-=-=-=-=-=-
 // irods includes
@@ -12,7 +12,7 @@
 #include <dataObjOpr.hpp>
 #include <irods_hierarchy_parser.hpp>
 
-namespace irods_s3_archive {
+namespace irods_s3 {
 
     // =-=-=-=-=-=-=-
     // interface for file registration
@@ -61,7 +61,7 @@ namespace irods_s3_archive {
 
     // =-=-=-=-=-=-=-
     // interface for POSIX lseek
-    irods::error s3_file_lseek_operation(  irods::plugin_context& _ctx, size_t _offset, int _whence );
+    irods::error s3_file_lseek_operation(  irods::plugin_context& _ctx, long long _offset, int _whence );
 
     // =-=-=-=-=-=-=-
     // interface for POSIX mkdir
@@ -121,7 +121,6 @@ namespace irods_s3_archive {
     irods::error s3_rebalance_operation( irods::plugin_context& _ctx );
 
     irods::error s3_notify_operation( irods::plugin_context& _ctx, const std::string* str );
-
 }
 
 #endif

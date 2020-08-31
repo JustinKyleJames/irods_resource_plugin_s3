@@ -202,8 +202,7 @@ irods::error s3CopyFile(
 irods::error s3CheckParams(irods::plugin_context& _ctx );
 
 
-void get_modes_from_properties(irods::plugin_property_map& _prop_map,
-        bool& attached_mode, bool& cacheless_mode);
+std::tuple<bool, bool> get_modes_from_properties(irods::plugin_property_map& _prop_map_);
 
 std::string get_resource_name(irods::plugin_property_map& _prop_map);
 

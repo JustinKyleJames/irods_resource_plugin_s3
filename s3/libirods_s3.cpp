@@ -1,8 +1,7 @@
 // =-=-=-=-=-=-=-
 // local includes
 #include "libirods_s3.hpp"
-#include "s3_archive_operations.hpp"
-#include "s3_cacheless_operations.hpp"
+#include "s3_operations.hpp"
 
 // =-=-=-=-=-=-=-
 // irods includes
@@ -114,29 +113,6 @@ static boost::mutex g_hostnameIdxLock;
 
 S3ResponseProperties savedProperties;
 
-// gets the attached_mode and cacheless_mode from the host_mode_str
-// return value of 0 means host_mode_str was valid
-// return value of -1 means defaults were set because host_mode_str was invalid
-int get_booleans_from_host_mode(const std::string& host_mode_str,
-        bool& attached_mode, bool& cacheless_mode) {
-
-    if ( host_mode_str == "archive_attached" ) {
-        attached_mode = true;
-        cacheless_mode = false;
-    } else if ( host_mode_str == "cacheless_attached" ) {
-        attached_mode = true;
-        cacheless_mode = true;
-    } else if ( host_mode_str == "cacheless_detached" ) {
-        attached_mode = false;
-        cacheless_mode = true;
-    } else {
-        attached_mode = true;
-        cacheless_mode = false;
-        return 1;
-    }
-    return 0;
-}
-
 // gets the resource name from the property map
 std::string get_resource_name(irods::plugin_property_map& _prop_map) {
 
@@ -149,26 +125,31 @@ std::string get_resource_name(irods::plugin_property_map& _prop_map) {
     }
 }
 
-void get_modes_from_properties(irods::plugin_property_map& _prop_map,
-        bool& attached_mode, bool& cacheless_mode) {
+std::tuple<bool, bool> get_modes_from_properties(irods::plugin_property_map& _prop_map) {
 
-    // defaults
-    attached_mode = true;
-    cacheless_mode = false;
+    // default modes
+    bool cacheless_mode = false;
+    bool attached_mode = true;
 
     std::string host_mode_str;
-    irods::error ret = _prop_map.get< std::string >(host_mode, host_mode_str);
 
-    if( ret.ok() ) {
-        if ( get_booleans_from_host_mode(host_mode_str, attached_mode, cacheless_mode) < 0 ) {
-            rodsLog(LOG_ERROR, "[resource_name=%s] Invalid HOST_MODE for S3 plugin [%s].  Setting to default - archive_attached.", get_resource_name(_prop_map).c_str(), host_mode_str.c_str());
-            _prop_map.set<std::string>(host_mode, "archive_attached");
+    irods::error ret = _prop_map.get< std::string >(host_mode, host_mode_str);
+    if (ret.ok()) {
+
+        if ( host_mode_str == "archive_attached" ) {
+            attached_mode = true;
+            cacheless_mode = false;
+        } else if ( host_mode_str == "cacheless_attached" ) {
+            attached_mode = true;
+            cacheless_mode = true;
+        } else if ( host_mode_str == "cacheless_detached" ) {
+            attached_mode = false;
+            cacheless_mode = true;
         }
 
-    } else {
-        // host mode not set, use default
-        _prop_map.set<std::string>(host_mode, "archive_attached");
     }
+
+    return std::make_tuple(cacheless_mode, attached_mode);
 }
 
 
@@ -1833,7 +1814,7 @@ irods::error s3CopyFile(
 
     // Check the size, and if too large punt to the multipart copy/put routine
     struct stat statbuf = {};
-    ret = irods_s3_archive::s3_file_stat_operation( _src_ctx, &statbuf );
+    ret = irods_s3::s3_file_stat_operation( _src_ctx, &statbuf );
     if (( result = ASSERT_PASS(ret, "[resource_name=%s] Unable to get original object size for source file name: \"%s\".", resource_name.c_str(),
                                _src_file.c_str())).ok()) {
         if ( statbuf.st_size > s3GetMPUChunksize(_src_ctx.prop_map()) ) {
@@ -1964,37 +1945,13 @@ irods:: error s3StartOperation(irods::plugin_property_map& _prop_map)
     }
 
     bool attached_mode = true, cacheless_mode = false;
-    get_modes_from_properties(_prop_map, attached_mode, cacheless_mode);
+    std::tie(cacheless_mode, attached_mode) = get_modes_from_properties(_prop_map);
 
     if (!attached_mode) {
         char resource_location[MAX_NAME_LEN];
         gethostname(resource_location, MAX_NAME_LEN);
         _prop_map.set<std::string>(irods::RESOURCE_LOCATION, resource_location);
     }
-
-    /*if (cacheless_mode) {
-
-        xmlInitParser();
-
-        // Load SSE environment
-        if(!S3fsCurl::LoadEnvSse()) {
-            std::string error_str =  boost::str(boost::format("[resource_name=%s] something wrong about SSE environment.") % resource_name.c_str());
-            rodsLog(LOG_ERROR, error_str.c_str());
-            return ERROR(S3_INIT_ERROR, error_str.c_str());
-        }
-
-        // ssl init
-        else if(!s3fs_init_global_ssl()){
-            std::string error_str =  boost::str(boost::format("[resource_name=%s] could not initialize for ssl libraries.") % resource_name.c_str());
-            rodsLog(LOG_ERROR, error_str.c_str());
-            return ERROR(S3_INIT_ERROR, error_str.c_str());
-        }
-
-
-        // init curl
-        S3fsCurl::InitS3fsCurl("/etc/mime.types");
-    }*/
-
 
     return result;
 }
@@ -2397,252 +2354,120 @@ irods::resource* plugin_factory( const std::string& _inst_name, const std::strin
 
     s3_resource* resc = new s3_resource(_inst_name, _context);
 
-    // default modes
-    bool cacheless_mode = false;
+    resc->add_operation(
+        irods::RESOURCE_OP_CREATE,
+        std::function<irods::error(irods::plugin_context&)>(
+            irods_s3::s3_file_create_operation ) );
 
-    std::string host_mode_str;
-    irods::error ret = resc->get_property(host_mode , host_mode_str);
+    resc->add_operation(
+        irods::RESOURCE_OP_OPEN,
+        std::function<irods::error(irods::plugin_context&)>(
+            irods_s3::s3_file_open_operation ) );
 
-    if (ret.ok()) {
-        bool attached_mode = true;
-        get_booleans_from_host_mode(host_mode_str, attached_mode, cacheless_mode);
-    }
+    resc->add_operation<void*,int>(
+        irods::RESOURCE_OP_READ,
+        std::function<irods::error(irods::plugin_context&,void*,int)>(
+            irods_s3::s3_file_read_operation ) );
 
-    if (cacheless_mode) {
+    resc->add_operation<void*,int>(
+        irods::RESOURCE_OP_WRITE,
+        std::function<irods::error(irods::plugin_context&,void*,int)>(
+            irods_s3::s3_file_write_operation ) );
 
-        resc->add_operation(
-            irods::RESOURCE_OP_CREATE,
-            std::function<irods::error(irods::plugin_context&)>(
-                irods_s3_cacheless::s3_file_create_operation ) );
+    resc->add_operation(
+        irods::RESOURCE_OP_CLOSE,
+        std::function<irods::error(irods::plugin_context&)>(
+            irods_s3::s3_file_close_operation ) );
 
-        resc->add_operation(
-            irods::RESOURCE_OP_OPEN,
-            std::function<irods::error(irods::plugin_context&)>(
-                irods_s3_cacheless::s3_file_open_operation ) );
+    resc->add_operation(
+        irods::RESOURCE_OP_UNLINK,
+        std::function<irods::error(irods::plugin_context&)>(
+            irods_s3::s3_file_unlink_operation ) );
 
-        resc->add_operation<void*,int>(
-            irods::RESOURCE_OP_READ,
-            std::function<irods::error(irods::plugin_context&,void*,int)>(
-                irods_s3_cacheless::s3_file_read_operation ) );
+    resc->add_operation<struct stat*>(
+        irods::RESOURCE_OP_STAT,
+        std::function<irods::error(irods::plugin_context&, struct stat*)>(
+            irods_s3::s3_file_stat_operation ) );
 
-        resc->add_operation<void*,int>(
-            irods::RESOURCE_OP_WRITE,
-            std::function<irods::error(irods::plugin_context&,void*,int)>(
-                irods_s3_cacheless::s3_file_write_operation ) );
+    resc->add_operation(
+        irods::RESOURCE_OP_MKDIR,
+        std::function<irods::error(irods::plugin_context&)>(
+            irods_s3::s3_file_mkdir_operation ) );
 
-        resc->add_operation(
-            irods::RESOURCE_OP_CLOSE,
-            std::function<irods::error(irods::plugin_context&)>(
-                irods_s3_cacheless::s3_file_close_operation ) );
+    resc->add_operation(
+        irods::RESOURCE_OP_OPENDIR,
+        std::function<irods::error(irods::plugin_context&)>(
+            irods_s3::s3_opendir_operation ) );
 
-        resc->add_operation(
-            irods::RESOURCE_OP_UNLINK,
-            std::function<irods::error(irods::plugin_context&)>(
-                irods_s3_cacheless::s3_file_unlink_operation ) );
+    resc->add_operation<struct rodsDirent**>(
+        irods::RESOURCE_OP_READDIR,
+        std::function<irods::error(irods::plugin_context&,struct rodsDirent**)>(
+            irods_s3::s3_readdir_operation ) );
 
-        resc->add_operation<struct stat*>(
-            irods::RESOURCE_OP_STAT,
-            std::function<irods::error(irods::plugin_context&, struct stat*)>(
-                irods_s3_cacheless::s3_file_stat_operation ) );
+    resc->add_operation<const char*>(
+        irods::RESOURCE_OP_RENAME,
+        std::function<irods::error(irods::plugin_context&, const char*)>(
+            irods_s3::s3_file_rename_operation ) );
 
-        resc->add_operation(
-            irods::RESOURCE_OP_MKDIR,
-            std::function<irods::error(irods::plugin_context&)>(
-                irods_s3_cacheless::s3_file_mkdir_operation ) );
+    resc->add_operation(
+        irods::RESOURCE_OP_FREESPACE,
+        std::function<irods::error(irods::plugin_context&)>(
+            irods_s3::s3_get_fs_freespace_operation ) );
 
-        resc->add_operation(
-            irods::RESOURCE_OP_OPENDIR,
-            std::function<irods::error(irods::plugin_context&)>(
-                irods_s3_cacheless::s3_opendir_operation ) );
+    resc->add_operation<long long, int>(
+        irods::RESOURCE_OP_LSEEK,
+        std::function<irods::error(irods::plugin_context&, long long, int)>(
+            irods_s3::s3_file_lseek_operation ) );
 
-        resc->add_operation<struct rodsDirent**>(
-            irods::RESOURCE_OP_READDIR,
-            std::function<irods::error(irods::plugin_context&,struct rodsDirent**)>(
-                irods_s3_cacheless::s3_readdir_operation ) );
+    resc->add_operation(
+        irods::RESOURCE_OP_RMDIR,
+        std::function<irods::error(irods::plugin_context&)>(
+            irods_s3::s3_rmdir_operation ) );
 
-        resc->add_operation<const char*>(
-            irods::RESOURCE_OP_RENAME,
-            std::function<irods::error(irods::plugin_context&, const char*)>(
-                irods_s3_cacheless::s3_file_rename_operation ) );
+    resc->add_operation(
+        irods::RESOURCE_OP_CLOSEDIR,
+        std::function<irods::error(irods::plugin_context&)>(
+            irods_s3::s3_closedir_operation ) );
 
-        resc->add_operation(
-            irods::RESOURCE_OP_FREESPACE,
-            std::function<irods::error(irods::plugin_context&)>(
-                irods_s3_cacheless::s3_get_fs_freespace_operation ) );
+    resc->add_operation<const char*>(
+        irods::RESOURCE_OP_STAGETOCACHE,
+        std::function<irods::error(irods::plugin_context&, const char*)>(
+            irods_s3::s3_stage_to_cache_operation ) );
 
-        resc->add_operation<long long, int>(
-            irods::RESOURCE_OP_LSEEK,
-            std::function<irods::error(irods::plugin_context&, long long, int)>(
-                irods_s3_cacheless::s3_file_lseek_operation ) );
+    resc->add_operation<const char*>(
+        irods::RESOURCE_OP_SYNCTOARCH,
+        std::function<irods::error(irods::plugin_context&, const char*)>(
+            irods_s3::s3_sync_to_arch_operation ) );
 
-        resc->add_operation(
-            irods::RESOURCE_OP_RMDIR,
-            std::function<irods::error(irods::plugin_context&)>(
-                irods_s3_cacheless::s3_rmdir_operation ) );
+    resc->add_operation(
+        irods::RESOURCE_OP_REGISTERED,
+        std::function<irods::error(irods::plugin_context&)>(
+            irods_s3::s3_registered_operation ) );
 
-        resc->add_operation(
-            irods::RESOURCE_OP_CLOSEDIR,
-            std::function<irods::error(irods::plugin_context&)>(
-                irods_s3_cacheless::s3_closedir_operation ) );
+    resc->add_operation(
+        irods::RESOURCE_OP_UNREGISTERED,
+        std::function<irods::error(irods::plugin_context&)>(
+            irods_s3::s3_unregistered_operation ) );
 
-        resc->add_operation<const char*>(
-            irods::RESOURCE_OP_STAGETOCACHE,
-            std::function<irods::error(irods::plugin_context&, const char*)>(
-                irods_s3_cacheless::s3_stage_to_cache_operation ) );
+    resc->add_operation(
+        irods::RESOURCE_OP_MODIFIED,
+        std::function<irods::error(irods::plugin_context&)>(
+            irods_s3::s3_modified_operation ) );
 
-        resc->add_operation<const char*>(
-            irods::RESOURCE_OP_SYNCTOARCH,
-            std::function<irods::error(irods::plugin_context&, const char*)>(
-                irods_s3_cacheless::s3_sync_to_arch_operation ) );
+    resc->add_operation<const std::string*, const std::string*, irods::hierarchy_parser*, float*>(
+        irods::RESOURCE_OP_RESOLVE_RESC_HIER,
+        std::function<irods::error(irods::plugin_context&,const std::string*, const std::string*, irods::hierarchy_parser*, float*)>(
+            irods_s3::s3_resolve_resc_hier_operation ) );
 
-        resc->add_operation(
-            irods::RESOURCE_OP_REGISTERED,
-            std::function<irods::error(irods::plugin_context&)>(
-                irods_s3_cacheless::s3_registered_operation ) );
+    resc->add_operation(
+        irods::RESOURCE_OP_REBALANCE,
+        std::function<irods::error(irods::plugin_context&)>(
+            irods_s3::s3_rebalance_operation ) );
 
-        resc->add_operation(
-            irods::RESOURCE_OP_UNREGISTERED,
-            std::function<irods::error(irods::plugin_context&)>(
-                irods_s3_cacheless::s3_unregistered_operation ) );
-
-        resc->add_operation(
-            irods::RESOURCE_OP_MODIFIED,
-            std::function<irods::error(irods::plugin_context&)>(
-                irods_s3_cacheless::s3_modified_operation ) );
-
-        resc->add_operation<const std::string*, const std::string*, irods::hierarchy_parser*, float*>(
-            irods::RESOURCE_OP_RESOLVE_RESC_HIER,
-            std::function<irods::error(irods::plugin_context&,const std::string*, const std::string*, irods::hierarchy_parser*, float*)>(
-                irods_s3_cacheless::s3_resolve_resc_hier_operation ) );
-
-        resc->add_operation(
-            irods::RESOURCE_OP_REBALANCE,
-            std::function<irods::error(irods::plugin_context&)>(
-                irods_s3_cacheless::s3_rebalance_operation ) );
-
-        resc->add_operation<const std::string*>(
-            irods::RESOURCE_OP_NOTIFY,
-            std::function<irods::error(irods::plugin_context&, const std::string*)>(
-                irods_s3_cacheless::s3_notify_operation ) );
-
-
-    } else {
-
-        resc->add_operation(
-            irods::RESOURCE_OP_CREATE,
-            std::function<irods::error(irods::plugin_context&)>(
-                irods_s3_archive::s3_file_create_operation ) );
-
-        resc->add_operation(
-            irods::RESOURCE_OP_OPEN,
-            std::function<irods::error(irods::plugin_context&)>(
-                irods_s3_archive::s3_file_open_operation ) );
-
-        resc->add_operation<void*,int>(
-            irods::RESOURCE_OP_READ,
-            std::function<irods::error(irods::plugin_context&,void*,int)>(
-                irods_s3_archive::s3_file_read_operation ) );
-
-        resc->add_operation<void*,int>(
-            irods::RESOURCE_OP_WRITE,
-            std::function<irods::error(irods::plugin_context&,void*,int)>(
-                irods_s3_archive::s3_file_write_operation ) );
-
-        resc->add_operation(
-            irods::RESOURCE_OP_CLOSE,
-            std::function<irods::error(irods::plugin_context&)>(
-                irods_s3_archive::s3_file_close_operation ) );
-
-        resc->add_operation(
-            irods::RESOURCE_OP_UNLINK,
-            std::function<irods::error(irods::plugin_context&)>(
-                irods_s3_archive::s3_file_unlink_operation ) );
-
-        resc->add_operation<struct stat*>(
-            irods::RESOURCE_OP_STAT,
-            std::function<irods::error(irods::plugin_context&, struct stat*)>(
-                irods_s3_archive::s3_file_stat_operation ) );
-
-        resc->add_operation(
-            irods::RESOURCE_OP_MKDIR,
-            std::function<irods::error(irods::plugin_context&)>(
-                irods_s3_archive::s3_file_mkdir_operation ) );
-
-        resc->add_operation(
-            irods::RESOURCE_OP_OPENDIR,
-            std::function<irods::error(irods::plugin_context&)>(
-                irods_s3_archive::s3_opendir_operation ) );
-
-        resc->add_operation<struct rodsDirent**>(
-            irods::RESOURCE_OP_READDIR,
-            std::function<irods::error(irods::plugin_context&,struct rodsDirent**)>(
-                irods_s3_archive::s3_readdir_operation ) );
-
-        resc->add_operation<const char*>(
-            irods::RESOURCE_OP_RENAME,
-            std::function<irods::error(irods::plugin_context&, const char*)>(
-                irods_s3_archive::s3_file_rename_operation ) );
-
-        resc->add_operation(
-            irods::RESOURCE_OP_FREESPACE,
-            std::function<irods::error(irods::plugin_context&)>(
-                irods_s3_archive::s3_get_fs_freespace_operation ) );
-
-        resc->add_operation<long long, int>(
-            irods::RESOURCE_OP_LSEEK,
-            std::function<irods::error(irods::plugin_context&, long long, int)>(
-                irods_s3_archive::s3_file_lseek_operation ) );
-
-        resc->add_operation(
-            irods::RESOURCE_OP_RMDIR,
-            std::function<irods::error(irods::plugin_context&)>(
-                irods_s3_archive::s3_rmdir_operation ) );
-
-        resc->add_operation(
-            irods::RESOURCE_OP_CLOSEDIR,
-            std::function<irods::error(irods::plugin_context&)>(
-                irods_s3_archive::s3_closedir_operation ) );
-
-        resc->add_operation<const char*>(
-            irods::RESOURCE_OP_STAGETOCACHE,
-            std::function<irods::error(irods::plugin_context&, const char*)>(
-                irods_s3_archive::s3_stage_to_cache_operation ) );
-
-        resc->add_operation<const char*>(
-            irods::RESOURCE_OP_SYNCTOARCH,
-            std::function<irods::error(irods::plugin_context&, const char*)>(
-                irods_s3_archive::s3_sync_to_arch_operation ) );
-
-        resc->add_operation(
-            irods::RESOURCE_OP_REGISTERED,
-            std::function<irods::error(irods::plugin_context&)>(
-                irods_s3_archive::s3_registered_operation ) );
-
-        resc->add_operation(
-            irods::RESOURCE_OP_UNREGISTERED,
-            std::function<irods::error(irods::plugin_context&)>(
-                irods_s3_archive::s3_unregistered_operation ) );
-
-        resc->add_operation(
-            irods::RESOURCE_OP_MODIFIED,
-            std::function<irods::error(irods::plugin_context&)>(
-                irods_s3_archive::s3_modified_operation ) );
-
-        resc->add_operation<const std::string*, const std::string*, irods::hierarchy_parser*, float*>(
-            irods::RESOURCE_OP_RESOLVE_RESC_HIER,
-            std::function<irods::error(irods::plugin_context&,const std::string*, const std::string*, irods::hierarchy_parser*, float*)>(
-                irods_s3_archive::s3_resolve_resc_hier_operation ) );
-
-        resc->add_operation(
-            irods::RESOURCE_OP_REBALANCE,
-            std::function<irods::error(irods::plugin_context&)>(
-                irods_s3_archive::s3_rebalance_operation ) );
-
-        resc->add_operation<const std::string*>(
-            irods::RESOURCE_OP_NOTIFY,
-            std::function<irods::error(irods::plugin_context&, const std::string*)>(
-                irods_s3_archive::s3_notify_operation ) );
-    }
+    resc->add_operation<const std::string*>(
+        irods::RESOURCE_OP_NOTIFY,
+        std::function<irods::error(irods::plugin_context&, const std::string*)>(
+            irods_s3::s3_notify_operation ) );
 
     // set some properties necessary for backporting to iRODS legacy code
     resc->set_property< int >( irods::RESOURCE_CHECK_PATH_PERM, DO_CHK_PATH_PERM );
