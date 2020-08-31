@@ -76,10 +76,10 @@ namespace irods::experimental::io::s3_transport
 
         {}
 
-        uint64_t     object_size;
+        int64_t      object_size;
         unsigned int number_of_transfer_threads; // only used when doing full file upload/download via cache
                                                  // otherwise it is controlled by iRODS
-        uint64_t     part_size;                  // only used when doing a multipart upload
+        int64_t      part_size;                  // only used when doing a multipart upload
         unsigned int retry_count_limit;
         int          retry_wait_seconds;
         std::string  hostname;
@@ -96,9 +96,9 @@ namespace irods::experimental::io::s3_transport
         std::string  cache_directory;
         unsigned int circular_buffer_size;
         std::string  s3_uri_request_style;
-        uint64_t     minimum_part_size;
-        static const uint64_t UNKNOWN_OBJECT_SIZE = 0;  // TODO use a negative number for this
-        static const uint64_t DEFAULT_MINIMUM_PART_SIZE = 5*1024*1024;
+        int64_t      minimum_part_size;
+        static const int64_t UNKNOWN_OBJECT_SIZE = -1;
+        static const int64_t DEFAULT_MINIMUM_PART_SIZE = 5*1024*1024;
         int          debug_log_level = LOG_NOTICE;
     };
 
@@ -233,7 +233,7 @@ namespace irods::experimental::io::s3_transport
 
         }
 
-        bool object_exists_in_s3(uint64_t& object_size) {
+        bool object_exists_in_s3(int64_t& object_size) {
 
             data_for_head_callback data(bucket_context_);
 
@@ -315,7 +315,7 @@ namespace irods::experimental::io::s3_transport
                   const irods::experimental::filesystem::path& _path,
                   const leaf_resource_name& _leaf_resource_name,
                   std::ios_base::openmode _mode) override
-        {                 
+        {
             return open_impl(_path, _mode, [_replica_token, &_leaf_resource_name](auto& _input) {
                 addKeyVal(&_input.condInput, REPLICA_TOKEN_KW, _replica_token.value.data());
                 addKeyVal(&_input.condInput, LEAF_RESOURCE_NAME_KW, _leaf_resource_name.value.c_str());
@@ -596,7 +596,7 @@ namespace irods::experimental::io::s3_transport
         }
 
 
-        void set_part_size(uint64_t part_size) {
+        void set_part_size(int64_t part_size) {
             config_.part_size = part_size;
         }
 
@@ -607,7 +607,7 @@ namespace irods::experimental::io::s3_transport
             return std::hash<std::thread::id>{}(std::this_thread::get_id());
         }
 
-        auto get_cache_file_size() -> uint64_t
+        auto get_cache_file_size() -> int64_t
         {
             std::fstream fs(cache_file_path_);
             if (!fs || !fs.is_open()) {
@@ -618,7 +618,7 @@ namespace irods::experimental::io::s3_transport
 
             fs.seekp(0, std::ios_base::end);
             auto cache_file_size = fs.tellp();
-            return static_cast<int64_t>(cache_file_size) < 0 ? 0 : static_cast<uint64_t>(cache_file_size);
+            return static_cast<int64_t>(cache_file_size) < 0 ? 0 : static_cast<int64_t>(cache_file_size);
         }
 
         bool begin_multipart_upload(named_shared_memory_object& shm_obj, const int& file_open_counter)
@@ -660,7 +660,7 @@ namespace irods::experimental::io::s3_transport
 
         cache_file_download_status download_object_to_cache(
                 named_shared_memory_object& shm_obj,
-                uint64_t s3_object_size)
+                int64_t s3_object_size)
         {
 
             // shmem is already locked here
@@ -695,7 +695,7 @@ namespace irods::experimental::io::s3_transport
 
                 // download the object to a cache file
 
-                uint64_t disk_space_available = bf::space(config_.cache_directory).available;
+                int64_t disk_space_available = bf::space(config_.cache_directory).available;
 
                 if (s3_object_size > disk_space_available)
                 {
@@ -708,17 +708,17 @@ namespace irods::experimental::io::s3_transport
                     });
                 }
 
-                uint64_t bytes_downloaded = 0;
+                int64_t bytes_downloaded = 0;
                 std::mutex bytes_downloaded_mutex;
 
                 // determine number of download threads.
                 //  max = config_.number_of_transfer_threads
                 //  start at 1 and add one per 1M
-                uint64_t cutoff_per_thread = 1024*1024;
-                uint64_t number_of_transfer_threads = s3_object_size / cutoff_per_thread + 1;
+                int64_t cutoff_per_thread = 1024*1024;
+                int64_t number_of_transfer_threads = s3_object_size / cutoff_per_thread + 1;
                 number_of_transfer_threads = number_of_transfer_threads > config_.number_of_transfer_threads ? config_.number_of_transfer_threads : number_of_transfer_threads;
 
-                uint64_t part_size = s3_object_size / number_of_transfer_threads;
+                int64_t part_size = s3_object_size / number_of_transfer_threads;
 
                 irods::thread_pool threads{static_cast<int>(number_of_transfer_threads)};
 
@@ -728,7 +728,7 @@ namespace irods::experimental::io::s3_transport
                             &bytes_downloaded, &bytes_downloaded_mutex] () {
 
                             off_t this_part_offset = part_size * thr_id;
-                            uint64_t this_part_size;
+                            int64_t this_part_size;
 
                             if (thr_id == number_of_transfer_threads - 1) {
                                 this_part_size = part_size + (s3_object_size -
@@ -737,7 +737,7 @@ namespace irods::experimental::io::s3_transport
                                 this_part_size = part_size;
                             }
 
-                            uint64_t this_bytes_downloaded =
+                            int64_t this_bytes_downloaded =
                                 this->s3_download_part_worker_routine(nullptr, this_part_size, this_part_offset);
 
                             {
@@ -795,17 +795,17 @@ namespace irods::experimental::io::s3_transport
             }
 
             ifs.seekg(0, std::ios_base::end);
-            uint64_t cache_file_size = static_cast<uint64_t>(ifs.tellg());
+            int64_t cache_file_size = static_cast<int64_t>(ifs.tellg());
             ifs.close();
 
             // each part must be at least 5MB in size so adjust number_of_transfer_threads accordingly
-            uint64_t minimum_part_size = config_.minimum_part_size;
+            int64_t minimum_part_size = config_.minimum_part_size;
             config_.number_of_transfer_threads
                 = minimum_part_size * config_.number_of_transfer_threads < cache_file_size
                 ? config_.number_of_transfer_threads
                 : cache_file_size / minimum_part_size == 0 ? 1 : cache_file_size / minimum_part_size;
 
-            uint64_t part_size = cache_file_size / config_.number_of_transfer_threads;
+            int64_t part_size = cache_file_size / config_.number_of_transfer_threads;
 
             if (config_.multipart_upload_flag && config_.number_of_transfer_threads > 1) {
 
@@ -997,7 +997,7 @@ namespace irods::experimental::io::s3_transport
             }
 
             bool object_exists = false;
-            uint64_t s3_object_size = 0;
+            int64_t s3_object_size = 0;
 
 
             if (object_must_exist_ || download_to_cache_) {
@@ -1337,7 +1337,7 @@ namespace irods::experimental::io::s3_transport
         //     length - The length to be downloaded.
         //     offset - If provided this is the offset of the object that is being downloaded.  If not
         //              provided the current offset (file_offset_) is used.
-        std::streamsize s3_download_part_worker_routine(char_type *buffer, uint64_t length, off_t offset = -1)
+        std::streamsize s3_download_part_worker_routine(char_type *buffer, int64_t length, off_t offset = -1)
         {
             namespace bi = boost::interprocess;
             namespace types = shared_data::interprocess_types;
@@ -1371,11 +1371,11 @@ namespace irods::experimental::io::s3_transport
 
                 // test if beyond file
                 if (config_.object_size != config_.UNKNOWN_OBJECT_SIZE) {
-                    if (offset < 0 || static_cast<uint64_t>(offset) >= config_.object_size) {
+                    if (offset < 0 || static_cast<int64_t>(offset) >= config_.object_size) {
                         return 0;
                     }
 
-                    if (static_cast<uint64_t>(offset + length) > config_.object_size) {
+                    if (static_cast<int64_t>(offset + length) > config_.object_size) {
                         length = config_.object_size - offset;
                     }
 
@@ -1507,7 +1507,7 @@ namespace irods::experimental::io::s3_transport
                 write_callback_from_cache->set_and_open_cache_file(cache_file_path_);
 
                 offset = part_size * part_number;
-                uint64_t content_length;
+                int64_t content_length;
 
                 // get the object size from the cache file
                 auto object_size = get_cache_file_size();

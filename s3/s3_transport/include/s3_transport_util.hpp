@@ -50,9 +50,9 @@ namespace irods::experimental::io::s3_transport
     struct constants
     {
 
-        static const uint64_t           ETAG_SIZE{34};
-        static const uint64_t           UPLOAD_ID_SIZE{128};
-        static const uint64_t           MAX_S3_SHMEM_SIZE{sizeof(shared_data::multipart_shared_data) +
+        static const int64_t            ETAG_SIZE{34};
+        static const int64_t            UPLOAD_ID_SIZE{128};
+        static const int64_t            MAX_S3_SHMEM_SIZE{sizeof(shared_data::multipart_shared_data) +
                                                           10000 * (ETAG_SIZE + 1) +
                                                           UPLOAD_ID_SIZE + 1};
 
@@ -100,8 +100,8 @@ namespace irods::experimental::io::s3_transport
         std::string              xml;
 
         // TODO derive types
-        uint64_t                 remaining;
-        uint64_t                 offset;
+        int64_t                  remaining;
+        int64_t                  offset;
         libs3_types::status      status;            /* status returned by libs3 */
         std::string              object_key;
         std::string              shmem_key;
@@ -121,13 +121,13 @@ namespace irods::experimental::io::s3_transport
         {}
 
         buffer_type         buffer;
-        uint64_t            offset;
+        int64_t             offset;
 
         irods::experimental::circular_buffer<upload_page<buffer_type>>&
                             circular_buffer;
 
-        uint64_t            content_length;
-        uint64_t            bytes_written;
+        int64_t            content_length;
+        int64_t            bytes_written;
         libs3_types::status status;
 
         libs3_types::bucket_context&
@@ -145,7 +145,7 @@ namespace irods::experimental::io::s3_transport
         {}
 
         time_t                             last_modified;
-        uint64_t                           content_length;
+        int64_t                            content_length;
         libs3_types::status                status;
         libs3_types::bucket_context&       bucket_context;
     };

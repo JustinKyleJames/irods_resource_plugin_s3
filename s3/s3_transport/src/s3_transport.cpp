@@ -209,8 +209,8 @@ namespace irods::experimental::io::s3_transport
                 upload_manager *manager = (upload_manager *)callback_data;
                 long ret = 0;
                 if (manager->remaining) {
-                    int to_read_count = ((manager->remaining > static_cast<uint64_t>(buffer_size)) ?
-                                  static_cast<uint64_t>(buffer_size) : manager->remaining);
+                    int to_read_count = ((manager->remaining > static_cast<int64_t>(buffer_size)) ?
+                                  static_cast<int64_t>(buffer_size) : manager->remaining);
                     memcpy(buffer, manager->xml.c_str() + manager->offset, to_read_count);
                     ret = to_read_count;
                 }
@@ -331,8 +331,8 @@ namespace irods::experimental::io::s3_transport
                 upload_manager *manager = (upload_manager *)callback_data;
                 long ret = 0;
                 if (manager->remaining) {
-                    int to_read_count = ((manager->remaining > static_cast<uint64_t>(buffer_size)) ?
-                                  static_cast<uint64_t>(buffer_size) : manager->remaining);
+                    int to_read_count = ((manager->remaining > static_cast<int64_t>(buffer_size)) ?
+                                  static_cast<int64_t>(buffer_size) : manager->remaining);
                     memcpy(buffer, manager->xml.c_str() + manager->offset, to_read_count);
                     ret = to_read_count;
                 }
