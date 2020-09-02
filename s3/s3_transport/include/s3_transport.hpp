@@ -150,6 +150,7 @@ namespace irods::experimental::io::s3_transport
             , circular_buffer_{_config.circular_buffer_size}
             , mode_{0}
             , file_offset_{0}
+            , existing_object_size_{config::UNKNOWN_OBJECT_SIZE}
             , download_to_cache_{false}
             , use_cache_{false}
             , object_must_exist_{false}
@@ -549,7 +550,6 @@ namespace irods::experimental::io::s3_transport
                         break;
 
                     case std::ios_base::end:
-
                         file_offset_ = config_.object_size + _offset;
                         break;
 
@@ -576,9 +576,9 @@ namespace irods::experimental::io::s3_transport
         }
 
         const root_resource_name& root_resource_name() const override
-        {   
+        {
             return root_resc_name_;
-        }   
+        }
 
         const leaf_resource_name& leaf_resource_name() const override
         {
@@ -890,7 +890,7 @@ namespace irods::experimental::io::s3_transport
                 use_cache_ = true;             // and use_cache_ will be updated to false
                 object_must_exist_ = false;
             }
-            else if ((ios_base::out | ios_base::trunc) == m) {
+            else if ((ios_base::out | ios_base::trunc) == m) {   // TODO simplify by using cache unless multipart flag is set
                 download_to_cache_ = false;
                 use_cache_ = false;
                 object_must_exist_ = false;
@@ -1001,7 +1001,11 @@ namespace irods::experimental::io::s3_transport
 
 
             if (object_must_exist_ || download_to_cache_) {
+
                 object_exists = object_exists_in_s3(s3_object_size);
+
+                // save the size of the existing object as we may need it later
+                existing_object_size_ = s3_object_size;
 
                 // if we are only writing and there is no existing object and our part size is at least
                 // the minimum part size, we do not have to use cache
@@ -1370,13 +1374,13 @@ namespace irods::experimental::io::s3_transport
                 // Download to buffer
 
                 // test if beyond file
-                if (config_.object_size != config_.UNKNOWN_OBJECT_SIZE) {
-                    if (offset < 0 || static_cast<int64_t>(offset) >= config_.object_size) {
+                if (existing_object_size_ != config_.UNKNOWN_OBJECT_SIZE) {
+                    if (offset < 0 || static_cast<int64_t>(offset) >= existing_object_size_) {
                         return 0;
                     }
 
-                    if (static_cast<int64_t>(offset + length) > config_.object_size) {
-                        length = config_.object_size - offset;
+                    if (static_cast<int64_t>(offset + length) > existing_object_size_) {
+                        length = existing_object_size_ - offset;
                     }
 
                     if (length == 0) {
@@ -1780,6 +1784,7 @@ namespace irods::experimental::io::s3_transport
 
         std::ios_base::openmode      mode_;
         off_t                        file_offset_;
+        int64_t                      existing_object_size_;
 
         // operational modes based on input flags
         bool                         download_to_cache_;
