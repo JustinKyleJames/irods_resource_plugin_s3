@@ -73,6 +73,7 @@ namespace irods::experimental::io::s3_transport
             , circular_buffer_size{10}
             , s3_uri_request_style{""}
             , minimum_part_size{DEFAULT_MINIMUM_PART_SIZE}
+            , put_repl_flag{false}
 
         {}
 
@@ -100,6 +101,18 @@ namespace irods::experimental::io::s3_transport
         static const int64_t UNKNOWN_OBJECT_SIZE = -1;
         static const int64_t DEFAULT_MINIMUM_PART_SIZE = 5*1024*1024;
         int          debug_log_level = LOG_NOTICE;
+
+        // If the put_repl_flag is true, this is a promise that all writes will be performed in a
+        // manner similar to iput.  This means:
+        //   - If single threaded, the bytes will be written sequentially from the beginning of
+        //     the file to the end of the file.
+        //   - If multiple threaded, each thread will write its bytes sequentially from the beginning
+        //     of its part to the end of its part.  The parts will be broken up in the same manner as parallel
+        //     iput.  (This is required to determine the S3 part number from the offset.)
+        //
+        // Note:  If the put_repl_flag is set to true but the above rules are not followed, the behavior
+        //        is undefined.
+        bool         put_repl_flag;
     };
 
     template <typename CharT>
@@ -151,8 +164,8 @@ namespace irods::experimental::io::s3_transport
             , mode_{0}
             , file_offset_{0}
             , existing_object_size_{config::UNKNOWN_OBJECT_SIZE}
-            , download_to_cache_{false}
-            , use_cache_{false}
+            , download_to_cache_{true}
+            , use_cache_{true}
             , object_must_exist_{false}
             , put_props_{}
             , bucket_context_{}
@@ -600,6 +613,11 @@ namespace irods::experimental::io::s3_transport
             config_.part_size = part_size;
         }
 
+        // used for unit testing
+        bool get_use_cache() {
+            return use_cache_;
+        }
+
     private:
 
 
@@ -854,71 +872,67 @@ namespace irods::experimental::io::s3_transport
         }
 
         // This populates the following flags based on the open mode (mode_).
-        //   - download_to_cache_ - Set to true iff:
-        //                             * the object is open for writing (optionally reading)
-        //                               and the object is not being truncated and the multipart_upload flag is
-        //                               set.
-        //
-        //                               Note:  If the object is open for writing, not being truncated, but the file
-        //                                      does not exist then this will be set to false.
-        //
-        //   - use_cache_         - Set to true iff one of the following applies:
-        //                             * download_to_cache_ is true
-        //                             * open for reading and writing with the truncate flag
+        //   - use_cache_         - Set to false unless one of the following is true:
+        //                          * the object was opened in read only mode
+        //                          * the put_repl_flag is true indicating a predictable full file write
+        //   - download_to_cache_ - Set to true unless one of the following is true:
+        //                             * the object is opened in read only mode
+        //                             * the trunc flag is set
         //   - object_must_exist_ - See table "Action if file does not exist" in the table at the
         //                          following link: https://en.cppreference.com/w/cpp/io/basic_filebuf/open
-        //
-        // Return value - The translation of the stream open modes to posix open modes.
         void populate_open_mode_flags() noexcept
         {
             using std::ios_base;
 
             const auto m = mode_ & ~(ios_base::ate | ios_base::binary);
 
+            // read only, do not use cache
             if (ios_base::in == m) {
                 download_to_cache_ = false;
                 use_cache_ = false;
                 object_must_exist_ = true;
             }
-            else if (ios_base::out == m && config_.multipart_upload_flag) {
+
+            // put_repl_flag is a contract that says the full file will be written in a similar
+            // manner as iput.
+            else if (config_.put_repl_flag) {
                 download_to_cache_ = false;
                 use_cache_ = false;
                 object_must_exist_ = false;
             }
-            else if (ios_base::out == m) {
-                download_to_cache_ = true;     // if object does not exist use_cache_
-                use_cache_ = true;             // and use_cache_ will be updated to false
-                object_must_exist_ = false;
-            }
-            else if ((ios_base::out | ios_base::trunc) == m) {   // TODO simplify by using cache unless multipart flag is set
-                download_to_cache_ = false;
-                use_cache_ = false;
-                object_must_exist_ = false;
-            }
-            else if (ios_base::app == m || (ios_base::out | ios_base::app) == m) {
+            // config_.put_repl_flag not set.  This means we may have random access.  Must
+            // use cache.
+            else {
+
                 download_to_cache_ = true;
                 use_cache_ = true;
-                object_must_exist_ = false;
-            }
-            else if ((ios_base::out | ios_base::in) == m) {
-                download_to_cache_ = true;
-                use_cache_ = true;
-                object_must_exist_ = true;
-            }
-            else if ((ios_base::out | ios_base::in | ios_base::trunc) == m) {
-                download_to_cache_ = false;
-                use_cache_ = true;
-                object_must_exist_ = false;
-            }
-            else if ((ios_base::out | ios_base::in | ios_base::app) == m ||
-                     (ios_base::in | ios_base::app) == m)
-            {
-                download_to_cache_ = true;
-                use_cache_ = true;
-                object_must_exist_ = false;
+
+                if (ios_base::out == m) {
+                    object_must_exist_ = false;
+                }
+                else if ((ios_base::out | ios_base::trunc) == m) {
+                    download_to_cache_ = false;
+                    object_must_exist_ = false;
+                }
+                else if (ios_base::app == m || (ios_base::out | ios_base::app) == m) {
+                    object_must_exist_ = false;
+                }
+                else if ((ios_base::out | ios_base::in) == m) {
+                    object_must_exist_ = true;
+                }
+                else if ((ios_base::out | ios_base::in | ios_base::trunc) == m) {
+                    download_to_cache_ = false;
+                    object_must_exist_ = false;
+                }
+                else if ((ios_base::out | ios_base::in | ios_base::app) == m ||
+                         (ios_base::in | ios_base::app) == m)
+                {
+                    object_must_exist_ = false;
+                }
+
             }
 
-        }  // end populate_mode_flags
+        }  // end populate_open_mode_flags
 
         bool seek_to_end_if_required(std::ios_base::openmode _mode)
         {
@@ -963,8 +977,13 @@ namespace irods::experimental::io::s3_transport
 
             populate_open_mode_flags();
 
-            // if opening for writing the part size < minimum part size, for now stream from s3
-            if (config_.multipart_upload_flag && config_.part_size < config_.minimum_part_size) {
+            // override for cases where we must use cache
+            //   1. If we don't know the file size.
+            //   2. If doing multiplart upload file size < #threads * minimum part size
+            // TODO this number_of_transfer_threads needs to be number_of_parallel_put_threads
+            if (config_.object_size == 0 || config_.object_size == config::UNKNOWN_OBJECT_SIZE ||
+                    ( config_.multipart_upload_flag &&
+                    config_.object_size < static_cast<int64_t>(config_.number_of_transfer_threads) * static_cast<int64_t>(config_.minimum_part_size))) {
                 use_cache_ = true;
             }
 
@@ -1007,12 +1026,6 @@ namespace irods::experimental::io::s3_transport
                 // save the size of the existing object as we may need it later
                 existing_object_size_ = s3_object_size;
 
-                // if we are only writing and there is no existing object and our part size is at least
-                // the minimum part size, we do not have to use cache
-                if (std::ios_base::out == mode_ && !object_exists && config_.part_size >= config_.minimum_part_size) {
-                    download_to_cache_ = false;
-                    use_cache_ = false;
-                }
             }
 
             if (object_must_exist_ && !object_exists) {
@@ -1764,6 +1777,7 @@ namespace irods::experimental::io::s3_transport
             return error_codes::SUCCESS;
 
         } // end s3_upload_file
+
 
         struct root_resource_name root_resc_name_;
         struct leaf_resource_name leaf_resc_name_;

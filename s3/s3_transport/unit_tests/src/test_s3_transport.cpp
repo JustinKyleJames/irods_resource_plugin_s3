@@ -57,12 +57,12 @@ void upload_stage_and_cleanup(const std::string& bucket_name, const std::string&
     std::stringstream ss;
     ss << "aws --endpoint-url http://" << hostname << " s3 rm s3://" << bucket_name
         << "/" << object_prefix << filename;
-    rodsLog(LOG_DEBUG, "%s\n", ss.str().c_str());
+    rodsLog(LOG_NOTICE, "%s\n", ss.str().c_str());
     system(ss.str().c_str());
 
     ss.str("");
     ss << filename << ".downloaded";
-    rodsLog(LOG_DEBUG, "rm %s\n", ss.str().c_str());
+    rodsLog(LOG_NOTICE, "rm %s\n", ss.str().c_str());
     remove(ss.str().c_str());
 }
 
@@ -72,7 +72,7 @@ void download_stage_and_cleanup(const std::string& bucket_name, const std::strin
     std::stringstream ss;
     ss << "aws --endpoint-url http://" << hostname << " s3 cp " << filename << " s3://" << bucket_name << "/" << object_prefix
        << filename;
-    rodsLog(LOG_DEBUG, "%s\n", ss.str().c_str());
+    rodsLog(LOG_NOTICE, "%s\n", ss.str().c_str());
     system(ss.str().c_str());
 
     ss.str("");
@@ -87,7 +87,7 @@ void read_write_stage_and_cleanup(const std::string& bucket_name, const std::str
     std::stringstream ss;
     ss << "aws --endpoint-url http://" << hostname << " s3 cp " << filename << " s3://" << bucket_name << "/" << object_prefix
        << filename;
-    rodsLog(LOG_DEBUG, "%s\n", ss.str().c_str());
+    rodsLog(LOG_NOTICE, "%s\n", ss.str().c_str());
     system(ss.str().c_str());
 
     std::stringstream filename_ss;
@@ -101,7 +101,7 @@ void read_write_stage_and_cleanup(const std::string& bucket_name, const std::str
 
     ss.str("");
     ss << "cp " << filename << " " << comparison_filename;
-    rodsLog(LOG_DEBUG, "%s\n", ss.str().c_str());
+    rodsLog(LOG_NOTICE, "%s\n", ss.str().c_str());
     system(ss.str().c_str());
 }
 
@@ -112,14 +112,14 @@ void check_upload_results(const std::string& bucket_name, const std::string& fil
     ss << "aws --endpoint-url http://" << hostname << " s3 cp s3://" << bucket_name << "/" << object_prefix
        << filename << " " << filename << ".downloaded";
 
-    rodsLog(LOG_DEBUG, "%s\n", ss.str().c_str());
+    rodsLog(LOG_NOTICE, "%s\n", ss.str().c_str());
     int download_return_val = system(ss.str().c_str());
 
     REQUIRE(0 == download_return_val);
 
     ss.str("");
     ss << "cmp -s " << filename << " " << filename << ".downloaded";
-    rodsLog(LOG_DEBUG, "%s\n", ss.str().c_str());
+    rodsLog(LOG_NOTICE, "%s\n", ss.str().c_str());
     int cmp_return_val = system(ss.str().c_str());
 
     REQUIRE(0 == cmp_return_val);
@@ -130,7 +130,7 @@ void check_download_results(const std::string& bucket_name, const std::string& f
     // compare the downloaded file
     std::stringstream ss;
     ss << "cmp -s " << filename << " " << filename << ".downloaded";
-    rodsLog(LOG_DEBUG, "%s\n", ss.str().c_str());
+    rodsLog(LOG_NOTICE, "%s\n", ss.str().c_str());
     int cmp_return_val = system(ss.str().c_str());
 
     REQUIRE(0 == cmp_return_val);
@@ -149,14 +149,14 @@ void check_read_write_results(const std::string& bucket_name, const std::string&
     std::stringstream ss;
     ss << "aws --endpoint-url http://" << hostname << " s3 cp s3://" << bucket_name << "/" << object_prefix
        << filename << " " << downloaded_filename;
-    rodsLog(LOG_DEBUG, "%s\n", ss.str().c_str());
+    rodsLog(LOG_NOTICE, "%s\n", ss.str().c_str());
     int download_return_val = system(ss.str().c_str());
 
     REQUIRE(0 == download_return_val);
 
     ss.str("");
     ss << "cmp -s " << downloaded_filename << " " << comparison_filename;
-    rodsLog(LOG_DEBUG, "%s\n", ss.str().c_str());
+    rodsLog(LOG_NOTICE, "%s\n", ss.str().c_str());
     int cmp_return_val = system(ss.str().c_str());
 
     REQUIRE(0 == cmp_return_val);
@@ -172,12 +172,14 @@ void upload_part(const char* const hostname,
                  const int thread_count,
                  int thread_number,
                  bool multipart_flag,
+                 bool put_repl_flag,
+                 bool expected_cache_flag,
                  const std::string& s3_signature_version_str = "4",
                  const std::string& s3_protocol_str = "http",
                  const std::string& s3_sts_date_str = "date",
                  bool server_encrypt_flag = false)
 {
-    rodsLog(LOG_DEBUG, "open file=%s\n", filename);
+    rodsLog(LOG_NOTICE, "%s:%d (%s) open file=%s put_repl_flag=%d\n", __FILE__, __LINE__, __FUNCTION__, filename, put_repl_flag);
     std::ifstream ifs;
     ifs.open(filename, std::ios::in | std::ios::binary | std::ios::ate);
     if (!ifs.good()) {
@@ -199,7 +201,7 @@ void upload_part(const char* const hostname,
 
     uint64_t current_buffer_size = end - start;
 
-    rodsLog(LOG_DEBUG, "%s:%d (%s) [[%d]] [file_size=%lu][start=%lu][end=%lu][current_buffer_size=%lu]\n",
+    rodsLog(LOG_NOTICE, "%s:%d (%s) [[%d]] [file_size=%lu][start=%lu][end=%lu][current_buffer_size=%lu]\n",
             __FILE__, __LINE__, __FUNCTION__,
             thread_number, file_size, start, end, current_buffer_size);
 
@@ -227,12 +229,14 @@ void upload_part(const char* const hostname,
     s3_config.s3_protocol_str = s3_protocol_str;
     s3_config.s3_sts_date_str = s3_sts_date_str;
     s3_config.server_encrypt_flag = server_encrypt_flag;
+    s3_config.put_repl_flag = put_repl_flag;
     s3_config.debug_log_level = LOG_NOTICE;
 
     s3_transport tp1{s3_config};
     odstream ds1{tp1, std::string(object_prefix)+filename};
 
     REQUIRE(ds1.is_open());
+    REQUIRE(tp1.get_use_cache() == expected_cache_flag);
 
     ds1.seekp(start);
 
@@ -260,7 +264,8 @@ void download_part(const char* const hostname,
                    const char* const filename,  // original filename
                    const char* const object_prefix,
                    const int thread_count,
-                   int thread_number)
+                   int thread_number,
+                   bool expected_cache_flag)
 {
 
     std::ifstream ifs;
@@ -311,6 +316,7 @@ void download_part(const char* const hostname,
     idstream ds1{tp1, std::string(object_prefix)+filename};
 
     REQUIRE(ds1.is_open());
+    REQUIRE(tp1.get_use_cache() == expected_cache_flag);
 
     ds1.seekg(start);
     ofs.seekp(start, std::ios::beg);
@@ -329,11 +335,11 @@ void download_part(const char* const hostname,
     }
     ofs.close();
 
-    rodsLog(LOG_DEBUG, "READ DONE FOR %d\n", thread_number);
+    rodsLog(LOG_NOTICE, "READ DONE FOR %d\n", thread_number);
 
     // will be automatic
     ds1.close();
-    rodsLog(LOG_DEBUG, "CLOSE DONE FOR %d\n", thread_number);
+    rodsLog(LOG_NOTICE, "CLOSE DONE FOR %d\n", thread_number);
 
     free(current_buffer);
 
@@ -352,7 +358,7 @@ void read_write_on_file(const char *hostname,
                         std::ios_base::openmode open_modes)
 {
 
-    rodsLog(LOG_DEBUG, "%s:%d (%s) [[%d]] [open file for read/write]\n",
+    rodsLog(LOG_NOTICE, "%s:%d (%s) [[%d]] [open file for read/write]\n",
             __FILE__, __LINE__, __FUNCTION__, thread_number);
 
     std::fstream fs;
@@ -370,12 +376,14 @@ void read_write_on_file(const char *hostname,
     s3_config.secret_access_key = secret_access_key;
     s3_config.multipart_upload_flag = false;
     s3_config.shared_memory_timeout_in_seconds = 20;
+    s3_config.put_repl_flag = false;
     s3_config.debug_log_level = LOG_NOTICE;
 
     s3_transport tp1{s3_config};
     dstream ds1{tp1, std::string(object_prefix)+filename, open_modes};
 
     REQUIRE(ds1.is_open());
+    REQUIRE(tp1.get_use_cache() == true);
 
     if (thread_number == 0) {
 
@@ -400,7 +408,7 @@ void read_write_on_file(const char *hostname,
         if (open_modes & std::ios_base::app) {
             fs.close();
             ds1.close();
-            rodsLog(LOG_DEBUG, "CLOSE DONE FOR %d\n", thread_number);
+            rodsLog(LOG_NOTICE, "CLOSE DONE FOR %d\n", thread_number);
             return;
         }
 
@@ -443,14 +451,15 @@ void read_write_on_file(const char *hostname,
     std::this_thread::sleep_for(2s);
     // will be automatic
     ds1.close();
-    rodsLog(LOG_DEBUG, "CLOSE DONE FOR %d\n", thread_number);
+    rodsLog(LOG_NOTICE, "CLOSE DONE FOR %d\n", thread_number);
 }
 
 void do_upload_process(const std::string& bucket_name,
                        const std::string& filename,
                        const std::string& object_prefix,
                        const std::string& keyfile,
-                       int process_count)
+                       int process_count,
+                       const bool& expected_cache_flag)
 {
     std::string access_key, secret_access_key;
     read_keys(keyfile, access_key, secret_access_key);
@@ -464,17 +473,17 @@ void do_upload_process(const std::string& bucket_name,
         if (0 == pid) {
             upload_part(hostname.c_str(), bucket_name.c_str(), access_key.c_str(),
                     secret_access_key.c_str(), filename.c_str(), object_prefix.c_str(),
-                    process_count, process_number, true);
+                    process_count, process_number, true, true, expected_cache_flag);
             return;
         }
 
-        rodsLog(LOG_DEBUG, "%s:%d (%s) [%d] started process %d\n", __FILE__, __LINE__, __FUNCTION__,
+        rodsLog(LOG_NOTICE, "%s:%d (%s) [%d] started process %d\n", __FILE__, __LINE__, __FUNCTION__,
                 getpid(), pid);
     }
 
     int pid;
     while ((pid = wait(nullptr)) > 0) {
-        rodsLog(LOG_DEBUG, "%s:%d (%s) process %d finished\n", __FILE__, __LINE__, __FUNCTION__, pid);
+        rodsLog(LOG_NOTICE, "%s:%d (%s) process %d finished\n", __FILE__, __LINE__, __FUNCTION__, pid);
     }
 
     check_upload_results(bucket_name, filename, object_prefix);
@@ -484,7 +493,8 @@ void do_download_process(const std::string& bucket_name,
                          const std::string& filename,
                          const std::string& object_prefix,
                          const std::string& keyfile,
-                         int process_count)
+                         int process_count,
+                         const bool& expected_cache_flag)
 {
     std::string access_key, secret_access_key;
     read_keys(keyfile, access_key, secret_access_key);
@@ -497,17 +507,19 @@ void do_download_process(const std::string& bucket_name,
 
         if (0 == pid) {
             download_part(hostname.c_str(), bucket_name.c_str(), access_key.c_str(),
-                    secret_access_key.c_str(), filename.c_str(), object_prefix.c_str(), process_count, process_number);
+                    secret_access_key.c_str(), filename.c_str(), object_prefix.c_str(),
+                    process_count, process_number, expected_cache_flag);
+
             return;
         }
 
-        rodsLog(LOG_DEBUG, "%s:%d (%s) [%d] started process %d\n", __FILE__, __LINE__, __FUNCTION__,
+        rodsLog(LOG_NOTICE, "%s:%d (%s) [%d] started process %d\n", __FILE__, __LINE__, __FUNCTION__,
                 getpid(), pid);
     }
 
     int pid;
     while ((pid = wait(nullptr)) > 0) {
-        rodsLog(LOG_DEBUG, "%s:%d (%s) process %d finished\n", __FILE__, __LINE__, __FUNCTION__, pid);
+        rodsLog(LOG_NOTICE, "%s:%d (%s) process %d finished\n", __FILE__, __LINE__, __FUNCTION__, pid);
     }
 
     check_download_results(bucket_name, filename, object_prefix);
@@ -518,6 +530,7 @@ void do_upload_thread(const std::string& bucket_name,
                       const std::string& object_prefix,
                       const std::string& keyfile,
                       int thread_count,
+                      const bool expected_cache_flag,
                       const std::string& s3_signature_version_str = "4",
                       const std::string& s3_protocol_str = "http",
                       const std::string& s3_sts_date_str = "both")
@@ -533,12 +546,12 @@ void do_upload_thread(const std::string& bucket_name,
 
         irods::thread_pool::post(writer_threads, [bucket_name, access_key,
                 secret_access_key, filename, object_prefix, thread_count, thread_number,
-                s3_signature_version_str, s3_protocol_str, s3_sts_date_str] () {
+                s3_signature_version_str, s3_protocol_str, s3_sts_date_str, expected_cache_flag] () {
 
 
             upload_part(hostname.c_str(), bucket_name.c_str(), access_key.c_str(), secret_access_key.c_str(),
-                    filename.c_str(), object_prefix.c_str(), thread_count, thread_number, thread_count > 1, s3_signature_version_str,
-                    s3_protocol_str, s3_sts_date_str, false);
+                    filename.c_str(), object_prefix.c_str(), thread_count, thread_number, thread_count > 1, true, expected_cache_flag,
+                    s3_signature_version_str, s3_protocol_str, s3_sts_date_str, false);
         });
     }
 
@@ -551,6 +564,7 @@ void do_upload_single_part(const std::string& bucket_name,
                            const std::string& filename,
                            const std::string& object_prefix,
                            const std::string& keyfile,
+                           const bool expected_cache_flag,
                            const std::string& s3_signature_version_str = "4",
                            const std::string& s3_protocol_str = "http",
                            const std::string& s3_sts_date_str = "both",
@@ -563,7 +577,7 @@ void do_upload_single_part(const std::string& bucket_name,
 
     upload_part(hostname.c_str(), bucket_name.c_str(), access_key.c_str(),
             secret_access_key.c_str(), filename.c_str(), object_prefix.c_str(), 1, 0,
-            false, s3_signature_version_str,
+            false, true, expected_cache_flag, s3_signature_version_str,
             s3_protocol_str, s3_sts_date_str, server_encrypt_flag);
 
     check_upload_results(bucket_name, filename, object_prefix);
@@ -574,6 +588,7 @@ void do_download_thread(const std::string& bucket_name,
                         const std::string& object_prefix,
                         const std::string& keyfile,
                         int thread_count,
+                        const bool& expected_cache_flag,
                         const std::string& s3_signature_version_str = "2",
                         const std::string& s3_protocol_str = "http")
 {
@@ -587,12 +602,12 @@ void do_download_thread(const std::string& bucket_name,
     for (int thread_number = 0; thread_number <  thread_count; ++thread_number) {
 
         irods::thread_pool::post(reader_threads, [bucket_name, access_key,
-                secret_access_key, filename, object_prefix, thread_count, thread_number] () {
+                secret_access_key, filename, object_prefix, thread_count, thread_number, expected_cache_flag] () {
 
 
             download_part(hostname.c_str(), bucket_name.c_str(), access_key.c_str(),
                     secret_access_key.c_str(), filename.c_str(), object_prefix.c_str(),
-                    thread_count, thread_number);
+                    thread_count, thread_number, expected_cache_flag);
         });
     }
 
@@ -646,7 +661,8 @@ TEST_CASE("quick test", "[quick_test]")
         int thread_count = 2;
         std::string filename = "large_file";
         std::string object_prefix = "dir1/dir2/";
-        do_upload_thread(bucket_name, filename, object_prefix, keyfile, thread_count);
+        bool expected_cache_flag = false;
+        do_upload_thread(bucket_name, filename, object_prefix, keyfile, thread_count, expected_cache_flag);
     }
 }
 
@@ -726,20 +742,22 @@ TEST_CASE("shmem tests 2", "[shmem2]")
         int thread_count = 7;
         std::string filename = "large_file";
         std::string object_prefix = "dir1/dir2/";
-        do_upload_thread(bucket_name, filename, object_prefix, keyfile, thread_count);
+        bool expected_cache_flag = false;
+        do_upload_thread(bucket_name, filename, object_prefix, keyfile, thread_count, expected_cache_flag);
     }
 }
 
 TEST_CASE("s3_transport_upload_multiple_thread_minimum_part_size", "[upload][thread][minimum_part_size]")
 {
     rodsLogLevel(log_level);
+    bool expected_cache_flag = true;
 
     SECTION("upload medium file forcing cache due to minimum_part_size")
     {
         int thread_count = 10;
         std::string filename = "medium_file";
         std::string object_prefix = "dir1/dir2/";
-        do_upload_thread(bucket_name, filename, object_prefix, keyfile, thread_count);
+        do_upload_thread(bucket_name, filename, object_prefix, keyfile, thread_count, expected_cache_flag);
     }
 }
 
@@ -750,16 +768,17 @@ TEST_CASE("s3_transport_single_part", "[thread][upload][single_part]")
     int thread_count = 1;
     std::string filename = "medium_file";
     std::string object_prefix = "dir1/dir2/";
+    bool expected_cache_flag = false;
 
     SECTION("upload zero length")
     {
         filename = "zero_file";
-        do_upload_thread(bucket_name, filename, object_prefix, keyfile, thread_count);
+        do_upload_thread(bucket_name, filename, object_prefix, keyfile, thread_count, expected_cache_flag);
     }
 
-    SECTION("upload smalle file single part")
+    SECTION("upload small file single part")
     {
-        do_upload_thread(bucket_name, filename, object_prefix, keyfile, thread_count);
+        do_upload_thread(bucket_name, filename, object_prefix, keyfile, thread_count, expected_cache_flag);
     }
 }
 
@@ -771,23 +790,24 @@ TEST_CASE("s3_transport_upload_multiple_threads", "[upload][thread]")
     int thread_count = 2;
     std::string filename = "medium_file";
     std::string object_prefix = "dir1/dir2/";
+    bool expected_cache_flag = false;
 
     SECTION("upload large file with multiple threads")
     {
         thread_count = 10;
         filename = "large_file";
-        do_upload_thread(bucket_name, filename, object_prefix, keyfile, thread_count);
+        do_upload_thread(bucket_name, filename, object_prefix, keyfile, thread_count, expected_cache_flag);
     }
 
     SECTION("upload medium file with multiple threads default settings")
     {
-        do_upload_thread(bucket_name, filename, object_prefix, keyfile, thread_count);
+        do_upload_thread(bucket_name, filename, object_prefix, keyfile, thread_count, expected_cache_flag);
     }
 
     SECTION("upload medium file with multiple threads under bucket root")
     {
         object_prefix = "";
-        do_upload_thread(bucket_name, filename, object_prefix, keyfile, thread_count);
+        do_upload_thread(bucket_name, filename, object_prefix, keyfile, thread_count, expected_cache_flag);
     }
 
     SECTION("upload medium file with multiple threads signature_version=v2")
@@ -796,7 +816,7 @@ TEST_CASE("s3_transport_upload_multiple_threads", "[upload][thread]")
         const std::string s3_protocol_str = "https";
         const std::string s3_sts_date_str = "date";
 
-        do_upload_thread(bucket_name, filename, object_prefix, keyfile, thread_count,
+        do_upload_thread(bucket_name, filename, object_prefix, keyfile, thread_count, expected_cache_flag,
                 s3_signature_version_str, s3_protocol_str, s3_sts_date_str);
     }
 
@@ -806,7 +826,7 @@ TEST_CASE("s3_transport_upload_multiple_threads", "[upload][thread]")
         const std::string s3_protocol_str = "http";
         const std::string s3_sts_date_str = "both";
 
-        do_upload_thread(bucket_name, filename, object_prefix, keyfile, thread_count,
+        do_upload_thread(bucket_name, filename, object_prefix, keyfile, thread_count, expected_cache_flag,
                 s3_signature_version_str, s3_protocol_str, s3_sts_date_str);
     }
 
@@ -816,7 +836,7 @@ TEST_CASE("s3_transport_upload_multiple_threads", "[upload][thread]")
         const std::string s3_protocol_str = "https";
         const std::string s3_sts_date_str = "amz";
 
-        do_upload_thread(bucket_name, filename, object_prefix, keyfile, thread_count,
+        do_upload_thread(bucket_name, filename, object_prefix, keyfile, thread_count, expected_cache_flag,
                 s3_signature_version_str, s3_protocol_str, s3_sts_date_str);
     }
 
@@ -826,7 +846,7 @@ TEST_CASE("s3_transport_upload_multiple_threads", "[upload][thread]")
         const std::string s3_protocol_str = "https";
         const std::string s3_sts_date_str = "date";
 
-        do_upload_thread(bucket_name, filename, object_prefix, keyfile, thread_count,
+        do_upload_thread(bucket_name, filename, object_prefix, keyfile, thread_count, expected_cache_flag,
                 s3_signature_version_str, s3_protocol_str, s3_sts_date_str);
     }
 
@@ -836,14 +856,14 @@ TEST_CASE("s3_transport_upload_multiple_threads", "[upload][thread]")
         const std::string s3_protocol_str = "https";
         const std::string s3_sts_date_str = "both";
 
-        do_upload_thread(bucket_name, filename, object_prefix, keyfile, thread_count,
+        do_upload_thread(bucket_name, filename, object_prefix, keyfile, thread_count, expected_cache_flag,
                 s3_signature_version_str, s3_protocol_str, s3_sts_date_str);
     }
 
     SECTION("upload medium file as single part")
     {
         thread_count = 1;
-        do_upload_single_part(bucket_name, filename, object_prefix, keyfile);
+        do_upload_single_part(bucket_name, filename, object_prefix, keyfile, expected_cache_flag);
     }
 
     SECTION("upload medium file as single part with server encrypt")
@@ -854,7 +874,7 @@ TEST_CASE("s3_transport_upload_multiple_threads", "[upload][thread]")
         const std::string s3_sts_date_str = "both";
         const bool server_encrypt_flag = true;
 
-        do_upload_single_part(bucket_name, filename, object_prefix, keyfile, s3_signature_version_str,
+        do_upload_single_part(bucket_name, filename, object_prefix, keyfile, expected_cache_flag, s3_signature_version_str,
                 s3_protocol_str, s3_sts_date_str, server_encrypt_flag);
     }
 }
@@ -866,23 +886,24 @@ TEST_CASE("s3_transport_download_large_multiple_threads", "[download][thread]")
     int thread_count = 2;
     std::string filename = "medium_file";
     std::string object_prefix = "dir1/dir2/";
+    bool expected_cache_flag = false;
 
     SECTION("download large file with multiple threads")
     {
         thread_count = 8;
         std::string filename = "large_file";
-        do_download_thread(bucket_name, filename, object_prefix, keyfile, thread_count);
+        do_download_thread(bucket_name, filename, object_prefix, keyfile, thread_count, expected_cache_flag);
     }
 
     SECTION("download medium file with multiple threads")
     {
-        do_download_thread(bucket_name, filename, object_prefix, keyfile, thread_count);
+        do_download_thread(bucket_name, filename, object_prefix, keyfile, thread_count, expected_cache_flag);
     }
 
     SECTION("download medium file under bucket root")
     {
         object_prefix = "";
-        do_download_thread(bucket_name, filename, object_prefix, keyfile, thread_count);
+        do_download_thread(bucket_name, filename, object_prefix, keyfile, thread_count, expected_cache_flag);
     }
 
     SECTION("download medium file with multiple threads s3_signature_version=2")
@@ -890,7 +911,7 @@ TEST_CASE("s3_transport_download_large_multiple_threads", "[download][thread]")
         std::string s3_signature_version_str = "2";
         std::string s3_protocol_str = "https";
 
-        do_download_thread(bucket_name, filename, object_prefix, keyfile, thread_count,
+        do_download_thread(bucket_name, filename, object_prefix, keyfile, thread_count, expected_cache_flag,
                 s3_signature_version_str, s3_protocol_str);
     }
 
@@ -900,7 +921,7 @@ TEST_CASE("s3_transport_download_large_multiple_threads", "[download][thread]")
         std::string s3_signature_version_str = "v4";
         std::string s3_protocol_str = "http";
 
-        do_download_thread(bucket_name, filename, object_prefix, keyfile, thread_count,
+        do_download_thread(bucket_name, filename, object_prefix, keyfile, thread_count, expected_cache_flag,
                 s3_signature_version_str, s3_protocol_str);
     }
 
@@ -913,11 +934,12 @@ TEST_CASE("s3_transport_upload_large_multiple_processes", "[upload_process][proc
     int process_count = 8;
     std::string filename = "large_file";
     std::string object_prefix = "dir1/dir2/";
+    bool expected_cache_flag = false;
 
     SECTION("upload large file with multiple processes")
     {
 
-        do_upload_process(bucket_name, filename, object_prefix, keyfile, process_count);
+        do_upload_process(bucket_name, filename, object_prefix, keyfile, process_count, expected_cache_flag);
     }
 }
 
@@ -928,10 +950,11 @@ TEST_CASE("s3_transport_download_large_multiple_processes", "[download_process][
     int process_count = 8;
     std::string filename = "medium_file";
     std::string object_prefix = "dir1/dir2/";
+    bool expected_cache_flag = false;
 
     SECTION("upload large file with multiple processes")
     {
-        do_download_process(bucket_name, filename, object_prefix, keyfile, process_count);
+        do_download_process(bucket_name, filename, object_prefix, keyfile, process_count, expected_cache_flag);
     }
 }
 
