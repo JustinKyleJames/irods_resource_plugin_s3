@@ -63,7 +63,6 @@ namespace irods_s3 {
 
     std::mutex s3_cacheless_plugin_mutex;     // to protect the following shared variables
     int fd_counter = 3;
-    int overwrite_open_mode = 0; // used to overwrite open mode if necessary
     std::map<int, int> fd_to_open_mode_map;
 
     int debug_log_level = LOG_NOTICE;
@@ -152,6 +151,7 @@ namespace irods_s3 {
 
         // get the file descriptor
         int fd = file_obj->file_descriptor();
+rodsLog(debug_log_level, "%s:%d (%s) call_from=%s, [[%lu]] [physical_path=%s][fd=%d]\n", __FILE__, __LINE__, __FUNCTION__, call_from.c_str(), thread_id, file_obj->physical_path().c_str(), fd);
 
         std::shared_ptr<dstream> dstream_ptr;
         std::shared_ptr<s3_transport> s3_transport_ptr;
@@ -174,7 +174,7 @@ namespace irods_s3 {
             return std::make_tuple(PASS(ret), dstream_ptr, s3_transport_ptr);
         }
 
-        rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] [physical_path=%s][bucket_name=%s]\n", __FILE__, __LINE__, __FUNCTION__, thread_id, file_obj->physical_path().c_str(), bucket_name.c_str());
+        rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] [physical_path=%s][bucket_name=%s][fd=%d]\n", __FILE__, __LINE__, __FUNCTION__, thread_id, file_obj->physical_path().c_str(), bucket_name.c_str(), fd);
 
         ret = s3GetAuthCredentials(_ctx.prop_map(), access_key, secret_access_key);
         if(!ret.ok()) {
@@ -339,19 +339,20 @@ namespace irods_s3 {
             unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
 
             std::ios_base::openmode open_mode;
-            if (0 != overwrite_open_mode) {
-                open_mode = translate_open_mode_posix_to_stream(overwrite_open_mode, __FUNCTION__);
+rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] before mode=%d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, file_obj->flags());
+
+            // fix open mode
+            if (0 == file_obj->flags()) {
+                open_mode = translate_open_mode_posix_to_stream(O_CREAT | O_WRONLY | O_TRUNC, __FUNCTION__);
             } else {
                 open_mode = translate_open_mode_posix_to_stream(file_obj->flags(), __FUNCTION__);
             }
-            //std::ios_base::openmode open_mode = translate_open_mode_posix_to_stream(O_CREAT | O_RDWR, __FUNCTION__);   // force use of cache as this isn't a streaming case
 
             {
                 std::lock_guard lock(s3_cacheless_plugin_mutex);
                 int fd = fd_counter++;
                 file_obj->file_descriptor(fd);
                 fd_to_open_mode_map[fd] = open_mode;
-                rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] fd=%d open_mode=%d overwrite_open_mode=%d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, fd, file_obj->flags(), overwrite_open_mode);
             }
 
 
@@ -390,9 +391,22 @@ namespace irods_s3 {
             irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
             unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
 
+            // get oprType
+            int oprType = -1;
+            for (int i = 0; i < NUM_L1_DESC; ++i) {
+               if (L1desc[i].inuseFlag && L1desc[i].dataObjInp && L1desc[i].dataObjInfo && L1desc[i].dataObjInp->objPath == file_obj->logical_path()
+                       && L1desc[i].dataObjInfo->filePath == file_obj->physical_path()) {
+
+                   oprType = L1desc[i].dataObjInp->oprType;
+                   rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] oprType set to %d, PUT_OPR=%d, REPLICATE_OPR=%d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, oprType, PUT_OPR, REPLICATE_OPR);
+                   break;
+               }
+            }
+
+            // fix open mode
             std::ios_base::openmode open_mode;
-            if (0 != overwrite_open_mode) {
-                open_mode = translate_open_mode_posix_to_stream(overwrite_open_mode, __FUNCTION__);
+            if (oprType == PUT_OPR) {
+                open_mode = translate_open_mode_posix_to_stream(O_CREAT | O_WRONLY | O_TRUNC, __FUNCTION__);
             } else {
                 open_mode = translate_open_mode_posix_to_stream(file_obj->flags(), __FUNCTION__);
             }
@@ -403,8 +417,8 @@ namespace irods_s3 {
                 int fd = fd_counter++;
                 file_obj->file_descriptor(fd);
                 fd_to_open_mode_map[fd] = open_mode;
-                rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] fd=%d open_mode=%d overwrite_open_mode=%d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, fd, file_obj->flags(), overwrite_open_mode);
-            return SUCCESS();
+                rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] fd=%d open_mode=%d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, fd, file_obj->flags());
+                return SUCCESS();
             }
         } else {
             return ERROR(SYS_NOT_SUPPORTED,
@@ -583,9 +597,6 @@ namespace irods_s3 {
                 file_descriptor_to_dstream_map.erase(fd);
                 dstream_ptr.reset();  // make sure dstream is destructed first
                 file_descriptor_to_transport_map.erase(fd);
-                if (file_descriptor_to_dstream_map.size() == 0) {
-                    overwrite_open_mode = 0;
-                }
             }
 
             return SUCCESS();
@@ -1397,19 +1408,12 @@ namespace irods_s3 {
         irods::plugin_context& _ctx,
         const std::string*                  _opr,
         const std::string*                  _curr_host,
-        irods::hierarchy_parser*           _out_parser,
+        irods::hierarchy_parser*            _out_parser,
         float*                              _out_vote )
     {
         rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] _opr=%s\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()), _opr->c_str());
 
         irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
-
-        // fix open mode so that multipart uploads will work
-        if (irods::WRITE_OPERATION == (*_opr) || irods::CREATE_OPERATION == (*_opr)) {
-            overwrite_open_mode = O_CREAT | O_WRONLY | O_TRUNC;
-        } else {
-            overwrite_open_mode = 0;
-        }
 
         // read the data size and save and save it under the property plugin property map
         uint64_t data_size = 0;

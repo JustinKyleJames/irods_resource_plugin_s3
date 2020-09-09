@@ -892,13 +892,23 @@ namespace irods::experimental::io::s3_transport
                 use_cache_ = false;
                 object_must_exist_ = true;
             }
-
             // put_repl_flag is a contract that says the full file will be written in a similar
             // manner as iput.
             else if (config_.put_repl_flag) {
                 download_to_cache_ = false;
                 use_cache_ = false;
                 object_must_exist_ = false;
+
+                // override for cases where we must use cache
+                //   1. If we don't know the file size.
+                //   2. If doing multiplart upload file size < #threads * minimum part size
+                // TODO this number_of_transfer_threads needs to be number_of_parallel_put_threads
+                if ( config_.object_size == 0 || config_.object_size == config::UNKNOWN_OBJECT_SIZE ||
+                            ( config_.multipart_upload_flag &&
+                              config_.object_size < static_cast<int64_t>(config_.number_of_transfer_threads) *
+                              static_cast<int64_t>(config_.minimum_part_size))) {
+                    use_cache_ = true;
+                }
             }
             // config_.put_repl_flag not set.  This means we may have random access.  Must
             // use cache.
@@ -977,16 +987,6 @@ namespace irods::experimental::io::s3_transport
 
             populate_open_mode_flags();
 
-            // override for cases where we must use cache
-            //   1. If we don't know the file size.
-            //   2. If doing multiplart upload file size < #threads * minimum part size
-            // TODO this number_of_transfer_threads needs to be number_of_parallel_put_threads
-            if (config_.object_size == 0 || config_.object_size == config::UNKNOWN_OBJECT_SIZE ||
-                    ( config_.multipart_upload_flag &&
-                    config_.object_size < static_cast<int64_t>(config_.number_of_transfer_threads) * static_cast<int64_t>(config_.minimum_part_size))) {
-                use_cache_ = true;
-            }
-
             rodsLog(config_.debug_log_level, "%s:%d (%s) [[%u]] [object_key_ = %s][config_.multipart_upload_flag = %d][use_cache_ = %d]"
                 "[download_to_cache_ = %d]\n",
                 __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
@@ -1021,6 +1021,7 @@ namespace irods::experimental::io::s3_transport
 
             if (object_must_exist_ || download_to_cache_) {
 
+rodsLog(LOG_ERROR, "testing if %s exists", object_key_.c_str());
                 object_exists = object_exists_in_s3(s3_object_size);
 
                 // save the size of the existing object as we may need it later
