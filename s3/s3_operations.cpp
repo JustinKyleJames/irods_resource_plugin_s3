@@ -218,7 +218,6 @@ namespace irods_s3 {
                 nullptr,                     // source resc hier
                 0 );                         // opr type - not used
 
-rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] number_of_threads returned from getNumThreads is %d\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()), number_of_threads);
 
         if (number_of_threads < 1) {
             number_of_threads = 1;
@@ -253,6 +252,8 @@ rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] number_of_threads returned from get
         s3_config.s3_uri_request_style = s3_get_uri_request_style(_ctx.prop_map()) == S3UriStyleVirtualHost ? "host" : "path";
         s3_config.minimum_part_size = s3_get_minimum_part_size(_ctx.prop_map());
         s3_config.debug_log_level = debug_log_level;
+
+        s3_config.put_repl_flag = ( oprType == PUT_OPR || oprType == REPLICATE_DEST );
 
         // get open mode
         std::ios_base::openmode open_mode;

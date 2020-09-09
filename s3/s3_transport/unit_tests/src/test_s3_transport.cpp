@@ -773,6 +773,7 @@ TEST_CASE("s3_transport_single_part", "[thread][upload][single_part]")
     SECTION("upload zero length")
     {
         filename = "zero_file";
+        bool expected_cache_flag = true;
         do_upload_thread(bucket_name, filename, object_prefix, keyfile, thread_count, expected_cache_flag);
     }
 
