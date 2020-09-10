@@ -54,7 +54,8 @@ namespace irods::experimental::io::s3_transport
 
         config()
             : object_size{UNKNOWN_OBJECT_SIZE}
-            , number_of_transfer_threads{1}
+            , number_of_cache_transfer_threads{1}  // this is the number of transfer threads when transferring from cache
+            , number_of_irods_transfer_threads{1}  // this is the number of transfer threads defined by iRODS for PUTs, GETs
             , part_size{1000}
             , retry_count_limit{3}
             , retry_wait_seconds{3}
@@ -78,9 +79,9 @@ namespace irods::experimental::io::s3_transport
         {}
 
         int64_t      object_size;
-        unsigned int number_of_transfer_threads; // only used when doing full file upload/download via cache
-                                                 // otherwise it is controlled by iRODS
-        int64_t      part_size;                  // only used when doing a multipart upload
+        unsigned int number_of_cache_transfer_threads; // only used when doing full file upload/download via cache
+        unsigned int number_of_irods_transfer_threads; // controlled by iRODS
+        int64_t      part_size;                        // only used when doing a multipart upload
         unsigned int retry_count_limit;
         int          retry_wait_seconds;
         std::string  hostname;
@@ -689,7 +690,6 @@ namespace irods::experimental::io::s3_transport
             bf::path cache_file =  bf::path(config_.cache_directory) / bf::path(object_key_ + "-cache");
             bf::path parent_path = cache_file.parent_path();
             try {
-                // TODO if parent's parent doesn't exist this fails
                 boost::filesystem::create_directories(parent_path);
             } catch (boost::filesystem::filesystem_error& e) {
                 rodsLog(LOG_ERROR, "%s:%d (%s) [[%u]] Could not download file to cache.  %s\n",
@@ -730,27 +730,27 @@ namespace irods::experimental::io::s3_transport
                 std::mutex bytes_downloaded_mutex;
 
                 // determine number of download threads.
-                //  max = config_.number_of_transfer_threads
+                //  max = config_.number_of_cache_transfer_threads
                 //  start at 1 and add one per 1M
                 int64_t cutoff_per_thread = 1024*1024;
-                int64_t number_of_transfer_threads = s3_object_size / cutoff_per_thread + 1;
-                number_of_transfer_threads = number_of_transfer_threads > config_.number_of_transfer_threads ? config_.number_of_transfer_threads : number_of_transfer_threads;
+                int64_t number_of_cache_transfer_threads = s3_object_size / cutoff_per_thread + 1;
+                number_of_cache_transfer_threads = number_of_cache_transfer_threads > config_.number_of_cache_transfer_threads ? config_.number_of_cache_transfer_threads : number_of_cache_transfer_threads;
 
-                int64_t part_size = s3_object_size / number_of_transfer_threads;
+                int64_t part_size = s3_object_size / number_of_cache_transfer_threads;
 
-                irods::thread_pool threads{static_cast<int>(number_of_transfer_threads)};
+                irods::thread_pool threads{static_cast<int>(number_of_cache_transfer_threads)};
 
-                for (unsigned int thr_id= 0; thr_id < number_of_transfer_threads; ++thr_id) {
+                for (unsigned int thr_id= 0; thr_id < number_of_cache_transfer_threads; ++thr_id) {
 
-                    irods::thread_pool::post(threads, [this, thr_id, part_size, s3_object_size, number_of_transfer_threads,
+                    irods::thread_pool::post(threads, [this, thr_id, part_size, s3_object_size, number_of_cache_transfer_threads,
                             &bytes_downloaded, &bytes_downloaded_mutex] () {
 
                             off_t this_part_offset = part_size * thr_id;
                             int64_t this_part_size;
 
-                            if (thr_id == number_of_transfer_threads - 1) {
+                            if (thr_id == number_of_cache_transfer_threads - 1) {
                                 this_part_size = part_size + (s3_object_size -
-                                        part_size * number_of_transfer_threads);
+                                        part_size * number_of_cache_transfer_threads);
                             } else {
                                 this_part_size = part_size;
                             }
@@ -816,22 +816,22 @@ namespace irods::experimental::io::s3_transport
             int64_t cache_file_size = static_cast<int64_t>(ifs.tellg());
             ifs.close();
 
-            // each part must be at least 5MB in size so adjust number_of_transfer_threads accordingly
+            // each part must be at least 5MB in size so adjust number_of_cache_transfer_threads accordingly
             int64_t minimum_part_size = config_.minimum_part_size;
-            config_.number_of_transfer_threads
-                = minimum_part_size * config_.number_of_transfer_threads < cache_file_size
-                ? config_.number_of_transfer_threads
+            config_.number_of_cache_transfer_threads
+                = minimum_part_size * config_.number_of_cache_transfer_threads < cache_file_size
+                ? config_.number_of_cache_transfer_threads
                 : cache_file_size / minimum_part_size == 0 ? 1 : cache_file_size / minimum_part_size;
 
-            int64_t part_size = cache_file_size / config_.number_of_transfer_threads;
+            int64_t part_size = cache_file_size / config_.number_of_cache_transfer_threads;
 
-            if (config_.multipart_upload_flag && config_.number_of_transfer_threads > 1) {
+            if (config_.multipart_upload_flag && config_.number_of_cache_transfer_threads > 1) {
 
                 initiate_multipart_upload();
 
-                irods::thread_pool cache_flush_threads{static_cast<int>(config_.number_of_transfer_threads)};
+                irods::thread_pool cache_flush_threads{static_cast<int>(config_.number_of_cache_transfer_threads)};
 
-                for (unsigned int thr_id= 0; thr_id < config_.number_of_transfer_threads; ++thr_id) {
+                for (unsigned int thr_id= 0; thr_id < config_.number_of_cache_transfer_threads; ++thr_id) {
 
                         irods::thread_pool::post(cache_flush_threads, [this, thr_id, part_size] () {
                                 // upload part and read your part from cache file
@@ -902,10 +902,9 @@ namespace irods::experimental::io::s3_transport
                 // override for cases where we must use cache
                 //   1. If we don't know the file size.
                 //   2. If doing multiplart upload file size < #threads * minimum part size
-                // TODO this number_of_transfer_threads needs to be number_of_parallel_put_threads
                 if ( config_.object_size == 0 || config_.object_size == config::UNKNOWN_OBJECT_SIZE ||
                             ( config_.multipart_upload_flag &&
-                              config_.object_size < static_cast<int64_t>(config_.number_of_transfer_threads) *
+                              config_.object_size < static_cast<int64_t>(config_.number_of_irods_transfer_threads) *
                               static_cast<int64_t>(config_.minimum_part_size))) {
                     use_cache_ = true;
                 }
@@ -1021,7 +1020,6 @@ namespace irods::experimental::io::s3_transport
 
             if (object_must_exist_ || download_to_cache_) {
 
-rodsLog(LOG_ERROR, "testing if %s exists", object_key_.c_str());
                 object_exists = object_exists_in_s3(s3_object_size);
 
                 // save the size of the existing object as we may need it later
@@ -1531,9 +1529,9 @@ rodsLog(LOG_ERROR, "testing if %s exists", object_key_.c_str());
                 auto object_size = get_cache_file_size();
 
                 // last thread gets extra bits
-                if (part_number == config_.number_of_transfer_threads - 1) {
+                if (part_number == config_.number_of_cache_transfer_threads - 1) {
                     content_length = part_size + (object_size -
-                            part_size * config_.number_of_transfer_threads);    // TODO this is not right if number of transfer threads altered
+                            part_size * config_.number_of_cache_transfer_threads);    // TODO this is not right if number of transfer threads altered
                 } else {
                     content_length = part_size;
                 }

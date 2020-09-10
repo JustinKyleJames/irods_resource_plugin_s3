@@ -151,7 +151,6 @@ namespace irods_s3 {
 
         // get the file descriptor
         int fd = file_obj->file_descriptor();
-rodsLog(debug_log_level, "%s:%d (%s) call_from=%s, [[%lu]] [physical_path=%s][fd=%d]\n", __FILE__, __LINE__, __FUNCTION__, call_from.c_str(), thread_id, file_obj->physical_path().c_str(), fd);
 
         std::shared_ptr<dstream> dstream_ptr;
         std::shared_ptr<s3_transport> s3_transport_ptr;
@@ -186,9 +185,21 @@ rodsLog(debug_log_level, "%s:%d (%s) call_from=%s, [[%lu]] [physical_path=%s][fd
         ret = _ctx.prop_map().get< int64_t >(DATA_SIZE_KW, data_size);
         rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] data_size set to %ld\n", __FILE__, __LINE__, __FUNCTION__, thread_id, data_size);
         if (!ret.ok()) {
-            //rodsLog(LOG_ERROR, "%s:%d (%s) [[%lu]] DATA_SIZE_KW is not set\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
             data_size = s3_transport_config::UNKNOWN_OBJECT_SIZE;
         }
+
+        // TODO DEBUG - print L1desc for all
+        rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] ------------- L1desc ---------------\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
+        for (int i = 0; i < NUM_L1_DESC; ++i) {
+            if (L1desc[i].inuseFlag && L1desc[i].dataObjInp && L1desc[i].dataObjInfo && L1desc[i].dataObjInp->objPath == file_obj->logical_path()) {
+               int thread_count = L1desc[i].dataObjInp->numThreads;
+               int oprType = L1desc[i].dataObjInp->oprType;
+               int64_t data_size = L1desc[i].dataSize;
+               rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] [oprType=%d][thread_count=%d][data_size=%d]\n", __FILE__, __LINE__, __FUNCTION__, thread_id, oprType, thread_count, data_size);
+            }
+        }
+
+        rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] ------------------------------------\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
 
         // get number of threads and oprType
         int requested_number_of_threads = 0;
@@ -198,7 +209,7 @@ rodsLog(debug_log_level, "%s:%d (%s) call_from=%s, [[%lu]] [physical_path=%s][fd
                    && L1desc[i].dataObjInfo->filePath == file_obj->physical_path()) {
                requested_number_of_threads = L1desc[i].dataObjInp->numThreads;
                oprType = L1desc[i].dataObjInp->oprType;
-               rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] oprType set to %d, PUT_OPR=%d, REPLICATE_OPR=%d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, oprType, PUT_OPR, REPLICATE_OPR);
+               rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] oprType set to %d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, oprType, PUT_OPR, REPLICATE_OPR);
 
                // if data_size is zero or UNKNOWN, try to get it from L1desc
                if (data_size == s3_transport_config::UNKNOWN_OBJECT_SIZE) {
@@ -239,7 +250,8 @@ rodsLog(debug_log_level, "%s:%d (%s) call_from=%s, [[%lu]] [physical_path=%s][fd
         s3_transport_config s3_config;
         s3_config.hostname = hostname;
         s3_config.object_size = data_size;
-        s3_config.number_of_transfer_threads = 20;    // number of threads created by s3_transport when writing/reading to/from cache
+        s3_config.number_of_cache_transfer_threads = 20;    // number of threads created by s3_transport when writing/reading to/from cache
+        s3_config.number_of_irods_transfer_threads = number_of_threads;    // number of threads created by s3_transport when writing/reading to/from cache
         s3_config.part_size = data_size == s3_transport_config::UNKNOWN_OBJECT_SIZE ? 0 : data_size / number_of_threads;
         s3_config.bucket_name = bucket_name;
         s3_config.access_key = access_key;
@@ -332,14 +344,12 @@ rodsLog(debug_log_level, "%s:%d (%s) call_from=%s, [[%lu]] [physical_path=%s][fd
     irods::error s3_file_create_operation( irods::plugin_context& _ctx) {
 
         if (is_cacheless_mode(_ctx.prop_map())) {
-            rodsLog(debug_log_level, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()));
+            unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+            rodsLog(debug_log_level, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
 
             irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
 
-            unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
-
             std::ios_base::openmode open_mode;
-rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] before mode=%d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, file_obj->flags());
 
             // fix open mode
             if (0 == file_obj->flags()) {
