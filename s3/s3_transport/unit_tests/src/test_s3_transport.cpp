@@ -224,7 +224,6 @@ void upload_part(const char* const hostname,
     s3_config.bucket_name = bucket_name;
     s3_config.access_key = access_key;
     s3_config.secret_access_key = secret_access_key;
-    s3_config.multipart_upload_flag = multipart_flag;
     s3_config.shared_memory_timeout_in_seconds = 20;
     s3_config.s3_signature_version_str = s3_signature_version_str;
     s3_config.s3_protocol_str = s3_protocol_str;
@@ -309,7 +308,6 @@ void download_part(const char* const hostname,
     s3_config.bucket_name = bucket_name;
     s3_config.access_key = access_key;
     s3_config.secret_access_key = secret_access_key;
-    s3_config.multipart_upload_flag = false;
     s3_config.shared_memory_timeout_in_seconds = 20;
     s3_config.debug_log_level = LOG_NOTICE;
 
@@ -377,7 +375,6 @@ void read_write_on_file(const char *hostname,
     s3_config.bucket_name = bucket_name;
     s3_config.access_key = access_key;
     s3_config.secret_access_key = secret_access_key;
-    s3_config.multipart_upload_flag = false;
     s3_config.shared_memory_timeout_in_seconds = 20;
     s3_config.put_repl_flag = false;
     s3_config.debug_log_level = LOG_NOTICE;
@@ -654,18 +651,31 @@ void do_read_write_thread(const std::string& bucket_name,
 }
 
 
-TEST_CASE("quick test", "[quick_test]")
+TEST_CASE("quick test upload", "[quick_test_upload]")
 {
     rodsLogLevel(log_level);
 
     SECTION("upload large file with multiple threads")
     {
-        //int thread_count = 7;
-        int thread_count = 2;
+        int thread_count = 7;
         std::string filename = "large_file";
         std::string object_prefix = "dir1/dir2/";
         bool expected_cache_flag = false;
         do_upload_thread(bucket_name, filename, object_prefix, keyfile, thread_count, expected_cache_flag);
+    }
+}
+
+TEST_CASE("quick test download", "[quick_test_download]")
+{
+    rodsLogLevel(log_level);
+
+    SECTION("download large file with multiple threads")
+    {
+        int thread_count = 7;
+        std::string filename = "large_file";
+        std::string object_prefix = "dir1/dir2/";
+        bool expected_cache_flag = false;
+        do_download_thread(bucket_name, filename, object_prefix, keyfile, thread_count, expected_cache_flag);
     }
 }
 

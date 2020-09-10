@@ -256,7 +256,7 @@ namespace irods_s3 {
         s3_config.bucket_name = bucket_name;
         s3_config.access_key = access_key;
         s3_config.secret_access_key = secret_access_key;
-        s3_config.multipart_upload_flag = number_of_threads > 1;
+        //s3_config.multipart_upload_flag = number_of_threads > 1;
         s3_config.shared_memory_timeout_in_seconds = 60;
         s3_config.circular_buffer_size = circular_buffer_size;
         s3_config.s3_signature_version_str = get_signature_version_as_string(_ctx.prop_map());

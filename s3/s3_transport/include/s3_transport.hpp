@@ -63,7 +63,6 @@ namespace irods::experimental::io::s3_transport
             , bucket_name{""}
             , access_key{""}
             , secret_access_key{""}
-            , multipart_upload_flag{true}
             , shared_memory_timeout_in_seconds{constants::DEFAULT_SHARED_MEMORY_TIMEOUT_IN_SECONDS}
             , enable_md5_flag{false}
             , server_encrypt_flag{false}
@@ -88,7 +87,6 @@ namespace irods::experimental::io::s3_transport
         std::string  bucket_name;
         std::string  access_key;
         std::string  secret_access_key;
-        bool         multipart_upload_flag;
         time_t       shared_memory_timeout_in_seconds;
         bool         enable_md5_flag;
         bool         server_encrypt_flag;
@@ -353,13 +351,6 @@ namespace irods::experimental::io::s3_transport
 
             fd_ = uninitialized_file_descriptor;
 
-            //populate_open_mode_flags();
-
-            // if the part size < minimum part size we use cache
-            //if (config_.part_size < config_.minimum_part_size) {
-            //    use_cache_ = true;
-            //}
-
             // If the size == 0 and we were not using cache, the call to send() did not
             // pass through transport.  Call send here
             if ((mode_ & std::ios_base::out) && !use_cache_ && config_.object_size == 0) {
@@ -367,7 +358,7 @@ namespace irods::experimental::io::s3_transport
             }
 
 
-            if ( !use_cache_ && is_full_upload() && config_.multipart_upload_flag ) {
+            if ( !use_cache_ && is_full_upload() && config_.number_of_irods_transfer_threads > 1 ) {
 
                 // This was a full multipart upload, wait for the upload to complete
 
@@ -426,7 +417,7 @@ namespace irods::experimental::io::s3_transport
                     } else {
 
 
-                        if ( this->is_full_upload() && this->config_.multipart_upload_flag ) {
+                        if ( this->is_full_upload() && this->config_.number_of_irods_transfer_threads > 1 ) {
 
                             if (error_codes::SUCCESS != complete_multipart_upload()) {
                                 return_value = false;
@@ -516,7 +507,7 @@ namespace irods::experimental::io::s3_transport
                     __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), _buffer_size);
 
             // if config_.part_size is 0 then bail
-            if (config_.multipart_upload_flag && 0 == config_.part_size) {
+            if (config_.number_of_irods_transfer_threads > 1 && 0 == config_.part_size) {
                 rodsLog(LOG_ERROR, "%s:%d (%s) [[%u]] part size is zero\n", __FILE__, __LINE__,
                         __FUNCTION__, get_thread_identifier());
                     return 0;
@@ -524,7 +515,7 @@ namespace irods::experimental::io::s3_transport
 
             // if we haven't already started an upload thread, start it
             if (!begin_part_upload_thread_ptr_) {
-                if (config_.multipart_upload_flag) {
+                if (config_.number_of_irods_transfer_threads > 1) {
                     begin_part_upload_thread_ptr_ = std::make_unique<std::thread>(
                             &s3_transport::s3_upload_part_worker_routine, this, false, 0, 0);
                 } else {
@@ -825,7 +816,7 @@ namespace irods::experimental::io::s3_transport
 
             int64_t part_size = cache_file_size / config_.number_of_cache_transfer_threads;
 
-            if (config_.multipart_upload_flag && config_.number_of_cache_transfer_threads > 1) {
+            if (config_.number_of_cache_transfer_threads > 1) {
 
                 initiate_multipart_upload();
 
@@ -862,11 +853,11 @@ namespace irods::experimental::io::s3_transport
 
         }
 
-        // TODO
         bool is_full_upload() {
+            //return config_.put_repl_flag;
             using std::ios_base;
             const auto m = mode_ & ~(ios_base::ate | ios_base::binary);
-            return (ios_base::out == m && config_.multipart_upload_flag) ||
+            return (ios_base::out == m && config_.number_of_irods_transfer_threads > 1) ||
                 (ios_base::out | ios_base::trunc) == m;
             //return ( (O_CREAT | O_WRONLY | O_TRUNC) == open_flags );
         }
@@ -903,7 +894,7 @@ namespace irods::experimental::io::s3_transport
                 //   1. If we don't know the file size.
                 //   2. If doing multiplart upload file size < #threads * minimum part size
                 if ( config_.object_size == 0 || config_.object_size == config::UNKNOWN_OBJECT_SIZE ||
-                            ( config_.multipart_upload_flag &&
+                            ( config_.number_of_irods_transfer_threads > 1 &&
                               config_.object_size < static_cast<int64_t>(config_.number_of_irods_transfer_threads) *
                               static_cast<int64_t>(config_.minimum_part_size))) {
                     use_cache_ = true;
@@ -986,11 +977,10 @@ namespace irods::experimental::io::s3_transport
 
             populate_open_mode_flags();
 
-            rodsLog(config_.debug_log_level, "%s:%d (%s) [[%u]] [object_key_ = %s][config_.multipart_upload_flag = %d][use_cache_ = %d]"
+            rodsLog(config_.debug_log_level, "%s:%d (%s) [[%u]] [object_key_ = %s][use_cache_ = %d]"
                 "[download_to_cache_ = %d]\n",
                 __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
                 object_key_.c_str(),
-                config_.multipart_upload_flag,
                 use_cache_,
                 download_to_cache_);
 
@@ -1052,7 +1042,7 @@ namespace irods::experimental::io::s3_transport
                     }
                 }
 
-                if ( !(this->use_cache_) && this->is_full_upload() && this->config_.multipart_upload_flag ) {
+                if ( !(this->use_cache_) && this->is_full_upload() && this->config_.number_of_irods_transfer_threads > 1) {
 
                     bool multipart_upload_success = this->begin_multipart_upload(shm_obj, data.file_open_counter);
                     if (!multipart_upload_success) {
