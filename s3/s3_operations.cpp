@@ -489,7 +489,9 @@ namespace irods_s3 {
                                     int                 _len ) {
 
         if (is_cacheless_mode(_ctx.prop_map())) {
-            rodsLog(debug_log_level, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()));
+
+            unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+            rodsLog(debug_log_level, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
 
             irods::error result = SUCCESS();
 
@@ -522,6 +524,17 @@ namespace irods_s3 {
             irods::error ret = _ctx.prop_map().get< uint64_t >(DATA_SIZE_KW, data_size);
             if (!ret.ok()) {
                 data_size = 0;
+            }
+
+            // TODO DEBUG - print L1desc for all
+            rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] ------------- L1desc ---------------\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
+            for (int i = 0; i < NUM_L1_DESC; ++i) {
+                if (L1desc[i].inuseFlag && L1desc[i].dataObjInp && L1desc[i].dataObjInfo && L1desc[i].dataObjInp->objPath == file_obj->logical_path()) {
+                   int thread_count = L1desc[i].dataObjInp->numThreads;
+                   int oprType = L1desc[i].dataObjInp->oprType;
+                   int64_t data_size = L1desc[i].dataSize;
+                   rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] [path=%s][oprType=%d][thread_count=%d][data_size=%d]\n", __FILE__, __LINE__, __FUNCTION__, thread_id, file_obj->physical_path().c_str(), oprType, thread_count, data_size);
+                }
             }
 
             int requested_number_of_threads = 0;
@@ -911,7 +924,7 @@ namespace irods_s3 {
             off_t pos = s3_transport_ptr->get_offset();
             result.code(pos);
 
-            rodsLog(debug_log_level, "%s:%d (%s) [[%lu] tellg=%lu\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()), pos);
+            rodsLog(debug_log_level, "%s:%d (%s) [[%lu] tellg=%lu\n", __FILE__, __LINE__, __FUNCTION__, thread_id, pos);
 
             return result;
 
