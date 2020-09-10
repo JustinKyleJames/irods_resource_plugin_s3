@@ -42,6 +42,7 @@ namespace irods::experimental::io::s3_transport::shared_data
 
         multipart_shared_data(const interprocess_types::void_allocator &allocator)
             : file_open_counter{0}
+            , done_initiate_multipart{false}
             , upload_id{allocator}
             , etags{allocator}
             , last_error_code{error_codes::SUCCESS}
@@ -52,6 +53,7 @@ namespace irods::experimental::io::s3_transport::shared_data
         void reset_fields()
         {
             file_open_counter = 0;
+            done_initiate_multipart = false;
             upload_id = "";
             etags.clear();
             last_error_code = error_codes::SUCCESS;
@@ -65,6 +67,7 @@ namespace irods::experimental::io::s3_transport::shared_data
         }
 
         int                                   file_open_counter;
+        bool                                  done_initiate_multipart;
         interprocess_types::shm_char_string   upload_id;
         interprocess_types::shm_string_vector etags;
         error_codes                           last_error_code;

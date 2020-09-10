@@ -651,7 +651,7 @@ void do_read_write_thread(const std::string& bucket_name,
 }
 
 
-TEST_CASE("quick test upload", "[quick_test_upload]")
+TEST_CASE("quick test upload", "[quick_test][quick_test_upload]")
 {
     rodsLogLevel(log_level);
 
@@ -665,7 +665,7 @@ TEST_CASE("quick test upload", "[quick_test_upload]")
     }
 }
 
-TEST_CASE("quick test download", "[quick_test_download]")
+TEST_CASE("quick test download", "[quick_test][quick_test_download]")
 {
     rodsLogLevel(log_level);
 

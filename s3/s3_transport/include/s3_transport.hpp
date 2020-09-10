@@ -478,6 +478,10 @@ namespace irods::experimental::io::s3_transport
 
             thread_local std::ofstream tmp;
 
+            named_shared_memory_object shm_obj{shmem_key_,
+                config_.shared_memory_timeout_in_seconds,
+                constants::MAX_S3_SHMEM_SIZE};
+
             if (use_cache_) {
 
                 named_shared_memory_object shm_obj{shmem_key_,
@@ -498,6 +502,29 @@ namespace irods::experimental::io::s3_transport
             }
 
             // Not using cache.
+
+            // if this is a multipart upload and we have not yet initiated it, do so
+            bool return_value = true;
+            shm_obj.atomic_exec([this, &shm_obj, &return_value](auto& data) {
+
+                if ( !(this->use_cache_) && this->is_full_upload() && this->config_.number_of_irods_transfer_threads > 1 && !data.done_initiate_multipart) {
+
+                    bool multipart_upload_success = this->begin_multipart_upload(shm_obj);
+                    if (!multipart_upload_success) {
+                        rodsLog(LOG_ERROR, "Initiate multipart failed.\n");
+                        this->critical_error_encountered_ = true;
+                        return_value = false;
+                    } else {
+                        data.done_initiate_multipart = true;
+                    }
+                }
+            });
+
+            // could not initiate multipart, return error
+            if (return_value == false) {
+                return 0;
+            }
+
             // Put the buffer on the circular buffer.
             // We must copy the buffer because it will persist after send returns.
             buffer_type copied_buffer(_buffer, _buffer + _buffer_size);
@@ -631,14 +658,14 @@ namespace irods::experimental::io::s3_transport
             return static_cast<int64_t>(cache_file_size) < 0 ? 0 : static_cast<int64_t>(cache_file_size);
         }
 
-        bool begin_multipart_upload(named_shared_memory_object& shm_obj, const int& file_open_counter)
+        bool begin_multipart_upload(named_shared_memory_object& shm_obj)
         {
             auto last_error_code = shm_obj.atomic_exec([](auto& data) {
                 return data.last_error_code;
             });
 
             // first one in initiates the multipart (everyone has same shared_memory_lock)
-            if (last_error_code == error_codes::SUCCESS && file_open_counter == 1) {
+            if (last_error_code == error_codes::SUCCESS) {
 
                 // send initiate message to S3
                 error_codes ret = shm_obj.atomic_exec([this](auto& data) {
@@ -1038,16 +1065,6 @@ namespace irods::experimental::io::s3_transport
 
                     if (cache_file_download_status::SUCCESS != download_status) {
                             rodsLog(LOG_ERROR, "failed to download file to cache, download_status =%d\n", download_status);
-                        return_value = false;
-                    }
-                }
-
-                if ( !(this->use_cache_) && this->is_full_upload() && this->config_.number_of_irods_transfer_threads > 1) {
-
-                    bool multipart_upload_success = this->begin_multipart_upload(shm_obj, data.file_open_counter);
-                    if (!multipart_upload_success) {
-                        rodsLog(LOG_ERROR, "Initiate multipart failed.\n");
-                        this->critical_error_encountered_ = true;
                         return_value = false;
                     }
                 }
