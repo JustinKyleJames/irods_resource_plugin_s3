@@ -251,7 +251,7 @@ namespace irods_s3 {
         s3_config.hostname = hostname;
         s3_config.object_size = data_size;
         s3_config.number_of_cache_transfer_threads = 20;    // number of threads created by s3_transport when writing/reading to/from cache
-        s3_config.number_of_irods_transfer_threads = number_of_threads;    // number of threads created by s3_transport when writing/reading to/from cache
+        s3_config.number_of_client_transfer_threads = number_of_threads;    // number of threads created by s3_transport when writing/reading to/from cache
         s3_config.part_size = data_size == s3_transport_config::UNKNOWN_OBJECT_SIZE ? 0 : data_size / number_of_threads;
         s3_config.bucket_name = bucket_name;
         s3_config.access_key = access_key;
