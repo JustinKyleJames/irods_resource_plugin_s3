@@ -1538,7 +1538,7 @@ namespace irods::experimental::io::s3_transport
                 // last thread gets extra bits
                 if (part_number == config_.number_of_cache_transfer_threads - 1) {
                     content_length = part_size + (object_size -
-                            part_size * config_.number_of_cache_transfer_threads);    // TODO this is not right if number of transfer threads altered
+                            part_size * config_.number_of_cache_transfer_threads);
                 } else {
                     content_length = part_size;
                 }

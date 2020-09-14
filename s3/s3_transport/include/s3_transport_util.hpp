@@ -99,7 +99,6 @@ namespace irods::experimental::io::s3_transport
         /* Below used for the upload completion command, need to send in XML */
         std::string              xml;
 
-        // TODO derive types
         int64_t                  remaining;
         int64_t                  offset;
         libs3_types::status      status;            /* status returned by libs3 */
