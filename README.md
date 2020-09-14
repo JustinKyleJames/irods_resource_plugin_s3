@@ -104,13 +104,36 @@ An additional flag called `HOST_MODE` is used to enable cacheless mode.  The def
 * `cacheless_attached` - Resource does not require a compound resource or a cache.  The resource remains tagged to the server defined in the `resc_net` property.  Any requests to this resource will be redirected to that server.
 * `cacheless_detached` - Same as above but the resource is not uniquely pinned to a specific resource server.  Any resource server may fulfill a request.  This requires that all resource servers have network access to the S3 region.  (Note:  The cacheless S3 resource's host must be resolvable to an iRODS server.)
 
-The cacheless version uses a local cache directory temporarily during uploads and downloads.  This can be set using the `S3_CACHE_DIR` parameter in the context string.  If it is not set, a directory under `/tmp` will be created and used.
-
 The following is an example of how to configure a `cacheless_attached` S3 resource:
 
 ```
 iadmin mkresc s3resc s3 $(hostname):/s3-irods-bucket-name/prefix/in/bucket "S3_DEFAULT_HOSTNAME=s3.us-east-1.amazonaws.com;S3_AUTH_FILE=/var/lib/irods/s3.keypair;S3_REGIONNAME=us-east-1;S3_RETRY_COUNT=1;S3_WAIT_TIME_SEC=3;S3_PROTO=HTTP;ARCHIVE_NAMING_POLICY=consistent;HOST_MODE=cacheless_attached"
 ```
+
+### Cache Rules When Using Cacheless Mode
+
+Care was taken to limit the use of a cache file when cacheless mode is enabled.  However, there are scenarios where a cache file is required.  The following explains the decision making in the s3_transport to determine if cache is required.
+
+1.  All objects opened in read-only mode will cacheless as S3 allows random access reads on S3 objects.
+2.  If the write mode is enabled, the following all needs to be true for cacheless streaming:
+  - The s3_transport client must set the put_repl_flag to true.  See below for expectations of the client when this in enabled.
+  - The number_of_client_transfer_threads must be set to the number of threads used by the client.
+  - The object_size must be set by the client.
+
+Note that when using iput or iget the operations will always be cacheless.  At the current time irepl to an S3 resource will use cache as the object size and number of client transfer threads are not currently available to the S3 plugin.
+
+#### Expectations on clients using the s3_transport/dstream directly when the put_repl_flag is set to true.
+
+When the put_repl_flag is true, the s3_transport has some expectations on the behavior of the client.  If these are not followed the results are undefined and the transfers will likely fail.
+
+1.  If the number_of_client_transfer_threads is set to 1, a single thread will send all of the bytes starting from the first byte to the last byte in sequential order.
+2.  If the number_of_client_transfer_threads is greater than 1:
+  - Each thread will perform a lseek() and start writing at the offset of object_size / thread_number.
+  - The last thread will send the extra bytes.
+  - Each thread will call s3_transport_ptr->set_part_size(n) where n is the size of its part.
+  - The bytes for each thread will be sent sequentially and all bytes will be sent.
+
+This conforms to the way iput breaks up the files when doing parallel writes.  The reason for these is so that the s3_transport object can always determine the part number by the object size and offset.
 
 #### Example of a baseline resource configuration
 ```
