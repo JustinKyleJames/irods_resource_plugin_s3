@@ -112,15 +112,17 @@ iadmin mkresc s3resc s3 $(hostname):/s3-irods-bucket-name/prefix/in/bucket "S3_D
 
 ### Cache Rules When Using Cacheless Mode
 
-Care was taken to limit the use of a cache file when cacheless mode is enabled.  However, there are scenarios where a cache file is required.  The following explains the decision making in the s3_transport to determine if cache is required.
+Care was taken to limit the use of a cache file when cacheless mode is enabled.  However, there are scenarios where a cache file is required.  The following explains the decision making in the s3_transport to determine if a cache file is required.
 
-1.  All objects opened in read-only mode will cacheless as S3 allows random access reads on S3 objects.
+1.  All objects opened in read-only mode be will cacheless as S3 allows random access reads on S3 objects.
 2.  If the write mode is enabled, the following all needs to be true for cacheless streaming:
   - The s3_transport client must set the put_repl_flag to true.  See below for expectations of the client when this in enabled.
   - The number_of_client_transfer_threads must be set to the number of threads used by the client.
   - The object_size must be set by the client.
 
-Note that when using iput or iget the operations will always be cacheless.  At the current time irepl to an S3 resource will use cache as the object size and number of client transfer threads are not currently available to the S3 plugin.
+Note that when using iput or iget the operations will always be cacheless.  At the current time irepl to an S3 resource will use a cache file as the object size and number of client transfer threads are not currently available to the S3 plugin.
+
+In the cases where a cache file must be used, the base directory for the cache files can be set using the `S3_CACHE_DIR` parameter in the context string.  If it is not set, a directory under `/tmp` will be created and used.  The cache files are transient and are removed once the data object is closed.
 
 #### Expectations on clients using the s3_transport/dstream directly when the put_repl_flag is set to true.
 
@@ -128,7 +130,7 @@ When the put_repl_flag is true, the s3_transport has some expectations on the be
 
 1.  If the number_of_client_transfer_threads is set to 1, a single thread will send all of the bytes starting from the first byte to the last byte in sequential order.
 2.  If the number_of_client_transfer_threads is greater than 1:
-  - Each thread will perform a lseek() and start writing at the offset of object_size / thread_number.
+  - Each thread will perform a lseek() and start writing at the offset of thread_number * (object_size / number_of_client_transfer_threads).
   - The last thread will send the extra bytes.
   - Each thread will call s3_transport_ptr->set_part_size(n) where n is the size of its part.
   - The bytes for each thread will be sent sequentially and all bytes will be sent.
