@@ -589,6 +589,7 @@ namespace irods::experimental::io::s3_transport
                             &callback_for_write_to_s3_base_data,
                             &shm_obj](auto& data) {
 
+rodsLog(LOG_NOTICE, "%s:%d (%s) [requestId=%s][eTag=%s][sequence=%d]\n", __FILE__, __LINE__, __FUNCTION__, properties->requestId, properties->eTag, callback_for_write_to_s3_base_data->sequence);
                         const char *etag = properties->eTag;
 
                         // Update the etags vector.  It should be sized large enough
@@ -598,6 +599,7 @@ namespace irods::experimental::io::s3_transport
                                 data.etags.resize(callback_for_write_to_s3_base_data->sequence,
                                         types::shm_char_string("", shm_obj.get_allocator()));
                             } catch (std::bad_alloc& ba) {
+rodsLog(LOG_ERROR, "%s:%d (%s) Could not allocate memory for eTag in shmem\n", __FILE__, __LINE__, __FUNCTION__);
                                 return S3StatusOutOfMemory;
                             }
                         }

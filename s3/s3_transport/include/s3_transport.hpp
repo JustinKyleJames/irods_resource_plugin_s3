@@ -1302,6 +1302,9 @@ namespace irods::experimental::io::s3_transport
                     }
                     xml << "</CompleteMultipartUpload>\n";
 
+                    rodsLog(config_.debug_log_level,  "%s:%d (%s) [[%u]] Response: %s\n", __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
+                            xml.str().c_str() );
+
                     int manager_remaining = xml.str().size();
                     upload_manager_.offset = 0;
                     retry_cnt = 0;
