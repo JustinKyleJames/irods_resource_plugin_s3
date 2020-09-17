@@ -135,7 +135,7 @@ When the put_repl_flag is true, the s3_transport has some expectations on the be
 
 This conforms to the way iput breaks up the files when doing parallel writes.  The reason for these is so that the s3_transport object can always determine the part number by the object size and offset.
 
-#### Example of a baseline resource configuration
+### Example of a baseline resource configuration
 ```
 $ ilsresc s3resc
 resource name: s3resc
