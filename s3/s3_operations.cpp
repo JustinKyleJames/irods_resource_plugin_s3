@@ -240,33 +240,6 @@ namespace irods_s3 {
             }
         }
 
-        // if this is a copy and we're the destination, get the data size from the source
-        if (oprType == COPY_DEST) {
-
-            //int src_l1desc_index = L1desc[l1desc_index].srcL1descInx;
-
-            //if (src_l1desc_index >= 0 && src_l1desc_index < NUM_L1_DESC && L1desc[src_l1desc_index].dataObjInfo) {
-            //    data_size = L1desc[src_l1desc_index].dataObjInfo->dataSize;
-            //    rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] copy to s3 destination.  setting data_size to %zd\n",
-            //            __FILE__, __LINE__, __FUNCTION__, thread_id, data_size);
-            //}
-
-            // TODO does not work because objPath changes
-            for (int i = 0; i < NUM_L1_DESC; ++i) {
-
-               if (L1desc[i].inuseFlag && L1desc[i].dataObjInp && L1desc[i].dataObjInfo
-                       && L1desc[i].dataObjInp->objPath == file_obj->logical_path()
-                       && L1desc[i].dataObjInp->oprType == COPY_SRC ) {
-
-                   data_size = L1desc[i].dataObjInfo->dataSize;
-                   rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] copy to s3 destination.  setting data_size to %zd\n",
-                           __FILE__, __LINE__, __FUNCTION__, thread_id, data_size);
-                   break;
-               }
-            }
-
-        }
-
         _ctx.prop_map().set<uint64_t>(DATA_SIZE_KW, data_size);
 
         // get the number of threads
@@ -421,24 +394,6 @@ namespace irods_s3 {
                 int fd = fd_counter++;
                 file_obj->file_descriptor(fd);
                 fd_to_open_mode_map[fd] = open_mode;
-            }
-
-
-            // create a dstream object
-            std::shared_ptr<dstream> dstream_ptr;
-            std::shared_ptr<s3_transport> s3_transport_ptr;
-            irods::error result = SUCCESS();
-
-            std::tie(result, dstream_ptr, s3_transport_ptr) = make_dstream(_ctx, __FUNCTION__);
-
-            if (!result.ok()) {
-                return PASS(result);
-            }
-
-            if (!dstream_ptr || !dstream_ptr->is_open()) {
-                std::stringstream message;
-                message << "No valid dstream found.  dstream_ptr=" << static_cast<void*>(dstream_ptr.get());
-                return ERROR(S3_FILE_OPEN_ERR, message.str().c_str());
             }
 
             return SUCCESS();
