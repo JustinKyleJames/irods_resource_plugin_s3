@@ -12,6 +12,7 @@
 #include <objInfo.h>
 #include <rsRegReplica.hpp>
 #include <dataObjOpr.hpp>
+#include <irods_stacktrace.hpp>
 
 #ifdef USING_JSON
 #include <json/json.h>
@@ -1454,6 +1455,9 @@ irods::error s3PutCopyFile(
     const std::string& _access_key,
     irods::plugin_property_map& _prop_map )
 {
+rodsLog(LOG_NOTICE, "%s:%d (%s) -----------------", __FILE__, __LINE__, __FUNCTION__);
+    std::cerr << irods::stacktrace().dump();
+rodsLog(LOG_NOTICE, "%s:%d (%s) -----------------", __FILE__, __LINE__, __FUNCTION__);
     irods::error result = SUCCESS();
     irods::error ret;
     int cache_fd = -1;

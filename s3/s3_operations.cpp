@@ -183,30 +183,33 @@ namespace irods_s3 {
         // get the file size
         int64_t data_size = s3_transport_config::UNKNOWN_OBJECT_SIZE;
         ret = _ctx.prop_map().get< int64_t >(DATA_SIZE_KW, data_size);
-        rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] data_size set to %ld\n", __FILE__, __LINE__, __FUNCTION__, thread_id, data_size);
         if (!ret.ok()) {
             data_size = s3_transport_config::UNKNOWN_OBJECT_SIZE;
         }
 
-        // TODO DEBUG - print L1desc for all
+        // ********* TODO DEBUG - print L1desc for all
         rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] ------------- L1desc ---------------\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
         for (int i = 0; i < NUM_L1_DESC; ++i) {
-            if (L1desc[i].inuseFlag && L1desc[i].dataObjInp && L1desc[i].dataObjInfo && L1desc[i].dataObjInp->objPath == file_obj->logical_path()) {
+            if (L1desc[i].inuseFlag && L1desc[i].dataObjInp && L1desc[i].dataObjInfo) {// && L1desc[i].dataObjInp->objPath == file_obj->logical_path()) {
                int thread_count = L1desc[i].dataObjInp->numThreads;
                int oprType = L1desc[i].dataObjInp->oprType;
                int64_t data_size = L1desc[i].dataSize;
-               rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] [oprType=%d][thread_count=%d][data_size=%d]\n", __FILE__, __LINE__, __FUNCTION__, thread_id, oprType, thread_count, data_size);
+               rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] [%d][objPath=%s][filePath=%s][oprType=%d][requested_number_of_threads=%d][dataSize=%zd][dataObjInfo->dataSize=%zd][srcL1descInx=%d]\n", __FILE__, __LINE__, __FUNCTION__, thread_id, i, L1desc[i].dataObjInp->objPath, L1desc[i].dataObjInfo->filePath, oprType, thread_count, data_size, L1desc[i].dataObjInfo->dataSize, L1desc[i].srcL1descInx);
             }
         }
+        // ********* END TODO DEBUG - print L1desc for all
 
         rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] ------------------------------------\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
 
         // get number of threads and oprType
         int requested_number_of_threads = 0;
         int oprType = -1;
+        int l1desc_index = -1;
         for (int i = 0; i < NUM_L1_DESC; ++i) {
            if (L1desc[i].inuseFlag && L1desc[i].dataObjInp && L1desc[i].dataObjInfo && L1desc[i].dataObjInp->objPath == file_obj->logical_path()
                    && L1desc[i].dataObjInfo->filePath == file_obj->physical_path()) {
+
+               l1desc_index = i;
                requested_number_of_threads = L1desc[i].dataObjInp->numThreads;
                oprType = L1desc[i].dataObjInp->oprType;
                rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] oprType set to %d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, oprType, PUT_OPR, REPLICATE_OPR);
@@ -219,20 +222,75 @@ namespace irods_s3 {
                break;
            }
         }
+
+        // if this is a replication and we're the destination, get the data size from the source dataObjInfo
+        if (oprType == REPLICATE_DEST) {
+
+            for (int i = 0; i < NUM_L1_DESC; ++i) {
+
+               if (L1desc[i].inuseFlag && L1desc[i].dataObjInp && L1desc[i].dataObjInfo
+                       && L1desc[i].dataObjInp->objPath == file_obj->logical_path()
+                       && L1desc[i].dataObjInp->oprType == REPLICATE_SRC ) {
+
+                   data_size = L1desc[i].dataObjInfo->dataSize;
+                   rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] repl to s3 destination.  setting data_size to %zd\n",
+                           __FILE__, __LINE__, __FUNCTION__, thread_id, data_size);
+                   break;
+               }
+            }
+        }
+
+        // if this is a copy and we're the destination, get the data size from the source
+        if (oprType == COPY_DEST) {
+
+            //int src_l1desc_index = L1desc[l1desc_index].srcL1descInx;
+
+            //if (src_l1desc_index >= 0 && src_l1desc_index < NUM_L1_DESC && L1desc[src_l1desc_index].dataObjInfo) {
+            //    data_size = L1desc[src_l1desc_index].dataObjInfo->dataSize;
+            //    rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] copy to s3 destination.  setting data_size to %zd\n",
+            //            __FILE__, __LINE__, __FUNCTION__, thread_id, data_size);
+            //}
+
+            // TODO does not work because objPath changes
+            for (int i = 0; i < NUM_L1_DESC; ++i) {
+
+               if (L1desc[i].inuseFlag && L1desc[i].dataObjInp && L1desc[i].dataObjInfo
+                       && L1desc[i].dataObjInp->objPath == file_obj->logical_path()
+                       && L1desc[i].dataObjInp->oprType == COPY_SRC ) {
+
+                   data_size = L1desc[i].dataObjInfo->dataSize;
+                   rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] copy to s3 destination.  setting data_size to %zd\n",
+                           __FILE__, __LINE__, __FUNCTION__, thread_id, data_size);
+                   break;
+               }
+            }
+
+        }
+
         _ctx.prop_map().set<uint64_t>(DATA_SIZE_KW, data_size);
 
-        int number_of_threads = getNumThreads( _ctx.comm(),
-                data_size,
-                requested_number_of_threads,
-                const_cast<KeyValPair*>(&file_obj->cond_input()),
-                nullptr,                     // destination resc hier
-                nullptr,                     // source resc hier
-                0 );                         // opr type - not used
+        // get the number of threads
+        int number_of_threads = requested_number_of_threads;
 
+        // TODO repl/copy doesn't seem to honor getNumThreads
+        if (oprType != REPLICATE_DEST && oprType != COPY_DEST) {
+
+            number_of_threads = getNumThreads( _ctx.comm(),
+                    data_size,
+                    requested_number_of_threads,
+                    const_cast<KeyValPair*>(&file_obj->cond_input()),
+                    nullptr,                     // destination resc hier
+                    nullptr,                     // source resc hier
+                    0 );                         // opr type - not used
+        }
 
         if (number_of_threads < 1) {
             number_of_threads = 1;
         }
+
+        _ctx.prop_map().set<int>(s3_number_of_threads, number_of_threads);
+
+        rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] number_of_threads set to %d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, number_of_threads);
 
         // read the size of the circular buffer from configuration
         unsigned int circular_buffer_size = S3_DEFAULT_CIRCULAR_BUFFER_SIZE;
@@ -265,7 +323,7 @@ namespace irods_s3 {
         s3_config.minimum_part_size = s3_get_minimum_part_size(_ctx.prop_map());
         s3_config.debug_log_level = debug_log_level;
 
-        s3_config.put_repl_flag = ( oprType == PUT_OPR || oprType == REPLICATE_DEST );
+        s3_config.put_repl_flag = ( oprType == PUT_OPR || oprType == REPLICATE_DEST || oprType == COPY_DEST );
 
         // get open mode
         std::ios_base::openmode open_mode;
@@ -526,37 +584,9 @@ namespace irods_s3 {
                 data_size = 0;
             }
 
-            // TODO DEBUG - print L1desc for all
-            rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] ------------- L1desc ---------------\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
-            for (int i = 0; i < NUM_L1_DESC; ++i) {
-                if (L1desc[i].inuseFlag && L1desc[i].dataObjInp && L1desc[i].dataObjInfo && L1desc[i].dataObjInp->objPath == file_obj->logical_path()) {
-                   int thread_count = L1desc[i].dataObjInp->numThreads;
-                   int oprType = L1desc[i].dataObjInp->oprType;
-                   int64_t data_size = L1desc[i].dataSize;
-                   rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] [path=%s][oprType=%d][thread_count=%d][data_size=%d]\n", __FILE__, __LINE__, __FUNCTION__, thread_id, file_obj->physical_path().c_str(), oprType, thread_count, data_size);
-                }
-            }
-
-            int requested_number_of_threads = 0;
-            for (int i = 0; i < NUM_L1_DESC; ++i) {
-               if (L1desc[i].inuseFlag && L1desc[i].dataObjInp && L1desc[i].dataObjInfo && L1desc[i].dataObjInp->objPath == file_obj->logical_path()
-                       && L1desc[i].dataObjInfo->filePath == file_obj->physical_path()) {
-                   requested_number_of_threads = L1desc[i].dataObjInp->numThreads;
-                   break;
-               }
-            }
-
-            int number_of_threads = getNumThreads( _ctx.comm(),
-                    data_size,
-                    requested_number_of_threads,
-                    const_cast<KeyValPair*>(&file_obj->cond_input()),
-                    nullptr,                     // destination resc hier
-                    nullptr,                     // source resc hier
-                    0 );                         // opr type - not used
-
-            if (number_of_threads < 1) {
-                number_of_threads = 1;
-            }
+            int number_of_threads;
+            _ctx.prop_map().get<int>(s3_number_of_threads, number_of_threads);
+            rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] read number_of_threads of %d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, number_of_threads);
 
             // determine the part size based on the offset
             off_t offset = s3_transport_ptr->get_offset();
@@ -569,11 +599,9 @@ namespace irods_s3 {
 
             dstream_ptr->write(static_cast<char*>(_buf), _len);
 
-            //off_t after_offset = s3_transport_ptr->get_offset();
-
-            //result.code(after_offset - offset);
             result.code(_len);
             return result;
+
         } else {
             return ERROR(SYS_NOT_SUPPORTED,
                     boost::str(boost::format("[resource_name=%s] %s") %
@@ -1217,13 +1245,6 @@ namespace irods_s3 {
         // retrieve archive naming policy from resource plugin context
         std::string archive_naming_policy = CONSISTENT_NAMING; // default
         ret = _ctx.prop_map().get<std::string>(ARCHIVE_NAMING_POLICY_KW, archive_naming_policy); // get plugin context property
-        if(!ret.ok()) {
-
-            std::stringstream msg;
-            msg << "[resource_name=" << get_resource_name(_ctx.prop_map()) << "] "
-                << ret.result();
-            rodsLog(LOG_ERROR, msg.str().c_str());
-        }
         boost::to_lower(archive_naming_policy);
 
         irods::file_object_ptr object = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());

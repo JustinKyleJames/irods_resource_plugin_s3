@@ -51,6 +51,7 @@ const std::string s3_uri_request_style{"S3_URI_REQUEST_STYLE"};        //  eithe
 const std::string s3_minimum_part_size{"S3_MINIMUM_PART_SIZE"};        //  the minimum part size for s3 multipart parts.  Default
                                                                        //  is AWS value of 5MB
 
+const std::string s3_number_of_threads{"S3_NUMBER_OF_THREADS"};        //  to save number of threads
 const size_t S3_DEFAULT_RETRY_WAIT_SEC = 1;
 const size_t S3_DEFAULT_RETRY_COUNT = 1;
 const int    S3_DEFAULT_CIRCULAR_BUFFER_SIZE = 10;
