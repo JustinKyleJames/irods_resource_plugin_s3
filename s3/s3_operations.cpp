@@ -73,6 +73,9 @@ namespace irods_s3 {
     std::map<int, std::shared_ptr<s3_transport>> file_descriptor_to_transport_map;
 
 
+    irods::error s3_file_stat_operation_with_flag_for_retry_on_not_found(irods::plugin_context& _ctx,
+            struct stat* _statbuf, bool retry_on_not_found );
+
     std::ios_base::openmode translate_open_mode_posix_to_stream(int oflag, const std::string& call_from) noexcept
     {
         using std::ios_base;
@@ -582,6 +585,7 @@ namespace irods_s3 {
             }
 
             std::shared_ptr<dstream> dstream_ptr;
+            std::shared_ptr<s3_transport> s3_transport_ptr;
 
             // if dstream doesn't exist just return
             {
@@ -592,10 +596,21 @@ namespace irods_s3 {
                 }
 
                 dstream_ptr = file_descriptor_to_dstream_map[fd];
+                s3_transport_ptr = file_descriptor_to_transport_map[fd];
             }
 
             if (dstream_ptr && dstream_ptr->is_open()) {
                 dstream_ptr->close();
+            }
+
+            //  because s3 might not provide immediate consistency for subsequent stats,
+            //  do a stat with a retry if not found
+            if (s3_transport_ptr->is_last_file_to_close()) {
+                struct stat statbuf;
+
+                // do not return an error here as this is meant only as a delay until the stat is available
+                // if it is still not avaiable after close() returns it will be detected in a subsequent stat
+                s3_file_stat_operation_with_flag_for_retry_on_not_found(_ctx, &statbuf, true);
             }
 
             {
@@ -603,6 +618,7 @@ namespace irods_s3 {
                 file_descriptor_to_dstream_map.erase(fd);
                 dstream_ptr.reset();  // make sure dstream is destructed first
                 file_descriptor_to_transport_map.erase(fd);
+
             }
 
             return SUCCESS();
@@ -738,11 +754,13 @@ namespace irods_s3 {
 
     } // s3_file_unlink_operation
 
+
     // =-=-=-=-=-=-=-
     // interface for POSIX Stat
-    irods::error s3_file_stat_operation(
+    irods::error s3_file_stat_operation_with_flag_for_retry_on_not_found(
         irods::plugin_context& _ctx,
-        struct stat* _statbuf )
+        struct stat* _statbuf,
+        bool retry_on_not_found )
     {
         rodsLog(debug_log_level, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()));
 
@@ -795,7 +813,7 @@ namespace irods_s3 {
                         bucketContext.accessKeyId = key_id.c_str();
                         bucketContext.secretAccessKey = access_key.c_str();
 
-                        S3ResponseHandler headObjectHandler = { &responsePropertiesCallback, &responseCompleteCallbackIgnoreLogNotFound};
+                        S3ResponseHandler headObjectHandler = { &responsePropertiesCallback, &responseCompleteCallbackIgnoreLoggingNotFound};
                         size_t retry_cnt = 0;
                         do {
                             bzero (&data, sizeof (data));
@@ -803,8 +821,15 @@ namespace irods_s3 {
                             bucketContext.hostName = hostname.c_str();
                             data.pCtx = &bucketContext;
                             S3_head_object(&bucketContext, key.c_str(), 0, &headObjectHandler, &data);
-                            if (data.status != S3StatusOK && data.status != S3StatusHttpErrorNotFound) s3_sleep( retry_wait, 0 );
-                        } while ( (data.status != S3StatusOK && data.status != S3StatusHttpErrorNotFound) && S3_status_is_retryable(data.status) && (++retry_cnt < retry_count_limit ) );
+
+                            if ((retry_on_not_found && data.status != S3StatusOK) ||
+                                (data.status != S3StatusOK && data.status != S3StatusHttpErrorNotFound)) {
+
+                                s3_sleep( retry_wait, 0 );
+                            }
+                        } while ( data.status != S3StatusOK &&
+                                ( S3_status_is_retryable(data.status) || ( retry_on_not_found && data.status == S3StatusHttpErrorNotFound ) ) &&
+                                ++retry_cnt < retry_count_limit );
 
                         if (data.status == S3StatusOK) {
 
@@ -814,6 +839,22 @@ namespace irods_s3 {
                             _statbuf->st_gid = getgid ();
                             _statbuf->st_atime = _statbuf->st_mtime = _statbuf->st_ctime = savedProperties.lastModified;
                             _statbuf->st_size = savedProperties.contentLength;
+
+                        } else if (data.status == S3StatusHttpErrorNotFound && retry_on_not_found) {
+
+                            // This is likely a case where read after write consistency has not been reached.
+                            // Provide a detailed error message and return
+
+                            std::stringstream msg;
+                            msg << "[resource_name=" << get_resource_name(_ctx.prop_map()) << "] ";
+                            if (data.status >= 0) {
+                                msg << " - \"" << S3_get_status_name((S3Status)data.status) << "\"";
+                            }
+                            msg << " - Error stat'ing the S3 object: \"" << object->physical_path() << "\":  ";
+                            msg << "This error is likely due to a delay in read after write consistency in the ";
+                            msg << "S3 provider.  Consider increasing the the S3_RETRY_COUNT or S3_WAIT_TIME.  ";
+                            msg << "It is suggested that the multipe of these two be at least 5 seconds.";
+                            result = ERROR(S3_FILE_STAT_ERR, msg.str());
 
                         } else if (data.status == S3StatusHttpErrorNotFound) {
 
@@ -834,13 +875,22 @@ namespace irods_s3 {
                 }
             }
         }
+
         if( !result.ok() ) {
             std::stringstream msg;
             msg << "[resource_name=" << get_resource_name(_ctx.prop_map()) << "] "
                 << result.result();
             rodsLog(LOG_ERROR, msg.str().c_str());
         }
+
         return result;
+    }
+
+    irods::error s3_file_stat_operation(
+        irods::plugin_context& _ctx,
+        struct stat* _statbuf )
+    {
+        return s3_file_stat_operation_with_flag_for_retry_on_not_found(_ctx, _statbuf, false);
     }
 
     // =-=-=-=-=-=-=-
@@ -1446,6 +1496,8 @@ namespace irods_s3 {
         *_out_vote = irv::vote::zero;
         try {
             *_out_vote = irv::calculate(*_opr, _ctx, *_curr_host, *_out_parser);
+            std::string resource_name = get_resource_name(_ctx);
+            rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] resc=%s, vote=%f, host=%s\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()), resource_name.c_str(), *_out_vote, _curr_host->c_str());
             return SUCCESS();
         }
         catch(const std::out_of_range& e) {

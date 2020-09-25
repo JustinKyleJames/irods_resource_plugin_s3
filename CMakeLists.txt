@@ -92,7 +92,8 @@ target_link_libraries(
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/lib/libboost_system.so
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/lib/libboost_thread.so
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/lib/libboost_filesystem.so
-  ${IRODS_EXTERNALS_FULLPATH_S3}/lib/libs3.so
+  /usr/lib/libs3.so
+  #${IRODS_EXTERNALS_FULLPATH_S3}/lib/libs3.so
   ${OPENSSL_CRYPTO_LIBRARY}
   )
 target_compile_definitions(irods_s3_plugin PRIVATE RODS_SERVER ${IRODS_COMPILE_DEFINITIONS} BOOST_SYSTEM_NO_DEPRECATED)

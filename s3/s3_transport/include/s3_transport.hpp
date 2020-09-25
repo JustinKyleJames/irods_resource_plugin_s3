@@ -135,8 +135,8 @@ namespace irods::experimental::io::s3_transport
             <shared_data::multipart_shared_data>;
 
         // clang-format off
-        inline static constexpr auto uninitialized_file_descriptor = -1;
-        inline static constexpr auto minimum_valid_file_descriptor = 3;
+        const static int uninitialized_file_descriptor = -1;
+        const static int minimum_valid_file_descriptor = 3;
 
         // Errors
         inline static constexpr auto translation_error             = -1;
@@ -170,6 +170,7 @@ namespace irods::experimental::io::s3_transport
             , bucket_context_{}
             , upload_manager_{bucket_context_}
             , critical_error_encountered_{false}
+            , last_file_to_close_{false}
         {
 
             upload_manager_.shared_memory_timeout_in_seconds = config_.shared_memory_timeout_in_seconds;
@@ -221,7 +222,7 @@ namespace irods::experimental::io::s3_transport
 
             // if using cache, go ahead and close the fstream
             if (use_cache_) {
-                if (cache_fstream_) {
+                if (cache_fstream_ && cache_fstream_.is_open()) {
                     cache_fstream_.close();
                 }
             }
@@ -335,10 +336,9 @@ namespace irods::experimental::io::s3_transport
             });
         }
 
-
-
         bool close(const on_close_success* _on_close_success = nullptr) override
         {
+            rodsLog(config_.debug_log_level, "%s:%d (%s) [[%u]] fd_=%d, is_open=%d use_cache_=%d\n", __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), fd_, is_open(), use_cache_);
 
             namespace bi = boost::interprocess;
             namespace types = shared_data::interprocess_types;
@@ -392,14 +392,14 @@ namespace irods::experimental::io::s3_transport
                 // do close processing if # files open = 0
                 //  - for multipart upload send the complete message
                 //  - if using a cache file flush the cache and delete cache file
-                bool last_file_to_close = (data.file_open_counter == 1);
+                last_file_to_close_ = (data.file_open_counter == 1);
                 if (data.file_open_counter > 0) {
                     data.file_open_counter -= 1;
                 }
 
                 rodsLog(config_.debug_log_level, "%s:%d (%s) [[%u]] [last_file_to_close=%d]\n",
                         __FILE__, __LINE__, __FUNCTION__, this->get_thread_identifier(),
-                        last_file_to_close);
+                        last_file_to_close_);
 
                 // if a critical error occurred - do not flush cache file or complete multipart upload
 
@@ -407,7 +407,7 @@ namespace irods::experimental::io::s3_transport
 
                     return_value = false;
 
-                } else if (last_file_to_close) {
+                } else if (last_file_to_close_) {
 
                     if (this->use_cache_) {
 
@@ -441,6 +441,11 @@ namespace irods::experimental::io::s3_transport
                             __FILE__, __LINE__, __FUNCTION__, this->get_thread_identifier());
                     return_value = false;
                 }
+            }
+
+            // close cache stream
+            if (use_cache_) {
+                cache_fstream_.close();
             }
 
             return return_value;
@@ -492,9 +497,14 @@ namespace irods::experimental::io::s3_transport
 
                     auto position_before_write = this->cache_fstream_.tellp();
                     this->cache_fstream_.write(_buffer, _buffer_size);
+                    this->cache_fstream_.flush();
 
                     // calculate the new size of the file
                     auto current_position = this->cache_fstream_.tellp();
+
+                    std::stringstream msg;
+                    msg << "send() position=" << position_before_write << " size=" << _buffer_size << " position_after_write=" << current_position;
+                    rodsLog(config_.debug_log_level, "%s:%d (%s) [[%u]] %s\n", __FILE__, __LINE__, __FUNCTION__, this->get_thread_identifier(), msg.str().c_str());
 
                     // return bytes written
                     return current_position - position_before_write;
@@ -632,6 +642,10 @@ namespace irods::experimental::io::s3_transport
             config_.part_size = part_size;
         }
 
+        bool is_last_file_to_close() {
+            return last_file_to_close_;
+        }
+
         // used for unit testing
         bool get_use_cache() {
             return use_cache_;
@@ -640,7 +654,7 @@ namespace irods::experimental::io::s3_transport
     private:
 
 
-        unsigned int get_thread_identifier() {
+        unsigned int get_thread_identifier() const {
             return std::hash<std::thread::id>{}(std::this_thread::get_id());
         }
 
@@ -900,6 +914,7 @@ namespace irods::experimental::io::s3_transport
         //                          following link: https://en.cppreference.com/w/cpp/io/basic_filebuf/open
         void populate_open_mode_flags() noexcept
         {
+
             using std::ios_base;
 
             const auto m = mode_ & ~(ios_base::ate | ios_base::binary);
@@ -1089,13 +1104,22 @@ namespace irods::experimental::io::s3_transport
 
                         cache_file_path_ = cache_file.string();
 
+                        // first open use open mode given to s3_transport for others
+                        // turn off trunc flag
+                        std::ios_base::openmode mode;
+                        if (data.file_open_counter == 1) {
+                            mode = mode_;
+                        } else {
+                            mode = mode_ & ~std::ios_base::trunc;
+                        }
+
                         // try opening for read and write, if it fails create then open for read/write
-                        cache_fstream_.open(cache_file_path_.c_str(), mode_ | std::ios_base::in | std::ios_base::out);
+                        cache_fstream_.open(cache_file_path_.c_str(), mode | std::ios_base::in | std::ios_base::out);
                         if (!cache_fstream_.is_open()) {
-                            // file may not exist, open with out to create then with in/out
-                            cache_fstream_.open(cache_file_path_.c_str(), mode_ | std::ios_base::out);
+                            // file may not exist, open with std::ios_base::out to create then with in/out
+                            cache_fstream_.open(cache_file_path_.c_str(), mode | std::ios_base::out);
                             cache_fstream_.close();
-                            cache_fstream_.open(cache_file_path_.c_str(), mode_ | std::ios_base::in | std::ios_base::out);
+                            cache_fstream_.open(cache_file_path_.c_str(), mode | std::ios_base::in | std::ios_base::out);
                         }
 
 
@@ -1838,6 +1862,9 @@ namespace irods::experimental::io::s3_transport
         // environment it will run multiple times.
         inline static int            s3_initialized_counter_ = 0;
         inline static std::mutex     s3_initialized_counter_mutex_;
+
+        // this is set to true when the last file closes
+        bool                         last_file_to_close_;
 
     }; // s3_transport
 

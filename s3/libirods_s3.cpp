@@ -316,7 +316,7 @@ void responseCompleteCallback(
     StoreAndLogStatus( status, error, __FUNCTION__, data->pCtx, &(data->status) );
 }
 
-void responseCompleteCallbackIgnoreLogNotFound(
+void responseCompleteCallbackIgnoreLoggingNotFound(
     S3Status status,
     const S3ErrorDetails *error,
     void *callbackData)
@@ -1407,6 +1407,8 @@ static void mpuWorkerThread (
             bucketContext.hostName = hostname.c_str(); // Safe to do, this is a local copy of the data structure
             if (partData.mode == S3_COPYOBJECT) {
                 unsigned long long startOffset = partData.put_object_data.offset;
+
+                // TODO -1 below to fix a bug in libs3 code
                 unsigned long long count = partData.put_object_data.contentLength;
                 S3ResponseHandler copyResponseHandler = {mpuInitRespPropCB /*Do nothing*/, mpuPartRespCompCB};
                 int64_t lastModified;
@@ -1455,9 +1457,6 @@ irods::error s3PutCopyFile(
     const std::string& _access_key,
     irods::plugin_property_map& _prop_map )
 {
-rodsLog(LOG_NOTICE, "%s:%d (%s) -----------------", __FILE__, __LINE__, __FUNCTION__);
-    std::cerr << irods::stacktrace().dump();
-rodsLog(LOG_NOTICE, "%s:%d (%s) -----------------", __FILE__, __LINE__, __FUNCTION__);
     irods::error result = SUCCESS();
     irods::error ret;
     int cache_fd = -1;
