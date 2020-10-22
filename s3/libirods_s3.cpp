@@ -511,6 +511,8 @@ irods::error readS3AuthInfo (
         return result;
     }
 
+    fclose(fptr);
+
     return result;
 }
 

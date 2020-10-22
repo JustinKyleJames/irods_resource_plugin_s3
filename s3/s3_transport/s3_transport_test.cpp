@@ -569,6 +569,7 @@ void download_part(int thread_number,
 
     if (!ds1.is_open()) {
         printf("[%d] Open failed.  Exiting...\n", thread_number);
+        free(current_buffer);
         return;
     }
 
