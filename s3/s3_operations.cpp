@@ -62,106 +62,63 @@ using s3_transport_config = irods::experimental::io::s3_transport::config;
 
 namespace irods_s3 {
 
-    class global_data_by_fd {
+    std::mutex global_mutex;
+    int64_t data_size = s3_transport_config::UNKNOWN_OBJECT_SIZE;
+    int number_of_threads = 0;
+
+    // data per thread
+    struct per_thread_data {
+        std::ios_base::openmode open_mode;
+        std::shared_ptr<dstream> dstream_ptr;
+        std::shared_ptr<s3_transport> s3_transport_ptr;
+    };
+
+    class fd_to_data_map {
 
         public:
 
-            global_data_by_fd() : fd_counter{3} {
+            fd_to_data_map() : fd_counter{3} {
             }
 
-            std::ios_base::openmode get_open_mode(int fd) {
-                std::lock_guard lock(global_data_by_fd_mutex);
-                assert(fd_to_open_mode_map.find(fd) != fd_to_open_mode_map.end());
-                return fd_to_open_mode_map[fd];
+            fd_to_data_map(const fd_to_data_map& src) = delete;
+            fd_to_data_map& operator=(fd_to_data_map& src) = delete;
+
+            per_thread_data get(int fd) {
+
+                std::lock_guard lock(fd_to_data_map_mutex);
+                assert(data_map.find(fd) != data_map.end());
+                return data_map[fd];
             }
 
-            void set_open_mode(int fd, std::ios_base::openmode open_mode) {
-                std::lock_guard lock(global_data_by_fd_mutex);
-                fd_to_open_mode_map[fd] = open_mode;
+            void set(int fd, const per_thread_data data) {
+                std::lock_guard lock(fd_to_data_map_mutex);
+                data_map[fd] = data;
             }
 
-            void remove_from_open_mode_map(int fd) {
-                std::lock_guard lock(global_data_by_fd_mutex);
-                assert(fd_to_open_mode_map.find(fd) != fd_to_open_mode_map.end());
-                fd_to_open_mode_map.erase(fd);
+            void remove(int fd) {
+                std::lock_guard lock(fd_to_data_map_mutex);
+                assert(data_map.find(fd) != data_map.end());
+                data_map.erase(fd);
             }
 
-            bool has_open_mode_for_fd(int fd) {
-                std::lock_guard lock(global_data_by_fd_mutex);
-                return fd_to_open_mode_map.find(fd) != fd_to_open_mode_map.end();
-            }
-
-            std::shared_ptr<dstream> get_dstream(int fd) {
-                std::lock_guard lock(global_data_by_fd_mutex);
-                assert(file_descriptor_to_dstream_map.find(fd) != file_descriptor_to_dstream_map.end());
-                return file_descriptor_to_dstream_map[fd];
-            }
-
-            void set_dstream(int fd, std::shared_ptr<dstream> dstream) {
-                std::lock_guard lock(global_data_by_fd_mutex);
-                file_descriptor_to_dstream_map[fd] = dstream;
-            }
-
-            void remove_from_dstream_map(int fd) {
-                std::lock_guard lock(global_data_by_fd_mutex);
-                assert(file_descriptor_to_dstream_map.find(fd) != file_descriptor_to_dstream_map.end());
-                file_descriptor_to_dstream_map.erase(fd);
-            }
-
-            bool has_dstream_for_fd(int fd) {
-                std::lock_guard lock(global_data_by_fd_mutex);
-                return file_descriptor_to_dstream_map.find(fd) != file_descriptor_to_dstream_map.end();
-            }
-
-            std::shared_ptr<s3_transport> get_transport(int fd) {
-                std::lock_guard lock(global_data_by_fd_mutex);
-                assert(file_descriptor_to_transport_map.find(fd) != file_descriptor_to_transport_map.end());
-                return file_descriptor_to_transport_map[fd];
-            }
-
-            void set_transport(int fd, std::shared_ptr<s3_transport> transport) {
-                std::lock_guard lock(global_data_by_fd_mutex);
-                file_descriptor_to_transport_map[fd] = transport;
-            }
-
-            void remove_from_transport_map(int fd) {
-                std::lock_guard lock(global_data_by_fd_mutex);
-                assert(file_descriptor_to_transport_map.find(fd) != file_descriptor_to_transport_map.end());
-                file_descriptor_to_transport_map.erase(fd);
-            }
-
-            bool has_transport_for_fd(int fd) {
-                std::lock_guard lock(global_data_by_fd_mutex);
-                return file_descriptor_to_transport_map.find(fd) != file_descriptor_to_transport_map.end();
+            bool exists(int fd) {
+                std::lock_guard lock(fd_to_data_map_mutex);
+                return data_map.find(fd) != data_map.end();
             }
 
             int get_and_increment_fd_counter() {
-                std::lock_guard lock(global_data_by_fd_mutex);
                 return fd_counter++;
             }
 
         private:
 
-            std::mutex global_data_by_fd_mutex;
+            std::mutex fd_to_data_map_mutex;
+            std::map<int, per_thread_data> data_map;
             int fd_counter;
-            std::map<std::ios_base::openmode, int> fd_to_open_mode_map;
-            std::map<int, std::shared_ptr<dstream>> file_descriptor_to_dstream_map;
-            std::map<int, std::shared_ptr<s3_transport>> file_descriptor_to_transport_map;
     };
 
-
     int debug_log_level = LOG_NOTICE;
-    global_data_by_fd fd_data;
-
-    //std::mutex s3_cacheless_plugin_mutex;     // to protect the following shared variables
-    //int fd_counter = 3;
-    //std::map<int, int> fd_to_open_mode_map;
-
-    // need map because the close can occur in a different thread than the
-    // read/write/seek operations
-    //std::map<int, std::shared_ptr<dstream>> file_descriptor_to_dstream_map;
-    //std::map<int, std::shared_ptr<s3_transport>> file_descriptor_to_transport_map;
-
+    fd_to_data_map fd_data;
 
     irods::error s3_file_stat_operation_with_flag_for_retry_on_not_found(irods::plugin_context& _ctx,
             struct stat* _statbuf, bool retry_on_not_found );
@@ -172,9 +129,10 @@ namespace irods_s3 {
 
         unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
 
-        rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] call_from=%s oflag=%d oflag&O_TRUNC=%d oflag&O_CREAT=%d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, call_from.c_str(), oflag, oflag & O_TRUNC, oflag & O_CREAT);
-        rodsLog(debug_log_level, "%s:%d (%s) O_WRONLY=%d, O_RDWR=%d, O_RDONLY=%d, O_TRUNC=%d, O_CREAT=%d, O_APPEND=%d\n", __FILE__, __LINE__, __FUNCTION__,
-               O_WRONLY, O_RDWR, O_RDONLY, O_TRUNC, O_CREAT, O_APPEND);
+        rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] call_from=%s oflag=%d oflag&O_TRUNC=%d oflag&O_CREAT=%d\n",
+                __FILE__, __LINE__, __FUNCTION__, thread_id, call_from.c_str(), oflag, oflag & O_TRUNC, oflag & O_CREAT);
+        rodsLog(debug_log_level, "%s:%d (%s) O_WRONLY=%d, O_RDWR=%d, O_RDONLY=%d, O_TRUNC=%d, O_CREAT=%d, O_APPEND=%d\n",
+                __FILE__, __LINE__, __FUNCTION__, O_WRONLY, O_RDWR, O_RDONLY, O_TRUNC, O_CREAT, O_APPEND);
 
         ios_base::openmode mode = 0;
 
@@ -245,9 +203,6 @@ namespace irods_s3 {
         // get the file descriptor
         int fd = file_obj->file_descriptor();
 
-        std::shared_ptr<dstream> dstream_ptr;
-        std::shared_ptr<s3_transport> s3_transport_ptr;
-
         irods::error ret;
         int64_t data_size;
         int requested_number_of_threads = 0;
@@ -260,17 +215,22 @@ namespace irods_s3 {
         std::string secret_access_key;
         unsigned int circular_buffer_size = S3_DEFAULT_CIRCULAR_BUFFER_SIZE;
 
-try {
+        // create entry for fd if it doesn't exist
+        if (!fd_data.exists(fd)) {
+            per_thread_data data;
+            fd_data.set(fd, data);
+        }
 
-        // if already done just return
-        if (fd_data.has_open_mode_for_fd(fd) && fd_data.has_dstream_for_fd(fd) && fd_data.has_transport_for_fd(fd)) {
-            return make_tuple(SUCCESS(), fd_data.get_dstream(fd), fd_data.get_transport(fd));
+        // if dstream/transport already created just return
+        per_thread_data data = fd_data.get(fd);
+        if (data.dstream_ptr && data.s3_transport_ptr) {
+            return make_tuple(SUCCESS(), data.dstream_ptr, data.s3_transport_ptr);
         }
 
 
         ret = parseS3Path(file_obj->physical_path(), bucket_name, object_key, _ctx.prop_map());
         if(!ret.ok()) {
-            return std::make_tuple(PASS(ret), dstream_ptr, s3_transport_ptr);
+            return std::make_tuple(PASS(ret), data.dstream_ptr, data.s3_transport_ptr);
         }
 
         rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] [physical_path=%s][bucket_name=%s][fd=%d]\n",
@@ -278,19 +238,14 @@ try {
 
         ret = s3GetAuthCredentials(_ctx.prop_map(), access_key, secret_access_key);
         if(!ret.ok()) {
-            return std::make_tuple(PASS(ret), dstream_ptr, s3_transport_ptr);
+            return std::make_tuple(PASS(ret), data.dstream_ptr, data.s3_transport_ptr);
         }
-} catch (...) {
-rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] EXCEPTION caught\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
-}
-
-try {
 
         // get the file size
         data_size = s3_transport_config::UNKNOWN_OBJECT_SIZE;
-        ret = _ctx.prop_map().get< int64_t >(DATA_SIZE_KW, data_size);
-        if (!ret.ok()) {
-            data_size = s3_transport_config::UNKNOWN_OBJECT_SIZE;
+        {
+            std::lock_guard<std::mutex> lock(global_mutex);
+            data_size = irods_s3::data_size;
         }
 
         // ********* TODO DEBUG - print L1desc for all
@@ -308,12 +263,6 @@ try {
         }
         // ********* END TODO DEBUG - print L1desc for all
 
-} catch (...) {
-rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] EXCEPTION caught\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
-}
-
-
-try {
         rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] ------------------------------------\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
 
         // get number of threads and oprType
@@ -335,11 +284,6 @@ try {
            }
         }
 
-} catch (...) {
-rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] EXCEPTION caught\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
-}
-
-try {
         // if this is a replication and we're the destination, get the data size from the source dataObjInfo
         if (oprType == REPLICATE_DEST) {
 
@@ -357,12 +301,10 @@ try {
             }
         }
 
-        _ctx.prop_map().set<uint64_t>(DATA_SIZE_KW, data_size);
-} catch (...) {
-rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] EXCEPTION caught\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
-}
-
-try {
+        {
+            std::lock_guard<std::mutex> lock(global_mutex);
+            irods_s3::data_size = data_size;
+        }
 
         // get the number of threads
         number_of_threads = requested_number_of_threads;
@@ -382,15 +324,13 @@ try {
             number_of_threads = 1;
         }
 
-        _ctx.prop_map().set<int>(s3_number_of_threads, number_of_threads);
+        //_ctx.prop_map().set<int>(s3_number_of_threads, number_of_threads);
+        {
+            std::lock_guard<std::mutex> lock(global_mutex);
+            irods_s3::number_of_threads = number_of_threads;
+        }
 
         rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] number_of_threads set to %d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, number_of_threads);
-
-} catch (...) {
-rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] EXCEPTION caught\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
-}
-
-try {
 
         // read the size of the circular buffer from configuration
         std::string circular_buffer_size_str;
@@ -401,12 +341,7 @@ try {
             } catch (boost::bad_lexical_cast &) {}
         }
 
-} catch (...) {
-rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] EXCEPTION caught\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
-}
-
         std::string&& hostname = s3GetHostname(_ctx.prop_map());
-try {
         s3_transport_config s3_config;
         s3_config.hostname = hostname;
         s3_config.object_size = data_size;
@@ -428,29 +363,21 @@ try {
         s3_config.put_repl_flag = ( oprType == PUT_OPR || oprType == REPLICATE_DEST || oprType == COPY_DEST );
 
         // get open mode
-        std::ios_base::openmode open_mode = fd_data.get_open_mode(fd);
+        std::ios_base::openmode open_mode = data.open_mode;
 
         // if data_size is 0, this is not a put or it is a put with a zero length file
         // in this case force cache because the user might do seeks and write out
         // of order
         if (data_size == 0) {
             open_mode |= std::ios_base::in;
-            fd_data.set_open_mode(fd, open_mode);
+            data.open_mode = open_mode;
         }
 
-        s3_transport_ptr = std::make_shared<s3_transport>(s3_config);
-        fd_data.set_transport(fd, s3_transport_ptr);
+        data.s3_transport_ptr = std::make_shared<s3_transport>(s3_config);
+        data.dstream_ptr = std::make_shared<dstream>(*data.s3_transport_ptr, object_key, open_mode);
+        fd_data.set(fd, data);
 
-        dstream_ptr = std::make_shared<dstream>(*s3_transport_ptr, object_key, open_mode);
-        fd_data.set_dstream(fd, dstream_ptr);
-
-} catch (...) {
-rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] EXCEPTION caught\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
-}
-
-rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] RETURN\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
-
-        return std::make_tuple(SUCCESS(), dstream_ptr, s3_transport_ptr);
+        return std::make_tuple(SUCCESS(), data.dstream_ptr, data.s3_transport_ptr);
     }
 
     // =-=-=-=-=-=-=-
@@ -513,7 +440,9 @@ rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] RETURN\n", __FILE__, __LINE__, __FU
             }
 
             int fd = fd_data.get_and_increment_fd_counter();
-            fd_data.set_open_mode(fd, open_mode);
+            per_thread_data data;
+            data.open_mode = open_mode;
+            fd_data.set(fd, data);
             file_obj->file_descriptor(fd);
 
             return SUCCESS();
@@ -538,11 +467,13 @@ rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] RETURN\n", __FILE__, __LINE__, __FU
             // get oprType
             int oprType = -1;
             for (int i = 0; i < NUM_L1_DESC; ++i) {
-               if (L1desc[i].inuseFlag && L1desc[i].dataObjInp && L1desc[i].dataObjInfo && L1desc[i].dataObjInp->objPath == file_obj->logical_path()
+               if (L1desc[i].inuseFlag && L1desc[i].dataObjInp && L1desc[i].dataObjInfo &&
+                       L1desc[i].dataObjInp->objPath == file_obj->logical_path()
                        && L1desc[i].dataObjInfo->filePath == file_obj->physical_path()) {
 
                    oprType = L1desc[i].dataObjInp->oprType;
-                   rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] oprType set to %d, PUT_OPR=%d, REPLICATE_OPR=%d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, oprType, PUT_OPR, REPLICATE_OPR);
+                   rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] oprType set to %d, PUT_OPR=%d, REPLICATE_OPR=%d\n",
+                           __FILE__, __LINE__, __FUNCTION__, thread_id, oprType, PUT_OPR, REPLICATE_OPR);
                    break;
                }
             }
@@ -556,7 +487,9 @@ rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] RETURN\n", __FILE__, __LINE__, __FU
             }
 
             int fd = fd_data.get_and_increment_fd_counter();
-            fd_data.set_open_mode(fd, open_mode);
+            per_thread_data data;
+            data.open_mode = open_mode;
+            fd_data.set(fd, data);
             file_obj->file_descriptor(fd);
 
             return SUCCESS();
@@ -652,13 +585,13 @@ rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] RETURN\n", __FILE__, __LINE__, __FU
 
 
             uint64_t data_size = 0;
-            irods::error ret = _ctx.prop_map().get< uint64_t >(DATA_SIZE_KW, data_size);
-            if (!ret.ok()) {
-                data_size = 0;
+            int number_of_threads;
+            {
+                std::lock_guard<std::mutex> lock(global_mutex);
+                data_size = irods_s3::data_size;
+                number_of_threads = irods_s3::number_of_threads;
             }
 
-            int number_of_threads;
-            _ctx.prop_map().get<int>(s3_number_of_threads, number_of_threads);
             rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] read number_of_threads of %d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, number_of_threads);
 
             // determine the part size based on the offset
@@ -702,17 +635,20 @@ rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] RETURN\n", __FILE__, __LINE__, __FU
             std::shared_ptr<dstream> dstream_ptr;
             std::shared_ptr<s3_transport> s3_transport_ptr;
 
-            if (fd_data.has_open_mode_for_fd(fd)) {
-                fd_data.remove_from_open_mode_map(fd);
-            }
-
-            // if dstream doesn't exist just return
-            if (!fd_data.has_dstream_for_fd(fd)) {
+            if (!fd_data.exists(fd)) {
                 return SUCCESS();
             }
 
-            dstream_ptr = fd_data.get_dstream(fd);
-            s3_transport_ptr = fd_data.get_transport(fd);
+            per_thread_data data = fd_data.get(fd);
+            fd_data.remove(fd);
+
+            // if dstream wasn't created just return
+            if (!data.dstream_ptr) {
+                return SUCCESS();
+            }
+
+            dstream_ptr = data.dstream_ptr;
+            s3_transport_ptr = data.s3_transport_ptr;
 
             if (dstream_ptr && dstream_ptr->is_open()) {
                 dstream_ptr->close();
@@ -728,9 +664,7 @@ rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] RETURN\n", __FILE__, __LINE__, __FU
                 s3_file_stat_operation_with_flag_for_retry_on_not_found(_ctx, &statbuf, true);
             }
 
-            fd_data.remove_from_dstream_map(fd);
             dstream_ptr.reset();  // make sure dstream is destructed first
-            fd_data.remove_from_transport_map(fd);
 
             return SUCCESS();
 
@@ -1585,7 +1519,10 @@ rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] RETURN\n", __FILE__, __LINE__, __FU
                 data_size = 0;
             }
         }
-        _ctx.prop_map().set<uint64_t>(DATA_SIZE_KW, data_size);
+        {
+            std::lock_guard<std::mutex> lock(global_mutex);
+            irods_s3::data_size = data_size;
+        }
 
         namespace irv = irods::experimental::resource::voting;
 
