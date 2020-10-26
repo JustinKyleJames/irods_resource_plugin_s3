@@ -748,7 +748,7 @@ TEST_CASE("shmem tests 2", "[shmem2]")
         // including leaving the interprocess recursive mutex locked
         // set access time to a value that is considered expired
         (object->thing.ref_count)++;
-        (object->thing.file_open_counter)++;
+        (object->thing.threads_remaining_to_close)++;
         object->access_mutex.lock();
         object->last_access_time_in_seconds = now - 20;
 

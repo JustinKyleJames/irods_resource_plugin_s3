@@ -104,7 +104,7 @@ namespace irods::experimental::io::s3_transport
             libs3_types::bucket_context& saved_bucket_context; /* To enable more detailed error messages */
             int64_t                      offset;       /* For multiple upload */
             int64_t                      content_length;
-            unsigned int                 thread_identifier;
+            uint64_t                     thread_identifier;
             int64_t                      bytes_read_from_s3;
             std::string                  shmem_key;
             time_t                       shared_memory_timeout_in_seconds;
@@ -136,7 +136,7 @@ namespace irods::experimental::io::s3_transport
                 }
 
                 if (!cache_fstream) {
-                    rodsLog(LOG_ERROR, "%s:%d (%s) [[%u]] could not open cache file\n",
+                    rodsLog(LOG_ERROR, "%s:%d (%s) [[%lu]] could not open cache file\n",
                             __FILE__, __LINE__, __FUNCTION__, this->thread_identifier);
                     return S3StatusAbortedByCallback;
                 }
@@ -167,7 +167,7 @@ namespace irods::experimental::io::s3_transport
                 filename = f;
                 cache_fstream.open(filename.c_str(), std::ios_base::out);
                 if (!cache_fstream) {
-                    rodsLog(LOG_ERROR, "%s:%d (%s) [[%u]] could not open cache file\n",
+                    rodsLog(LOG_ERROR, "%s:%d (%s) [[%lu]] could not open cache file\n",
                             __FILE__, __LINE__, __FUNCTION__, this->thread_identifier);
                 }
             }
@@ -317,7 +317,7 @@ namespace irods::experimental::io::s3_transport
                 libs3_types::status          status;
                 bool                         enable_md5;
                 bool                         server_encrypt;
-                unsigned int                 thread_identifier;
+                uint64_t                     thread_identifier;
                 std::string                  object_key;
                 std::string                  shmem_key;
                 time_t                       shared_memory_timeout_in_seconds;
@@ -356,7 +356,7 @@ namespace irods::experimental::io::s3_transport
                     }
 
                     if (!cache_fstream) {
-                        rodsLog(LOG_ERROR, "%s:%d (%s) [[%u]] could not open cache file\n",
+                        rodsLog(LOG_ERROR, "%s:%d (%s) [[%lu]] could not open cache file\n",
                                 __FILE__, __LINE__, __FUNCTION__, this->thread_identifier);
                         return S3StatusAbortedByCallback;
                     }
@@ -391,7 +391,7 @@ namespace irods::experimental::io::s3_transport
                     filename = f;
                     cache_fstream.open(filename.c_str(), std::ios_base::in);
                     if (!cache_fstream) {
-                        rodsLog(LOG_ERROR, "%s:%d (%s) [[%u]] could not open cache file\n",
+                        rodsLog(LOG_ERROR, "%s:%d (%s) [[%lu]] could not open cache file\n",
                                 __FILE__, __LINE__, __FUNCTION__, this->thread_identifier);
                     }
                 }
@@ -437,12 +437,12 @@ namespace irods::experimental::io::s3_transport
                         upload_page<buffer_type> page;
 
                         // read the first page
-                        rodsLog(LOG_DEBUG, "%s:%d (%s) [[%u]] waiting to read\n", __FILE__, __LINE__, __FUNCTION__,
+                        rodsLog(LOG_DEBUG, "%s:%d (%s) [[%lu]] waiting to read\n", __FILE__, __LINE__, __FUNCTION__,
                                 this->thread_identifier);
 
                         circular_buffer.pop_front(page);
 
-                        rodsLog(LOG_DEBUG, "%s:%d (%s) [[%u]] read page [buffer=%p][buffer_size=%lu][terminate_flag=%d]\n",
+                        rodsLog(LOG_DEBUG, "%s:%d (%s) [[%lu]] read page [buffer=%p][buffer_size=%lu][terminate_flag=%d]\n",
                                 __FILE__, __LINE__, __FUNCTION__, this->thread_identifier, page.buffer.data(),
                                 page.buffer.size(), page.terminate_flag);
 
@@ -629,7 +629,7 @@ namespace irods::experimental::io::s3_transport
                 libs3_types::status          status;
                 bool                         enable_md5;
                 bool                         server_encrypt;
-                unsigned int                 thread_identifier;
+                uint64_t                     thread_identifier;
                 time_t                       shared_memory_timeout_in_seconds;
                 std::string                  object_key;
                 std::string                  shmem_key;
@@ -672,7 +672,7 @@ namespace irods::experimental::io::s3_transport
                     }
 
                     if (!cache_fstream) {
-                        rodsLog(LOG_ERROR, "%s:%d (%s) [[%u]] could not open cache file\n",
+                        rodsLog(LOG_ERROR, "%s:%d (%s) [[%lu]] could not open cache file\n",
                                 __FILE__, __LINE__, __FUNCTION__, this->thread_identifier);
                         return 0;
                     }
@@ -708,7 +708,7 @@ namespace irods::experimental::io::s3_transport
                     filename = f;
                     cache_fstream.open(filename.c_str(), std::ios_base::in);
                     if (!cache_fstream) {
-                        rodsLog(LOG_ERROR, "%s:%d (%s) [[%u]] could not open cache file\n",
+                        rodsLog(LOG_ERROR, "%s:%d (%s) [[%lu]] could not open cache file\n",
                                 __FILE__, __LINE__, __FUNCTION__, this->thread_identifier);
                     }
                 }
@@ -754,13 +754,13 @@ namespace irods::experimental::io::s3_transport
                         upload_page<buffer_type> page;
 
                         // read the first page
-                        rodsLog(LOG_DEBUG, "%s:%d (%s) [[%u]] waiting to read\n",
+                        rodsLog(LOG_DEBUG, "%s:%d (%s) [[%lu]] waiting to read\n",
                                 __FILE__, __LINE__, __FUNCTION__,
                                 this->thread_identifier);
 
                         circular_buffer.pop_front(page);
 
-                        rodsLog(LOG_DEBUG, "%s:%d (%s) [[%u]] read page [buffer=%p][buffer_size=%lu]"
+                        rodsLog(LOG_DEBUG, "%s:%d (%s) [[%lu]] read page [buffer=%p][buffer_size=%lu]"
                                 "[terminate_flag=%d]\n", __FILE__, __LINE__, __FUNCTION__,
                                 this->thread_identifier, page.buffer.data(),
                                 page.buffer.size(), page.terminate_flag);

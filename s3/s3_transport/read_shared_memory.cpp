@@ -51,8 +51,8 @@ int main(int argc, char **argv) {
 
     shm_obj.atomic_exec([](auto& data)
     {
-        printf("[file_open_counter=%d][upload_id=%s][last_error_code=%d][cache_file_download_progress=%d]"
-                "[ref_count=%d]\n", data.file_open_counter, data.upload_id.c_str(), data.last_error_code,
+        printf("[threads_remaining_to_close=%d][upload_id=%s][last_error_code=%d][cache_file_download_progress=%d]"
+                "[ref_count=%d]\n", data.threads_remaining_to_close, data.upload_id.c_str(), data.last_error_code,
                 data.cache_file_download_progress, data.ref_count);
     });
 

@@ -41,7 +41,7 @@ namespace irods::experimental::io::s3_transport::shared_data
         using error_codes = irods::experimental::io::s3_transport::error_codes;
 
         multipart_shared_data(const interprocess_types::void_allocator &allocator)
-            : file_open_counter{0}
+            : threads_remaining_to_close{0}
             , done_initiate_multipart{false}
             , upload_id{allocator}
             , etags{allocator}
@@ -52,7 +52,7 @@ namespace irods::experimental::io::s3_transport::shared_data
 
         void reset_fields()
         {
-            file_open_counter = 0;
+            threads_remaining_to_close = 0;
             done_initiate_multipart = false;
             upload_id = "";
             etags.clear();
@@ -63,10 +63,10 @@ namespace irods::experimental::io::s3_transport::shared_data
         }
 
         bool can_delete() {
-            return file_open_counter == 0;
+            return threads_remaining_to_close == 0;
         }
 
-        int                                   file_open_counter;
+        int                                   threads_remaining_to_close;
         bool                                  done_initiate_multipart;
         interprocess_types::shm_char_string   upload_id;
         interprocess_types::shm_string_vector etags;
