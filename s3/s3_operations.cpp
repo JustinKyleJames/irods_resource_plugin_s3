@@ -360,6 +360,13 @@ namespace irods_s3 {
         s3_config.minimum_part_size = s3_get_minimum_part_size(_ctx.prop_map());
         s3_config.debug_log_level = debug_log_level;
 
+        // Get S3 region name from plugin property map
+        std::string region_name = "us-east-1";
+        if (!_ctx.prop_map().get< std::string >(s3_region_name, region_name ).ok()) {
+            rodsLog( LOG_ERROR, "[resource_name=%s] Failed to retrieve S3 region name from resource plugin properties, using 'us-east-1'", get_resource_name(_ctx.prop_map()).c_str());
+        }
+        s3_config.region_name = region_name;
+
         s3_config.put_repl_flag = ( oprType == PUT_OPR || oprType == REPLICATE_DEST || oprType == COPY_DEST );
 
         // get open mode

@@ -60,6 +60,7 @@ namespace irods::experimental::io::s3_transport
             , retry_count_limit{3}
             , retry_wait_seconds{3}
             , hostname{"s3.amazonaws.com"}
+            , region_name{"us-east-1"}
             , bucket_name{""}
             , access_key{""}
             , secret_access_key{""}
@@ -84,6 +85,7 @@ namespace irods::experimental::io::s3_transport
         unsigned int retry_count_limit;
         int          retry_wait_seconds;
         std::string  hostname;
+        std::string  region_name;
         std::string  bucket_name;
         std::string  access_key;
         std::string  secret_access_key;
@@ -254,6 +256,7 @@ namespace irods::experimental::io::s3_transport
             S3ResponseHandler head_object_handler = { &s3_head_object_callback::on_response_properties,
                 &s3_head_object_callback::on_response_complete };
 
+            S3_set_region_name(config_.region_name.c_str());
             S3_head_object(&bucket_context_, object_key_.c_str(), 0, &head_object_handler, &data);
 
             object_size = data.content_length;
@@ -1231,6 +1234,7 @@ namespace irods::experimental::io::s3_transport
                     rodsLog(config_.debug_log_level, "%s:%d (%s) [[%lu]] call S3_initiate_multipart [object_key=%s]\n",
                             __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), object_key_.c_str());
 
+                    S3_set_region_name(config_.region_name.c_str());
                     S3_initiate_multipart(&bucket_context_, object_key_.c_str(),
                             &put_props_, &mpu_initial_handler, nullptr, &upload_manager_);
 
@@ -1292,6 +1296,7 @@ namespace irods::experimental::io::s3_transport
 
             s3_multipart_upload::cancel_callback::g_response_completion_status = libs3_types::status_ok;
             s3_multipart_upload::cancel_callback::g_response_completion_saved_bucket_context = &bucket_context_;
+            S3_set_region_name(config_.region_name.c_str());
             S3_abort_multipart_upload(&bucket_context_, object_key_.c_str(),
                     upload_id.c_str(), &abort_handler);
             status = s3_multipart_upload::cancel_callback::g_response_completion_status;
@@ -1364,6 +1369,7 @@ namespace irods::experimental::io::s3_transport
                         upload_manager_.xml = xml.str().c_str();
 
                         upload_manager_.offset = 0;
+                        S3_set_region_name(config_.region_name.c_str());
                         S3_complete_multipart_upload(&bucket_context_, object_key_.c_str(),
                                 &commit_handler, upload_id.c_str(),
                                 upload_manager_.remaining, nullptr, &upload_manager_);
@@ -1487,6 +1493,7 @@ namespace irods::experimental::io::s3_transport
                         msg.str().c_str());
 
                 uint64_t start_microseconds = get_time_in_microseconds();
+                S3_set_region_name(config_.region_name.c_str());
                 S3_get_object( &bucket_context_, object_key_.c_str(), NULL,
                         offset, read_callback->content_length, 0,
                         &get_object_handler, read_callback.get() );
@@ -1694,6 +1701,7 @@ namespace irods::experimental::io::s3_transport
                        object_key_.c_str(), write_callback->sequence,
                        write_callback->content_length);
 
+                S3_set_region_name(config_.region_name.c_str());
                 S3_upload_part(&bucket_context_, object_key_.c_str(), &put_props_,
                         &put_object_handler, write_callback->sequence, upload_id.c_str(),
                         write_callback->content_length, 0, write_callback.get());
@@ -1814,6 +1822,7 @@ namespace irods::experimental::io::s3_transport
                        object_key_.c_str(),
                        write_callback->content_length);
 
+                S3_set_region_name(config_.region_name.c_str());
                 S3_put_object(&bucket_context_, object_key_.c_str(), write_callback->content_length,
                         &put_props_, 0, &put_object_handler, write_callback.get());
 
