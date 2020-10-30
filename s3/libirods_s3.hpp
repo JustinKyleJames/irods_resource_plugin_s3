@@ -41,7 +41,6 @@ const std::string s3_mpu_chunk{"S3_MPU_CHUNK"};
 const std::string s3_mpu_threads{"S3_MPU_THREADS"};
 const std::string s3_enable_md5{"S3_ENABLE_MD5"};
 const std::string s3_server_encrypt{"S3_SERVER_ENCRYPT"};
-const std::string s3_signature_version{"S3_SIGNATURE_VERSION"};
 const std::string s3_region_name{"S3_REGIONNAME"};
 const std::string REPL_POLICY_KEY{"repl_policy"};
 const std::string REPL_POLICY_VAL{"reg_repl"};
@@ -58,13 +57,12 @@ const int    S3_DEFAULT_CIRCULAR_BUFFER_SIZE = 10;
 const size_t S3_DEFAULT_MINIMUM_PART_SIZE = 5*1024*1024;
 
 std::string s3GetHostname(irods::plugin_property_map& _prop_map);
-S3SignatureVersion s3GetSignatureVersion(irods::plugin_property_map& _prop_map);
 long s3GetMPUChunksize(irods::plugin_property_map& _prop_map);
 ssize_t s3GetMPUThreads(irods::plugin_property_map& _prop_map);
-bool s3GetEnableMD5(irods::plugin_property_map& _prop_map);
 uint64_t s3_get_minimum_part_size(irods::plugin_property_map& _prop_map);
 bool s3GetEnableMultiPartUpload (irods::plugin_property_map& _prop_map);
 S3UriStyle s3_get_uri_request_style(irods::plugin_property_map& _prop_map);
+std::string get_region_name(irods::plugin_property_map& _prop_map);
 
 void StoreAndLogStatus(S3Status status, const S3ErrorDetails *error,
         const char *function, const S3BucketContext *pCtx, S3Status *pStatus,
@@ -121,7 +119,6 @@ typedef struct multipart_data
     upload_manager_t *manager;     /* To update w/the MD5 returned */
 
     S3Status status;
-    bool enable_md5;
     bool server_encrypt;
 } multipart_data_t;
 

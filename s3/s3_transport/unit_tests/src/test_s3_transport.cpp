@@ -174,7 +174,6 @@ void upload_part(const char* const hostname,
                  bool multipart_flag,
                  bool put_repl_flag,
                  bool expected_cache_flag,
-                 const std::string& s3_signature_version_str = "4",
                  const std::string& s3_protocol_str = "http",
                  const std::string& s3_sts_date_str = "date",
                  bool server_encrypt_flag = false)
@@ -225,12 +224,12 @@ void upload_part(const char* const hostname,
     s3_config.access_key = access_key;
     s3_config.secret_access_key = secret_access_key;
     s3_config.shared_memory_timeout_in_seconds = 20;
-    s3_config.s3_signature_version_str = s3_signature_version_str;
     s3_config.s3_protocol_str = s3_protocol_str;
     s3_config.s3_sts_date_str = s3_sts_date_str;
     s3_config.server_encrypt_flag = server_encrypt_flag;
     s3_config.put_repl_flag = put_repl_flag;
     s3_config.debug_log_level = LOG_NOTICE;
+    s3_config.region_name = "us-east-1";
 
     s3_transport tp1{s3_config};
     odstream ds1{tp1, std::string(object_prefix)+filename};
@@ -310,6 +309,7 @@ void download_part(const char* const hostname,
     s3_config.secret_access_key = secret_access_key;
     s3_config.shared_memory_timeout_in_seconds = 20;
     s3_config.debug_log_level = LOG_NOTICE;
+    s3_config.region_name = "us-east-1";
 
     s3_transport tp1{s3_config};
 
@@ -378,6 +378,7 @@ void read_write_on_file(const char *hostname,
     s3_config.shared_memory_timeout_in_seconds = 20;
     s3_config.put_repl_flag = false;
     s3_config.debug_log_level = LOG_NOTICE;
+    s3_config.region_name = "us-east-1";
 
     s3_transport tp1{s3_config};
     dstream ds1{tp1, std::string(object_prefix)+filename, open_modes};
@@ -531,9 +532,8 @@ void do_upload_thread(const std::string& bucket_name,
                       const std::string& keyfile,
                       int thread_count,
                       const bool expected_cache_flag,
-                      const std::string& s3_signature_version_str = "4",
                       const std::string& s3_protocol_str = "http",
-                      const std::string& s3_sts_date_str = "both")
+                      const std::string& s3_sts_date_str = "date")
 {
     std::string access_key, secret_access_key;
     read_keys(keyfile, access_key, secret_access_key);
@@ -546,12 +546,12 @@ void do_upload_thread(const std::string& bucket_name,
 
         irods::thread_pool::post(writer_threads, [bucket_name, access_key,
                 secret_access_key, filename, object_prefix, thread_count, thread_number,
-                s3_signature_version_str, s3_protocol_str, s3_sts_date_str, expected_cache_flag] () {
+                s3_protocol_str, s3_sts_date_str, expected_cache_flag] () {
 
 
             upload_part(hostname.c_str(), bucket_name.c_str(), access_key.c_str(), secret_access_key.c_str(),
                     filename.c_str(), object_prefix.c_str(), thread_count, thread_number, thread_count > 1, true, expected_cache_flag,
-                    s3_signature_version_str, s3_protocol_str, s3_sts_date_str, false);
+                    s3_protocol_str, s3_sts_date_str, false);
         });
     }
 
@@ -565,9 +565,8 @@ void do_upload_single_part(const std::string& bucket_name,
                            const std::string& object_prefix,
                            const std::string& keyfile,
                            const bool expected_cache_flag,
-                           const std::string& s3_signature_version_str = "4",
                            const std::string& s3_protocol_str = "http",
-                           const std::string& s3_sts_date_str = "both",
+                           const std::string& s3_sts_date_str = "date",
                            bool server_encrypt_flag = false)
 {
     std::string access_key, secret_access_key;
@@ -577,8 +576,8 @@ void do_upload_single_part(const std::string& bucket_name,
 
     upload_part(hostname.c_str(), bucket_name.c_str(), access_key.c_str(),
             secret_access_key.c_str(), filename.c_str(), object_prefix.c_str(), 1, 0,
-            false, true, expected_cache_flag, s3_signature_version_str,
-            s3_protocol_str, s3_sts_date_str, server_encrypt_flag);
+            false, true, expected_cache_flag, s3_protocol_str, s3_sts_date_str,
+            server_encrypt_flag);
 
     check_upload_results(bucket_name, filename, object_prefix);
 }
@@ -589,7 +588,6 @@ void do_download_thread(const std::string& bucket_name,
                         const std::string& keyfile,
                         int thread_count,
                         const bool& expected_cache_flag,
-                        const std::string& s3_signature_version_str = "2",
                         const std::string& s3_protocol_str = "http")
 {
     std::string access_key, secret_access_key;
@@ -824,54 +822,40 @@ TEST_CASE("s3_transport_upload_multiple_threads", "[upload][thread]")
         do_upload_thread(bucket_name, filename, object_prefix, keyfile, thread_count, expected_cache_flag);
     }
 
-    SECTION("upload medium file with multiple threads signature_version=v2")
-    {
-        const std::string s3_signature_version_str = "v2";
-        const std::string s3_protocol_str = "https";
-        const std::string s3_sts_date_str = "date";
-
-        do_upload_thread(bucket_name, filename, object_prefix, keyfile, thread_count, expected_cache_flag,
-                s3_signature_version_str, s3_protocol_str, s3_sts_date_str);
-    }
-
     SECTION("upload medium file with multiple threads protocol=http")
     {
-        const std::string s3_signature_version_str = "v4";
         const std::string s3_protocol_str = "http";
         const std::string s3_sts_date_str = "both";
 
         do_upload_thread(bucket_name, filename, object_prefix, keyfile, thread_count, expected_cache_flag,
-                s3_signature_version_str, s3_protocol_str, s3_sts_date_str);
+                s3_protocol_str, s3_sts_date_str);
     }
 
     SECTION("upload medium file with multiple threads sts_date=amz")
     {
-        const std::string s3_signature_version_str = "v4";
         const std::string s3_protocol_str = "https";
         const std::string s3_sts_date_str = "amz";
 
         do_upload_thread(bucket_name, filename, object_prefix, keyfile, thread_count, expected_cache_flag,
-                s3_signature_version_str, s3_protocol_str, s3_sts_date_str);
+                s3_protocol_str, s3_sts_date_str);
     }
 
     SECTION("upload medium file with multiple threads sts_date=date")
     {
-        const std::string s3_signature_version_str = "v4";
         const std::string s3_protocol_str = "https";
         const std::string s3_sts_date_str = "date";
 
         do_upload_thread(bucket_name, filename, object_prefix, keyfile, thread_count, expected_cache_flag,
-                s3_signature_version_str, s3_protocol_str, s3_sts_date_str);
+                s3_protocol_str, s3_sts_date_str);
     }
 
     SECTION("upload medium file with multiple threads sts_date=both")
     {
-        const std::string s3_signature_version_str = "v4";
         const std::string s3_protocol_str = "https";
         const std::string s3_sts_date_str = "both";
 
         do_upload_thread(bucket_name, filename, object_prefix, keyfile, thread_count, expected_cache_flag,
-                s3_signature_version_str, s3_protocol_str, s3_sts_date_str);
+                s3_protocol_str, s3_sts_date_str);
     }
 
     SECTION("upload medium file as single part")
@@ -883,12 +867,11 @@ TEST_CASE("s3_transport_upload_multiple_threads", "[upload][thread]")
     SECTION("upload medium file as single part with server encrypt")
     {
         thread_count = 1;
-        const std::string s3_signature_version_str = "4";
         const std::string s3_protocol_str = "http";
         const std::string s3_sts_date_str = "both";
         const bool server_encrypt_flag = true;
 
-        do_upload_single_part(bucket_name, filename, object_prefix, keyfile, expected_cache_flag, s3_signature_version_str,
+        do_upload_single_part(bucket_name, filename, object_prefix, keyfile, expected_cache_flag,
                 s3_protocol_str, s3_sts_date_str, server_encrypt_flag);
     }
 }
@@ -922,21 +905,19 @@ TEST_CASE("s3_transport_download_large_multiple_threads", "[download][thread]")
 
     SECTION("download medium file with multiple threads s3_signature_version=2")
     {
-        std::string s3_signature_version_str = "2";
         std::string s3_protocol_str = "https";
 
         do_download_thread(bucket_name, filename, object_prefix, keyfile, thread_count, expected_cache_flag,
-                s3_signature_version_str, s3_protocol_str);
+                s3_protocol_str);
     }
 
 
     SECTION("download medium file with multiple threads protocol=http")
     {
-        std::string s3_signature_version_str = "v4";
         std::string s3_protocol_str = "http";
 
         do_download_thread(bucket_name, filename, object_prefix, keyfile, thread_count, expected_cache_flag,
-                s3_signature_version_str, s3_protocol_str);
+                s3_protocol_str);
     }
 
 }

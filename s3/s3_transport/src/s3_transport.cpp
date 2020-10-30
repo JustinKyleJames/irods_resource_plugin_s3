@@ -44,7 +44,7 @@ namespace irods::experimental::io::s3_transport
     {
         rodsLog(LOG_DEBUG, "BucketContext: [hostName=%s] [bucketName=%s][protocol=%d]"
                "[uriStyle=%d][accessKeyId=%s][secretAccessKey=%s]"
-               "[securityToken=%s][stsDate=%d]\n",
+               "[securityToken=%s][stsDate=%d][region=%s]\n",
                bucket_context.hostName == nullptr ? "" : bucket_context.hostName,
                bucket_context.bucketName == nullptr ? "" : bucket_context.bucketName,
                bucket_context.protocol,
@@ -52,7 +52,8 @@ namespace irods::experimental::io::s3_transport
                bucket_context.accessKeyId == nullptr ? "" : bucket_context.accessKeyId,
                bucket_context.secretAccessKey == nullptr ? "" : bucket_context.secretAccessKey,
                bucket_context.securityToken == nullptr ? "" : bucket_context.securityToken,
-               bucket_context.stsDate);
+               bucket_context.stsDate,
+               bucket_context.authRegion);
     }
 
     void store_and_log_status( libs3_types::status status,

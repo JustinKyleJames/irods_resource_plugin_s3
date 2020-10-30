@@ -166,20 +166,6 @@ namespace irods_s3 {
         return proto_str;
     }
 
-    std::string get_signature_version_as_string(irods::plugin_property_map& _prop_map)
-    {
-        std::string version_str;
-
-        irods::error ret = _prop_map.get< std::string >(s3_signature_version, version_str);
-        if (ret.ok()) {
-            if (version_str == "4" || boost::iequals(version_str, "V4")) {
-                return "v4";
-            }
-        }
-
-        return "v2";
-    }
-
     bool is_cacheless_mode(irods::plugin_property_map& _prop_map) {
 
         bool cacheless_mode = false;
@@ -354,18 +340,12 @@ namespace irods_s3 {
         //s3_config.multipart_upload_flag = number_of_threads > 1;
         s3_config.shared_memory_timeout_in_seconds = 60;
         s3_config.circular_buffer_size = circular_buffer_size;
-        s3_config.s3_signature_version_str = get_signature_version_as_string(_ctx.prop_map());
         s3_config.s3_protocol_str = get_protocol_as_string(_ctx.prop_map());
         s3_config.s3_uri_request_style = s3_get_uri_request_style(_ctx.prop_map()) == S3UriStyleVirtualHost ? "host" : "path";
         s3_config.minimum_part_size = s3_get_minimum_part_size(_ctx.prop_map());
         s3_config.debug_log_level = debug_log_level;
 
-        // Get S3 region name from plugin property map
-        std::string region_name = "us-east-1";
-        if (!_ctx.prop_map().get< std::string >(s3_region_name, region_name ).ok()) {
-            rodsLog( LOG_ERROR, "[resource_name=%s] Failed to retrieve S3 region name from resource plugin properties, using 'us-east-1'", get_resource_name(_ctx.prop_map()).c_str());
-        }
-        s3_config.region_name = region_name;
+        s3_config.region_name = get_region_name(_ctx.prop_map());
 
         s3_config.put_repl_flag = ( oprType == PUT_OPR || oprType == REPLICATE_DEST || oprType == COPY_DEST );
 
@@ -759,6 +739,9 @@ namespace irods_s3 {
             return PASS(ret);
         }
 
+
+        std::string region_name = get_region_name(_ctx.prop_map());
+
         S3BucketContext bucketContext = {};
         bucketContext.bucketName = bucket.c_str();
         bucketContext.protocol = s3GetProto(_ctx.prop_map());
@@ -766,6 +749,7 @@ namespace irods_s3 {
         bucketContext.uriStyle = s3_get_uri_request_style(_ctx.prop_map());
         bucketContext.accessKeyId = key_id.c_str();
         bucketContext.secretAccessKey = access_key.c_str();
+        bucketContext.authRegion = region_name.c_str();
 
         callback_data_t data;
         S3ResponseHandler responseHandler = { 0, &responseCompleteCallback };
@@ -778,6 +762,7 @@ namespace irods_s3 {
             S3_delete_object(
                 &bucketContext,
                 key.c_str(), 0,
+                0,                    //timeout
                 &responseHandler,
                 &data);
             if(data.status != S3StatusOK) {
@@ -854,6 +839,8 @@ namespace irods_s3 {
                     ret = s3GetAuthCredentials(_ctx.prop_map(), key_id, access_key);
                     if((result = ASSERT_PASS(ret, "[resource_name=%s] Failed to get the S3 credentials properties.", get_resource_name(_ctx.prop_map()).c_str())).ok()) {
 
+                        std::string region_name = get_region_name(_ctx.prop_map());
+
                         callback_data_t data;
                         S3BucketContext bucketContext;// = {};
                         bzero(&bucketContext, sizeof(bucketContext));
@@ -864,6 +851,7 @@ namespace irods_s3 {
                         bucketContext.uriStyle = s3_get_uri_request_style(_ctx.prop_map());
                         bucketContext.accessKeyId = key_id.c_str();
                         bucketContext.secretAccessKey = access_key.c_str();
+                        bucketContext.authRegion = region_name.c_str();
 
                         S3ResponseHandler headObjectHandler = { &responsePropertiesCallback, &responseCompleteCallbackIgnoreLoggingNotFound};
                         size_t retry_cnt = 0;
@@ -872,7 +860,7 @@ namespace irods_s3 {
                             std::string&& hostname = s3GetHostname(_ctx.prop_map());
                             bucketContext.hostName = hostname.c_str();
                             data.pCtx = &bucketContext;
-                            S3_head_object(&bucketContext, key.c_str(), 0, &headObjectHandler, &data);
+                            S3_head_object(&bucketContext, key.c_str(), 0, 0, &headObjectHandler, &data);
 
                             if ((retry_on_not_found && data.status != S3StatusOK) ||
                                 (data.status != S3StatusOK && data.status != S3StatusHttpErrorNotFound)) {
@@ -1199,6 +1187,8 @@ namespace irods_s3 {
                     return PASS(result);
                 }
 
+                std::string region_name = get_region_name(_ctx.prop_map());
+
                 S3BucketContext bucketContext = {};
 
                 bucketContext.bucketName = bucket.c_str();
@@ -1207,6 +1197,7 @@ namespace irods_s3 {
                 bucketContext.uriStyle = s3_get_uri_request_style(_ctx.prop_map());
                 bucketContext.accessKeyId = key_id.c_str();
                 bucketContext.secretAccessKey = access_key.c_str();
+                bucketContext.authRegion = region_name.c_str();
 
                 size_t retry_cnt = 0;
                 do {
@@ -1221,8 +1212,9 @@ namespace irods_s3 {
                             "/",                                                         // delimiter
                             1024,                                                        // max number returned
                             nullptr,                                                     // S3RequestContext
+                            0,                                                           // timeout
                             &list_bucket_handler,                                        // S3ListBucketHandler
-                            &cb_data                                                        // void* callback data
+                            &cb_data                                                     // void* callback data
                             );
 
                     if (data.status != S3StatusOK) s3_sleep( retry_wait, 0 );

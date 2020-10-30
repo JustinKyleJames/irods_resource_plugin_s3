@@ -67,7 +67,6 @@ namespace irods::experimental::io::s3_transport
             , shared_memory_timeout_in_seconds{constants::DEFAULT_SHARED_MEMORY_TIMEOUT_IN_SECONDS}
             , enable_md5_flag{false}
             , server_encrypt_flag{false}
-            , s3_signature_version_str{"v4"}
             , s3_protocol_str{"http"}
             , s3_sts_date_str{"amz"}
             , cache_directory{"/tmp"}
@@ -92,7 +91,6 @@ namespace irods::experimental::io::s3_transport
         time_t       shared_memory_timeout_in_seconds;
         bool         enable_md5_flag;
         bool         server_encrypt_flag;
-        std::string  s3_signature_version_str;
         std::string  s3_protocol_str;
         std::string  s3_sts_date_str;
         std::string  cache_directory;
@@ -181,13 +179,7 @@ namespace irods::experimental::io::s3_transport
             bucket_context_.bucketName      = config_.bucket_name.c_str();
             bucket_context_.accessKeyId     = config_.access_key.c_str();
             bucket_context_.secretAccessKey = config_.secret_access_key.c_str();
-
-            if (_config.s3_signature_version_str == "4"
-                    || boost::iequals(_config.s3_signature_version_str, "V4")) {
-                s3_signature_version_       = S3SignatureV4;
-            } else {
-                s3_signature_version_       = S3SignatureV2;
-            }
+            bucket_context_.authRegion      = config_.region_name.c_str();
 
             if (boost::iequals(_config.s3_protocol_str, "http")) {
                 bucket_context_.protocol    = S3ProtocolHTTP;
@@ -256,8 +248,7 @@ namespace irods::experimental::io::s3_transport
             S3ResponseHandler head_object_handler = { &s3_head_object_callback::on_response_properties,
                 &s3_head_object_callback::on_response_complete };
 
-            S3_set_region_name(config_.region_name.c_str());
-            S3_head_object(&bucket_context_, object_key_.c_str(), 0, &head_object_handler, &data);
+            S3_head_object(&bucket_context_, object_key_.c_str(), 0, 0, &head_object_handler, &data);
 
             object_size = data.content_length;
 
@@ -395,10 +386,10 @@ namespace irods::experimental::io::s3_transport
                 // do close processing if # files open = 0
                 //  - for multipart upload send the complete message
                 //  - if using a cache file flush the cache and delete cache file
-                last_file_to_close_ = (data.threads_remaining_to_close == 1);
                 if (data.threads_remaining_to_close > 0) {
                     data.threads_remaining_to_close -= 1;
                 }
+                last_file_to_close_ = data.threads_remaining_to_close == 0;
 
                 rodsLog(config_.debug_log_level, "%s:%d (%s) [[%lu]] [last_file_to_close=%d]\n",
                         __FILE__, __LINE__, __FUNCTION__, this->get_thread_identifier(),
@@ -800,7 +791,7 @@ namespace irods::experimental::io::s3_transport
                             }
 
                             int64_t this_bytes_downloaded =
-                                this->s3_download_part_worker_routine(nullptr, this_part_size, this_part_offset);
+                                this->s3_download_part_worker_routine(nullptr, this_part_size, this_part_offset, true);
 
                             {
                                 std::lock_guard<std::mutex> lock(bytes_downloaded_mutex);
@@ -829,7 +820,7 @@ namespace irods::experimental::io::s3_transport
             }
 
             // check the download status and return
-            return shm_obj.atomic_exec([](auto& data) { return data.cache_file_download_progress; });
+            return shm_obj.exec([](auto& data) { return data.cache_file_download_progress; });
 
         }
 
@@ -1048,10 +1039,6 @@ namespace irods::experimental::io::s3_transport
 
                     int flags = S3_INIT_ALL;
 
-                    if (s3_signature_version_ == S3SignatureV4) {
-                        flags |= S3_INIT_SIGNATURE_V4;
-                    }
-
                     int status = S3_initialize( "s3", flags, bucket_context_.hostName );
                     if (status != libs3_types::status_ok) {
                         rodsLog(LOG_ERROR, "S3_initialize returned error\n");
@@ -1234,9 +1221,8 @@ namespace irods::experimental::io::s3_transport
                     rodsLog(config_.debug_log_level, "%s:%d (%s) [[%lu]] call S3_initiate_multipart [object_key=%s]\n",
                             __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), object_key_.c_str());
 
-                    S3_set_region_name(config_.region_name.c_str());
                     S3_initiate_multipart(&bucket_context_, object_key_.c_str(),
-                            &put_props_, &mpu_initial_handler, nullptr, &upload_manager_);
+                            &put_props_, &mpu_initial_handler, nullptr, 0, &upload_manager_);
 
                     rodsLog(config_.debug_log_level, "%s:%d (%s) [[%lu]] [manager.status=%s]\n", __FILE__, __LINE__,
                             __FUNCTION__, get_thread_identifier(), S3_get_status_name(upload_manager_.status));
@@ -1296,9 +1282,8 @@ namespace irods::experimental::io::s3_transport
 
             s3_multipart_upload::cancel_callback::g_response_completion_status = libs3_types::status_ok;
             s3_multipart_upload::cancel_callback::g_response_completion_saved_bucket_context = &bucket_context_;
-            S3_set_region_name(config_.region_name.c_str());
             S3_abort_multipart_upload(&bucket_context_, object_key_.c_str(),
-                    upload_id.c_str(), &abort_handler);
+                    upload_id.c_str(), 0, &abort_handler);
             status = s3_multipart_upload::cancel_callback::g_response_completion_status;
             if (status != libs3_types::status_ok) {
                 msg.str( std::string() ); // Clear
@@ -1369,10 +1354,9 @@ namespace irods::experimental::io::s3_transport
                         upload_manager_.xml = xml.str().c_str();
 
                         upload_manager_.offset = 0;
-                        S3_set_region_name(config_.region_name.c_str());
                         S3_complete_multipart_upload(&bucket_context_, object_key_.c_str(),
                                 &commit_handler, upload_id.c_str(),
-                                upload_manager_.remaining, nullptr, &upload_manager_);
+                                upload_manager_.remaining, nullptr, 0, &upload_manager_);
                         rodsLog(config_.debug_log_level, "%s:%d (%s) [[%lu]] [manager.status=%s]\n", __FILE__, __LINE__,
                                 __FUNCTION__, get_thread_identifier(), S3_get_status_name(upload_manager_.status));
                         if (upload_manager_.status != libs3_types::status_ok) s3_sleep( config_.retry_wait_seconds, 0 );
@@ -1410,12 +1394,21 @@ namespace irods::experimental::io::s3_transport
 
         // download the part from the S3 object
         //   input:
-        //     buffer - If not null the downloaded part is written to buffer.  Buffer must have
-        //              length reserved.  If buffer is null the download is written to the cache file.
-        //     length - The length to be downloaded.
-        //     offset - If provided this is the offset of the object that is being downloaded.  If not
-        //              provided the current offset (file_offset_) is used.
-        std::streamsize s3_download_part_worker_routine(char_type *buffer, int64_t length, off_t offset = -1)
+        //     buffer               - If not null the downloaded part is written to buffer.  Buffer must have
+        //                            length reserved.  If buffer is null the download is written to the cache file.
+        //     length               - The length to be downloaded.
+        //     offset               - If provided this is the offset of the object that is being downloaded.  If not
+        //                            provided the current offset (file_offset_) is used.
+        //     shmem_already_locked - If provided and true then no locking is done in shmem.
+        //                            The default is false (with shmem locking).
+        //
+        //         Note:  The mutex is recursive but when reading from cache this is called by newly created
+        //                threads and thus we need the flag if shmem is already locked.
+        //
+        std::streamsize s3_download_part_worker_routine(char_type *buffer,
+                int64_t length,
+                off_t offset = -1,
+                bool shmem_already_locked = false)
         {
             namespace bi = boost::interprocess;
             namespace types = shared_data::interprocess_types;
@@ -1493,9 +1486,11 @@ namespace irods::experimental::io::s3_transport
                         msg.str().c_str());
 
                 uint64_t start_microseconds = get_time_in_microseconds();
-                S3_set_region_name(config_.region_name.c_str());
+
+                rodsLog(config_.debug_log_level, "%s:%d (%s) [[%lu]] set region_name to %s\n", __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), config_.region_name.c_str());
+
                 S3_get_object( &bucket_context_, object_key_.c_str(), NULL,
-                        offset, read_callback->content_length, 0,
+                        offset, read_callback->content_length, 0, 0,
                         &get_object_handler, read_callback.get() );
 
                 uint64_t end_microseconds = get_time_in_microseconds();
@@ -1519,9 +1514,6 @@ namespace irods::experimental::io::s3_transport
                 }
                 rodsLog(config_.debug_log_level, "%s:%d (%s) [[%lu]] %s\n", __FILE__, __LINE__, __FUNCTION__,
                         get_thread_identifier(), msg.str().c_str());
-            }
-
-            if (read_callback->status != libs3_types::status_ok) {
 
                 // update the last error in shmem
 
@@ -1529,9 +1521,15 @@ namespace irods::experimental::io::s3_transport
                     config_.shared_memory_timeout_in_seconds,
                     constants::MAX_S3_SHMEM_SIZE};
 
-                shm_obj.atomic_exec([](auto& data) {
-                    data.last_error_code = error_codes::DOWNLOAD_FILE_ERROR;
-                });
+                if (shmem_already_locked) {
+                    shm_obj.exec([](auto& data) {
+                        data.last_error_code = error_codes::DOWNLOAD_FILE_ERROR;
+                    });
+                } else {
+                    shm_obj.atomic_exec([](auto& data) {
+                        data.last_error_code = error_codes::DOWNLOAD_FILE_ERROR;
+                    });
+                }
 
             }
             return static_cast<std::streamsize>(read_callback->bytes_read_from_s3);
@@ -1701,10 +1699,9 @@ namespace irods::experimental::io::s3_transport
                        object_key_.c_str(), write_callback->sequence,
                        write_callback->content_length);
 
-                S3_set_region_name(config_.region_name.c_str());
                 S3_upload_part(&bucket_context_, object_key_.c_str(), &put_props_,
                         &put_object_handler, write_callback->sequence, upload_id.c_str(),
-                        write_callback->content_length, 0, write_callback.get());
+                        write_callback->content_length, 0, 0, write_callback.get());
 
                 rodsLog(config_.debug_log_level, "%s:%d (%s) [[%lu]] S3_upload_part returned [part=%lu][status=%s].\n",
                         __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), write_callback->sequence,
@@ -1822,9 +1819,8 @@ namespace irods::experimental::io::s3_transport
                        object_key_.c_str(),
                        write_callback->content_length);
 
-                S3_set_region_name(config_.region_name.c_str());
                 S3_put_object(&bucket_context_, object_key_.c_str(), write_callback->content_length,
-                        &put_props_, 0, &put_object_handler, write_callback.get());
+                        &put_props_, 0, 0, &put_object_handler, write_callback.get());
 
                 rodsLog(config_.debug_log_level, "%s:%d (%s) [[%lu]] S3_put_object returned [status=%s].\n",
                         __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
@@ -1877,7 +1873,6 @@ namespace irods::experimental::io::s3_transport
 
         std::string                  object_key_;
         std::string                  shmem_key_;
-        S3SignatureVersion           s3_signature_version_;
 
         std::string                  cache_file_path_;
         std::fstream                 cache_fstream_;
@@ -1893,6 +1888,8 @@ namespace irods::experimental::io::s3_transport
         // environment it will run multiple times.
         inline static int            s3_initialized_counter_ = 0;
         inline static std::mutex     s3_initialized_counter_mutex_;
+
+        inline static std::mutex     region_name_mutex_;
 
         // this is set to true when the last file closes
         bool                         last_file_to_close_;

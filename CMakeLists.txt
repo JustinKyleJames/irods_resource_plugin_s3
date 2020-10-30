@@ -81,7 +81,7 @@ target_include_directories(
   ${CMAKE_SOURCE_DIR}
   ${CMAKE_SOURCE_DIR}/s3/s3_transport/include
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/include
-  ${IRODS_EXTERNALS_FULLPATH_S3}/include
+  #${IRODS_EXTERNALS_FULLPATH_S3}/include
   /usr/include/libxml2
   )
 target_link_libraries(
