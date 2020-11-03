@@ -1595,3 +1595,24 @@ OUTPUT ruleExecOut
         self.admin.assert_icommand("ireg -C /%s/basedir %s/basedir" % (self.s3bucketname, self.admin.session_collection))
         file_count = self.admin.run_icommand('''iquest "%s" "SELECT count(DATA_ID) where COLL_NAME like '%/basedir%'"''')[0]
         self.assertEquals(file_count, u'9\n')
+
+
+    def test_copy_file_greater_than_chunk_size(self):
+
+        try:
+
+            file1 = "f1"
+            file2 = "f2"
+            lib.make_file(file1, 128*1024*1024, 'arbitrary')
+            self.user0.assert_icommand("iput {file1}".format(**locals()))  # iput
+            self.user0.assert_icommand("imv {file1} {file2}".format(**locals()))  # imv
+
+        finally:
+
+            self.user0.assert_icommand("irm -f {file2}".format(**locals()))  # imv
+
+            # local cleanup
+            hostname = lib.get_hostname()
+
+            if os.path.exists(file1):
+                os.unlink(file1)
