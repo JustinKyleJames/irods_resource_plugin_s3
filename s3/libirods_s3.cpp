@@ -954,7 +954,8 @@ irods::error s3GetFile(
                 bucketContext.uriStyle = s3_get_uri_request_style(_prop_map);
                 bucketContext.accessKeyId = _key_id.c_str();
                 bucketContext.secretAccessKey = _access_key.c_str();
-                bucketContext.authRegion = get_region_name(_prop_map).c_str();
+                std::string authRegionStr = get_region_name(_prop_map);
+                bucketContext.authRegion = authRegionStr.c_str();
 
                 long chunksize = s3GetMPUChunksize( _prop_map );
 
@@ -1405,7 +1406,8 @@ irods::error s3PutCopyFile(
                 bucketContext.uriStyle = s3_get_uri_request_style(_prop_map);
                 bucketContext.accessKeyId = _key_id.c_str();
                 bucketContext.secretAccessKey = _access_key.c_str();
-                bucketContext.authRegion = get_region_name(_prop_map).c_str();
+                std::string authRegionStr = get_region_name(_prop_map);
+                bucketContext.authRegion = authRegionStr.c_str();
 
 
                 S3PutProperties *putProps = NULL;
@@ -1547,6 +1549,7 @@ irods::error s3PutCopyFile(
 
                     // Following used by S3_COPYOBJECT only
                     S3BucketContext srcBucketContext;
+                    std::string authRegionStr = get_region_name(_prop_map);
                     if (_mode == S3_COPYOBJECT) {
                         ret = parseS3Path(_filename, srcBucket, srcKey, _prop_map);
                         if(!(result = ASSERT_PASS(ret, "[resource_name=%s] Failed parsing the S3 bucket and key from the physical path: \"%s\".", resource_name.c_str(),
@@ -1560,7 +1563,7 @@ irods::error s3PutCopyFile(
                         srcBucketContext.uriStyle = s3_get_uri_request_style(_prop_map);
                         srcBucketContext.accessKeyId = _key_id.c_str();
                         srcBucketContext.secretAccessKey = _access_key.c_str();
-                        bucketContext.authRegion = get_region_name(_prop_map).c_str();
+                        srcBucketContext.authRegion = authRegionStr.c_str();
                     }
 
                     g_mpuNext = 0;
@@ -1741,7 +1744,9 @@ irods::error s3CopyFile(
                 bucketContext.uriStyle = _s3_uri_style;
                 bucketContext.accessKeyId = _key_id.c_str();
                 bucketContext.secretAccessKey = _access_key.c_str();
-                bucketContext.authRegion = get_region_name(_src_ctx.prop_map()).c_str();
+
+                std::string authRegionStr = get_region_name(_src_ctx.prop_map());
+                bucketContext.authRegion = authRegionStr.c_str();
 
                 S3ResponseHandler responseHandler = {
                     &responsePropertiesCallback,

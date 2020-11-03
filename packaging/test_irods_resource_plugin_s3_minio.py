@@ -567,15 +567,15 @@ class Test_Compound_With_S3_Resource_Minio_EU_Central_1(Test_Compound_With_S3_Re
         self.s3signature_version=4
         super(Test_Compound_With_S3_Resource_Minio, self).__init__(*args, **kwargs)
 
-class Test_Compound_With_S3_Resource_Minio_STSDate_Header(Test_Compound_With_S3_Resource_Minio):
-    def __init__(self, *args, **kwargs):
-        self.keypairfile='/var/lib/irods/minio.keypair'
-        self.archive_naming_policy='decoupled'
-        self.s3stsdate='date'
-        self.s3region='us-east-1'
-        self.s3endPoint='127.0.0.1:9000'
-        self.s3signature_version=2
-        super(Test_Compound_With_S3_Resource_Minio, self).__init__(*args, **kwargs)
+#class Test_Compound_With_S3_Resource_Minio_STSDate_Header(Test_Compound_With_S3_Resource_Minio):
+#    def __init__(self, *args, **kwargs):
+#        self.keypairfile='/var/lib/irods/minio.keypair'
+#        self.archive_naming_policy='decoupled'
+#        self.s3stsdate='date'
+#        self.s3region='us-east-1'
+#        self.s3endPoint='127.0.0.1:9000'
+#        self.s3signature_version=2
+#        super(Test_Compound_With_S3_Resource_Minio, self).__init__(*args, **kwargs)
 
 class Test_Compound_With_S3_Resource_Minio_STSDate_Header_V4(Test_Compound_With_S3_Resource_Minio):
     def __init__(self, *args, **kwargs):
@@ -609,14 +609,14 @@ class Test_S3_NoCache_EU_Central_1(Test_S3_NoCache_Base_Minio, unittest.TestCase
         self.s3EnableMPU=1
         super(Test_S3_NoCache_Base_Minio, self).__init__(*args, **kwargs)
 
-class Test_S3_NoCache_V2(Test_S3_NoCache_Base_Minio, unittest.TestCase):
-    def __init__(self, *args, **kwargs):
-        self.keypairfile='/var/lib/irods/minio.keypair'
-        self.s3region='us-east-1'
-        self.s3endPoint='127.0.0.1:9000'
-        self.s3signature_version=2
-        self.s3EnableMPU=1
-        super(Test_S3_NoCache_Base_Minio, self).__init__(*args, **kwargs)
+#class Test_S3_NoCache_V2(Test_S3_NoCache_Base_Minio, unittest.TestCase):
+#    def __init__(self, *args, **kwargs):
+#        self.keypairfile='/var/lib/irods/minio.keypair'
+#        self.s3region='us-east-1'
+#        self.s3endPoint='127.0.0.1:9000'
+#        self.s3signature_version=2
+#        self.s3EnableMPU=1
+#        super(Test_S3_NoCache_Base_Minio, self).__init__(*args, **kwargs)
 
 
 class Test_S3_NoCache_MPU_Disabled(Test_S3_NoCache_Base_Minio, unittest.TestCase):
@@ -624,6 +624,6 @@ class Test_S3_NoCache_MPU_Disabled(Test_S3_NoCache_Base_Minio, unittest.TestCase
         self.keypairfile='/var/lib/irods/minio.keypair'
         self.s3region='us-east-1'
         self.s3endPoint='127.0.0.1:9000'
-        self.s3signature_version=2
+        self.s3signature_version=4
         self.s3EnableMPU=0
         super(Test_S3_NoCache_Base_Minio, self).__init__(*args, **kwargs)
