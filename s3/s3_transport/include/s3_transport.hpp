@@ -1129,8 +1129,8 @@ namespace irods::experimental::io::s3_transport
 
 
                         if (!cache_fstream_ || !cache_fstream_.is_open()) {
-                            rodsLog(LOG_ERROR, "%s:%d (%s) [[%lu]] Failed to open cache file.\n",
-                                    __FILE__, __LINE__, __FUNCTION__, this->get_thread_identifier());
+                            rodsLog(LOG_ERROR, "%s:%d (%s) [[%lu]] Failed to open cache file %s\n",
+                                    __FILE__, __LINE__, __FUNCTION__, this->get_thread_identifier(), cache_file_path_.c_str());
                             this->critical_error_encountered_ = true;
                             return_value = false;
                         }

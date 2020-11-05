@@ -97,8 +97,12 @@ namespace irods_s3 {
 
             void remove(int fd) {
                 std::lock_guard lock(fd_to_data_map_mutex);
-                assert(data_map.find(fd) != data_map.end());
-                data_map.erase(fd);
+                //assert(data_map.find(fd) != data_map.end());
+                if (data_map.find(fd) == data_map.end()) {
+                    rodsLog(LOG_NOTICE, "%s:%d (%s) fd is not in table\n", __FILE__, __LINE__, __FUNCTION__);
+                } else {
+                    data_map.erase(fd);
+                }
             }
 
             bool exists(int fd) {
@@ -578,6 +582,9 @@ namespace irods_s3 {
                 data_size = irods_s3::data_size;
                 number_of_threads = irods_s3::number_of_threads;
             }
+            if (number_of_threads == 0) {
+                number_of_threads = 1;
+            }
 
             rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] read number_of_threads of %d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, number_of_threads);
 
@@ -609,7 +616,9 @@ namespace irods_s3 {
 
         if (is_cacheless_mode(_ctx.prop_map())) {
 
-            rodsLog(debug_log_level, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()));
+            unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+
+            rodsLog(debug_log_level, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, thread_id); 
 
             irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
 
@@ -623,16 +632,22 @@ namespace irods_s3 {
             std::shared_ptr<s3_transport> s3_transport_ptr;
 
             if (!fd_data.exists(fd)) {
+                // TODO error?
                 return SUCCESS();
             }
 
             per_thread_data data = fd_data.get(fd);
-            fd_data.remove(fd);
 
-            // if dstream wasn't created just return
+            // if dstream wasn't created we had no write
+            // just do an empty write which will cause the object
+            // to be created
             if (!data.dstream_ptr) {
-                return SUCCESS();
+                char buff[1];
+                s3_file_write_operation(_ctx, buff, 0);
+                data = fd_data.get(fd);
             }
+
+            fd_data.remove(fd);
 
             dstream_ptr = data.dstream_ptr;
             s3_transport_ptr = data.s3_transport_ptr;
@@ -799,7 +814,8 @@ namespace irods_s3 {
         struct stat* _statbuf,
         bool retry_on_not_found )
     {
-        rodsLog(debug_log_level, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()));
+        unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+        rodsLog(debug_log_level, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
 
         irods::error result = SUCCESS();
 
