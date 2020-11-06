@@ -632,8 +632,11 @@ namespace irods_s3 {
             std::shared_ptr<s3_transport> s3_transport_ptr;
 
             if (!fd_data.exists(fd)) {
-                // TODO error?
-                return SUCCESS();
+                return ERROR(UNIX_FILE_CLOSE_ERR,
+                        boost::str(boost::format("[resource_name=%s] %s "
+                                "fd_data does not have an entry for fd=%d.  "
+                                "Was the object closed prior to opening or creating?") %
+                            get_resource_name(_ctx.prop_map()) % __FUNCTION__ % fd));
             }
 
             per_thread_data data = fd_data.get(fd);
