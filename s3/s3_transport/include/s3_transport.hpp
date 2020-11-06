@@ -1487,8 +1487,6 @@ namespace irods::experimental::io::s3_transport
 
                 uint64_t start_microseconds = get_time_in_microseconds();
 
-                rodsLog(config_.debug_log_level, "%s:%d (%s) [[%lu]] set region_name to %s\n", __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), config_.region_name.c_str());
-
                 S3_get_object( &bucket_context_, object_key_.c_str(), NULL,
                         offset, read_callback->content_length, 0, 0,
                         &get_object_handler, read_callback.get() );
