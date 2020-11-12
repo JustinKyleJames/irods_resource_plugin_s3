@@ -256,23 +256,36 @@ namespace irods_s3 {
         rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] ------------------------------------\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
 
         // get number of threads and oprType
+        // Note: On a replication from an s3 src within a replication node, there are two entries for the
+        //   replica - one for PUT and one for REPL_DEST.  During the initial PUT there is only one 
+        //   entry.  Tp see of we are doing the PUT or REPL, look for the last entry on the list.
+        // TODO:  Come up with a more reliable way to determine this. 
+        bool found = false;
         for (int i = 0; i < NUM_L1_DESC; ++i) {
-           if (L1desc[i].inuseFlag && L1desc[i].dataObjInp && L1desc[i].dataObjInfo && L1desc[i].dataObjInp->objPath == file_obj->logical_path()
-                   && L1desc[i].dataObjInfo->filePath == file_obj->physical_path()) {
+            if (L1desc[i].inuseFlag) {
+                if (L1desc[i].dataObjInp && L1desc[i].dataObjInfo &&
+                        L1desc[i].dataObjInp->objPath == file_obj->logical_path()
+                        && L1desc[i].dataObjInfo->filePath == file_obj->physical_path()) {
 
-               l1desc_index = i;
-               requested_number_of_threads = L1desc[i].dataObjInp->numThreads;
-               oprType = L1desc[i].dataObjInp->oprType;
-               rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] oprType set to %d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, oprType);
+                    found = true;
+                    l1desc_index = i;
+                    requested_number_of_threads = L1desc[i].dataObjInp->numThreads;
+                    oprType = L1desc[i].dataObjInp->oprType;
 
-               // if data_size is zero or UNKNOWN, try to get it from L1desc
-               if (data_size == s3_transport_config::UNKNOWN_OBJECT_SIZE) {
-                   data_size = L1desc[i].dataSize;
-                   rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] data_size set to %ld\n", __FILE__, __LINE__, __FUNCTION__, thread_id, data_size);
-               }
+                    // if data_size is zero or UNKNOWN, try to get it from L1desc
+                    if (data_size == s3_transport_config::UNKNOWN_OBJECT_SIZE) {
+                        data_size = L1desc[i].dataSize;
+                    }
+                    oprType = L1desc[i].dataObjInp->oprType;
+                }
+           } else if (found) {
                break;
            }
         }
+        rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] oprType set to %d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, oprType);
+        rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] data_size set to %ld\n", __FILE__, __LINE__, __FUNCTION__, thread_id, data_size);
+
+
 
         // if this is a replication and we're the destination, get the data size from the source dataObjInfo
         if (oprType == REPLICATE_DEST) {
@@ -341,7 +354,6 @@ namespace irods_s3 {
         s3_config.bucket_name = bucket_name;
         s3_config.access_key = access_key;
         s3_config.secret_access_key = secret_access_key;
-        //s3_config.multipart_upload_flag = number_of_threads > 1;
         s3_config.shared_memory_timeout_in_seconds = 60;
         s3_config.circular_buffer_size = circular_buffer_size;
         s3_config.s3_protocol_str = get_protocol_as_string(_ctx.prop_map());
@@ -456,18 +468,26 @@ namespace irods_s3 {
             unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
 
             // get oprType
+            // note on replication there will be two matching entries for repl source, one for put and one for repl src
+            // get the highest one
             int oprType = -1;
+            bool found = false;
             for (int i = 0; i < NUM_L1_DESC; ++i) {
-               if (L1desc[i].inuseFlag && L1desc[i].dataObjInp && L1desc[i].dataObjInfo &&
-                       L1desc[i].dataObjInp->objPath == file_obj->logical_path()
-                       && L1desc[i].dataObjInfo->filePath == file_obj->physical_path()) {
+               if (L1desc[i].inuseFlag) {
+                   if (L1desc[i].dataObjInp && L1desc[i].dataObjInfo &&
+                           L1desc[i].dataObjInp->objPath == file_obj->logical_path()
+                           && L1desc[i].dataObjInfo->filePath == file_obj->physical_path()) {
 
-                   oprType = L1desc[i].dataObjInp->oprType;
-                   rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] oprType set to %d, PUT_OPR=%d, REPLICATE_OPR=%d\n",
-                           __FILE__, __LINE__, __FUNCTION__, thread_id, oprType, PUT_OPR, REPLICATE_OPR);
+                       found = true;
+                       oprType = L1desc[i].dataObjInp->oprType;
+                   }
+               } else if (found) {
                    break;
                }
             }
+
+            rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] oprType set to %d\n",
+                    __FILE__, __LINE__, __FUNCTION__, thread_id, oprType);
 
             // fix open mode
             std::ios_base::openmode open_mode;
