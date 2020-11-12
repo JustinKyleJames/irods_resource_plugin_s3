@@ -1616,3 +1616,125 @@ OUTPUT ruleExecOut
 
             if os.path.exists(file1):
                 os.unlink(file1)
+
+    def test_put_get_small_file_in_repl_node(self):
+
+        try:
+
+            hostname = lib.get_hostname()
+            hostuser = getpass.getuser()
+
+            # create two s3 resources in repl node
+            self.admin.assert_icommand("iadmin mkresc s3repl replication".format(**locals()), 'STDOUT_SINGLELINE', "replication")
+            self.admin.assert_icommand("iadmin mkresc s3resc1 s3 %s:/%s/tmp/%s/s3resc1 %s" %
+                                   (hostname, self.s3bucketname, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")
+            self.admin.assert_icommand("iadmin mkresc s3resc2 s3 %s:/%s/tmp/%s/s3resc2 %s" %
+                                   (hostname, self.s3bucketname, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")
+            self.admin.assert_icommand("iadmin mkresc s3resc3 s3 %s:/%s/tmp/%s/s3resc3 %s" %
+                                   (hostname, self.s3bucketname, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")
+            self.admin.assert_icommand("iadmin addchildtoresc s3repl s3resc1", 'EMPTY')
+            self.admin.assert_icommand("iadmin addchildtoresc s3repl s3resc2", 'EMPTY')
+            self.admin.assert_icommand("iadmin addchildtoresc s3repl s3resc3", 'EMPTY')
+
+            # create and put file
+            file1 = "f1"
+            file2 = "f1.get"
+            filepath = lib.create_local_testfile(file1)
+            self.user0.assert_icommand("iput -R s3repl {file1}".format(**locals()))  # iput
+
+            # get file from first repl
+            self.user0.assert_icommand("iget -n 0 -f %s %s" % (file1, file2))  # iput
+
+            # make sure the file that was put and got are the same
+            self.user0.assert_icommand("diff %s %s " % (file1, file2), 'EMPTY')
+
+            # get file from second repl
+            self.user0.assert_icommand("iget -n 1 -f %s %s" % (file1, file2))  # iput
+
+            # make sure the file that was put and got are the same
+            self.user0.assert_icommand("diff %s %s " % (file1, file2), 'EMPTY')
+
+            # get file from second repl
+            self.user0.assert_icommand("iget -n 2 -f %s %s" % (file1, file2))  # iput
+
+            # make sure the file that was put and got are the same
+            self.user0.assert_icommand("diff %s %s " % (file1, file2), 'EMPTY')
+
+        finally:
+
+            # cleanup
+            pass
+            self.user0.assert_icommand("irm -f %s" % file1, 'EMPTY')
+            self.admin.assert_icommand("iadmin rmchildfromresc s3repl s3resc1", 'EMPTY')
+            self.admin.assert_icommand("iadmin rmchildfromresc s3repl s3resc2", 'EMPTY')
+            self.admin.assert_icommand("iadmin rmchildfromresc s3repl s3resc3", 'EMPTY')
+            self.admin.assert_icommand("iadmin rmresc s3repl", 'EMPTY')
+            self.admin.assert_icommand("iadmin rmresc s3resc1", 'EMPTY')
+            self.admin.assert_icommand("iadmin rmresc s3resc2", 'EMPTY')
+            self.admin.assert_icommand("iadmin rmresc s3resc3", 'EMPTY')
+
+            if os.path.exists(file1):
+                os.unlink(file1)
+            if os.path.exists(file2):
+                os.unlink(file2)
+
+    def test_put_get_large_file_in_repl_node(self):
+
+        try:
+
+            hostname = lib.get_hostname()
+            hostuser = getpass.getuser()
+
+            # create two s3 resources in repl node
+            self.admin.assert_icommand("iadmin mkresc s3repl replication".format(**locals()), 'STDOUT_SINGLELINE', "replication")
+            self.admin.assert_icommand("iadmin mkresc s3resc1 s3 %s:/%s/tmp/%s/s3resc1 %s" %
+                                   (hostname, self.s3bucketname, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")
+            self.admin.assert_icommand("iadmin mkresc s3resc2 s3 %s:/%s/tmp/%s/s3resc2 %s" %
+                                   (hostname, self.s3bucketname, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")
+            self.admin.assert_icommand("iadmin mkresc s3resc3 s3 %s:/%s/tmp/%s/s3resc3 %s" %
+                                   (hostname, self.s3bucketname, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")
+            self.admin.assert_icommand("iadmin addchildtoresc s3repl s3resc1", 'EMPTY')
+            self.admin.assert_icommand("iadmin addchildtoresc s3repl s3resc2", 'EMPTY')
+            self.admin.assert_icommand("iadmin addchildtoresc s3repl s3resc3", 'EMPTY')
+
+            # create and put file
+            file1 = "f1"
+            file2 = "f1.get"
+            lib.make_file(file1, 120*1024*1024)
+            self.user0.assert_icommand("iput -R s3repl {file1}".format(**locals()))  # iput
+
+            # get file from first repl
+            self.user0.assert_icommand("iget -n 0 -f %s %s" % (file1, file2))  # iput
+
+            # make sure the file that was put and got are the same
+            self.user0.assert_icommand("diff %s %s " % (file1, file2), 'EMPTY')
+
+            # get file from second repl
+            self.user0.assert_icommand("iget -n 1 -f %s %s" % (file1, file2))  # iput
+
+            # make sure the file that was put and got are the same
+            self.user0.assert_icommand("diff %s %s " % (file1, file2), 'EMPTY')
+
+            # get file from second repl
+            self.user0.assert_icommand("iget -n 2 -f %s %s" % (file1, file2))  # iput
+
+            # make sure the file that was put and got are the same
+            self.user0.assert_icommand("diff %s %s " % (file1, file2), 'EMPTY')
+
+        finally:
+
+            # cleanup
+            pass
+            self.user0.assert_icommand("irm -f %s" % file1, 'EMPTY')
+            self.admin.assert_icommand("iadmin rmchildfromresc s3repl s3resc1", 'EMPTY')
+            self.admin.assert_icommand("iadmin rmchildfromresc s3repl s3resc2", 'EMPTY')
+            self.admin.assert_icommand("iadmin rmchildfromresc s3repl s3resc3", 'EMPTY')
+            self.admin.assert_icommand("iadmin rmresc s3repl", 'EMPTY')
+            self.admin.assert_icommand("iadmin rmresc s3resc1", 'EMPTY')
+            self.admin.assert_icommand("iadmin rmresc s3resc2", 'EMPTY')
+            self.admin.assert_icommand("iadmin rmresc s3resc3", 'EMPTY')
+
+            if os.path.exists(file1):
+                os.unlink(file1)
+            if os.path.exists(file2):
+                os.unlink(file2)

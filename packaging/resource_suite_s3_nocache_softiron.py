@@ -33,10 +33,10 @@ from ..controller import IrodsController
 from . import session
 
 
-class ResourceBase(session.make_sessions_mixin([('otherrods', 'rods')], [('alice', 'apass'), ('bobby', 'bpass')])):
+class ResourceBase_SoftIron(session.make_sessions_mixin([('otherrods', 'rods')], [('alice', 'apass'), ('bobby', 'bpass')])):
 
     def setUp(self):
-        super(ResourceBase, self).setUp()
+        super(ResourceBase_SoftIron, self).setUp()
         self.admin = self.admin_sessions[0]
         self.user0 = self.user_sessions[0]
         self.user1 = self.user_sessions[1]
@@ -51,7 +51,7 @@ class ResourceBase(session.make_sessions_mixin([('otherrods', 'rods')], [('alice
         self.read_aws_keys()
 
         # set up s3 bucket
-        s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key)
+        s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key, secure=False)
 
         distro_str = ''.join(platform.linux_distribution()[:2]).replace(' ','')
         self.s3bucketname = 'irods-ci-' + distro_str + datetime.datetime.utcnow().strftime('-%Y-%m-%d.%H-%M-%S-%f-')
@@ -91,7 +91,7 @@ class ResourceBase(session.make_sessions_mixin([('otherrods', 'rods')], [('alice
         self.admin.run_icommand(['irm', self.testfile, '../public/' + self.testfile])
         self.admin.run_icommand('irm -rf ../../bundle')
 
-        super(ResourceBase, self).tearDown()
+        super(ResourceBase_SoftIron, self).tearDown()
         with session.make_session_for_existing_admin() as admin_session:
             admin_session.run_icommand('irmtrash -M')
             admin_session.run_icommand(['iadmin', 'rmresc', self.testresc])
@@ -101,7 +101,7 @@ class ResourceBase(session.make_sessions_mixin([('otherrods', 'rods')], [('alice
             print("run_resource_teardown - END")
 
         # delete s3 bucket
-        s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key)
+        s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key, secure=False)
         objects = s3_client.list_objects_v2(self.s3bucketname, recursive=True)
 
         try:
@@ -143,7 +143,7 @@ class ResourceBase(session.make_sessions_mixin([('otherrods', 'rods')], [('alice
             cred_file.write('aws_access_key_id = ' + aws_access_key_id + '\n')
             cred_file.write('aws_secret_access_key = ' + aws_secret_access_key + '\n')
 
-class ResourceSuite_S3_NoCache(ResourceBase):
+class ResourceSuite_S3_NoCache_SoftIron(ResourceBase_SoftIron):
 
 
     ###################
@@ -1127,7 +1127,7 @@ class ResourceSuite_S3_NoCache(ResourceBase):
 
 
 # specific test cases unique to cacheless S3
-class Test_S3_NoCache_Base(ResourceSuite_S3_NoCache):
+class Test_S3_NoCache_Base_SoftIron(ResourceSuite_S3_NoCache_SoftIron):
 
     def test_iput_large_file_over_smaller(self):
 
@@ -1569,7 +1569,7 @@ OUTPUT ruleExecOut
     def recursive_register_from_s3_bucket(self):
 
         # create some files on s3
-        s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key)
+        s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key, secure=False)
         file_contents = b'random test data'
         f = io.BytesIO(file_contents)
         size = len(file_contents)
@@ -1595,6 +1595,7 @@ OUTPUT ruleExecOut
         self.admin.assert_icommand("ireg -C /%s/basedir %s/basedir" % (self.s3bucketname, self.admin.session_collection))
         file_count = self.admin.run_icommand('''iquest "%s" "SELECT count(DATA_ID) where COLL_NAME like '%/basedir%'"''')[0]
         self.assertEquals(file_count, u'9\n')
+
 
     def test_copy_file_greater_than_chunk_size(self):
 
