@@ -310,9 +310,10 @@ namespace irods_s3 {
         }
 
         // get the number of threads
+        const int single_buff_sz = irods::get_advanced_setting<const int>(irods::CFG_MAX_SIZE_FOR_SINGLE_BUFFER) * 1024 * 1024;
         number_of_threads = requested_number_of_threads;
 
-        if (oprType != REPLICATE_DEST && oprType != COPY_DEST) {
+        if (data_size > single_buff_sz && oprType != REPLICATE_DEST && oprType != COPY_DEST) {
 
             number_of_threads = getNumThreads( _ctx.comm(),
                     data_size,
@@ -969,6 +970,8 @@ namespace irods_s3 {
         irods::plugin_context& _ctx,
         struct stat* _statbuf )
     {
+        unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+        rodsLog(debug_log_level, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
         return s3_file_stat_operation_with_flag_for_retry_on_not_found(_ctx, _statbuf, false);
     }
 

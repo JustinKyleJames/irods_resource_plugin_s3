@@ -1737,3 +1737,37 @@ OUTPUT ruleExecOut
                 os.unlink(file1)
             if os.path.exists(file2):
                 os.unlink(file2)
+
+    def test_put_get_file_between_parallel_buff_size_and_max_size_single_buffer(self):
+
+        try:
+
+            hostname = lib.get_hostname()
+            hostuser = getpass.getuser()
+
+            # create two s3 resources in repl node
+            self.admin.assert_icommand("iadmin mkresc s3resc1 s3 %s:/%s/tmp/%s/s3resc1 %s" %
+                                   (hostname, self.s3bucketname, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")
+
+            # create and put file
+            file1 = "f1"
+            file2 = "f1.get"
+            lib.make_file(file1, 5*1024*1024)
+            self.user0.assert_icommand("iput -R s3resc1 {file1}".format(**locals()))  # iput
+
+            # get file from first repl
+            self.user0.assert_icommand("iget -f %s %s" % (file1, file2))  # iput
+
+            # make sure the file that was put and got are the same
+            self.user0.assert_icommand("diff %s %s " % (file1, file2), 'EMPTY')
+
+        finally:
+
+            # cleanup
+            self.user0.assert_icommand("irm -f %s" % file1, 'EMPTY')
+            self.admin.assert_icommand("iadmin rmresc s3resc1", 'EMPTY')
+
+            if os.path.exists(file1):
+                os.unlink(file1)
+            if os.path.exists(file2):
+                os.unlink(file2)
