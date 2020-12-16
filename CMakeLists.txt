@@ -111,8 +111,9 @@ install(
   ${CMAKE_SOURCE_DIR}/packaging/test_irods_resource_plugin_s3.py
   ${CMAKE_SOURCE_DIR}/packaging/test_irods_resource_plugin_s3_minio.py
   ${CMAKE_SOURCE_DIR}/packaging/test_irods_resource_plugin_s3_for_gcp.py
+  ${CMAKE_SOURCE_DIR}/packaging/test_irods_resource_plugin_s3_ceph.py
   ${CMAKE_SOURCE_DIR}/packaging/resource_suite_s3_nocache.py
-  ${CMAKE_SOURCE_DIR}/packaging/resource_suite_s3_nocache_minio.py
+  ${CMAKE_SOURCE_DIR}/packaging/resource_suite_s3_cache.py
   DESTINATION ${IRODS_HOME_DIRECTORY}/scripts/irods/test
   PERMISSIONS OWNER_READ OWNER_WRITE GROUP_READ WORLD_READ
   )

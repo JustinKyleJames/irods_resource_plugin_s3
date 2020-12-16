@@ -33,10 +33,28 @@ from ..controller import IrodsController
 from . import session
 
 
-class ResourceBase(session.make_sessions_mixin([('otherrods', 'rods')], [('alice', 'apass'), ('bobby', 'bpass')])):
+class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], [('alice', 'apass'), ('bobby', 'bpass')])):
+
+    def __init__(self, *args, **kwargs):
+
+        # if self.proto is defined use it else default to HTTPS
+        try:
+            self.proto = self.proto
+        except AttributeError:
+            self.proto = 'HTTPS'
+
+        # if self.archive_naming_policy is defined use it
+        # else default to 'consistent'
+        try:
+            self.archive_naming_policy = self.archive_naming_policy
+        except AttributeError:
+            self.archive_naming_policy = 'consistent'
+
+        super(Test_S3_NoCache_Base, self).__init__(*args, **kwargs)
 
     def setUp(self):
-        super(ResourceBase, self).setUp()
+
+        super(Test_S3_NoCache_Base, self).setUp()
         self.admin = self.admin_sessions[0]
         self.user0 = self.user_sessions[0]
         self.user1 = self.user_sessions[1]
@@ -51,7 +69,11 @@ class ResourceBase(session.make_sessions_mixin([('otherrods', 'rods')], [('alice
         self.read_aws_keys()
 
         # set up s3 bucket
-        s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key)
+        if self.proto == 'HTTPS':
+            s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key)
+        else:
+            s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key, secure=False)
+
 
         distro_str = ''.join(platform.linux_distribution()[:2]).replace(' ','')
         self.s3bucketname = 'irods-ci-' + distro_str + datetime.datetime.utcnow().strftime('-%Y-%m-%d.%H-%M-%S-%f-')
@@ -64,7 +86,7 @@ class ResourceBase(session.make_sessions_mixin([('otherrods', 'rods')], [('alice
         self.anotherresc = "AnotherResc"
         self.anothervault = "/tmp/" + self.anotherresc
 
-        self.s3_context = "S3_DEFAULT_HOSTNAME=%s;S3_AUTH_FILE=%s;S3_REGIONNAME=%s;S3_RETRY_COUNT=3;S3_WAIT_TIME_SEC=2;S3_PROTO=HTTPS;ARCHIVE_NAMING_POLICY=consistent;HOST_MODE=cacheless_attached;S3_ENABLE_MD5=1;S3_ENABLE_MPU=%d;S3_SIGNATURE_VERSION=%d" % (self.s3endPoint, self.keypairfile, self.s3region, self.s3EnableMPU, self.s3signature_version)
+        self.s3_context = "S3_DEFAULT_HOSTNAME=%s;S3_AUTH_FILE=%s;S3_REGIONNAME=%s;S3_RETRY_COUNT=2;S3_WAIT_TIME_SEC=3;S3_PROTO=%s;ARCHIVE_NAMING_POLICY=consistent;HOST_MODE=cacheless_attached;S3_ENABLE_MD5=1;S3_ENABLE_MPU=%d" % (self.s3endPoint, self.keypairfile, self.s3region, self.proto, self.s3EnableMPU)
 
         self.admin.assert_icommand("iadmin modresc demoResc name origResc", 'STDOUT_SINGLELINE', 'rename', input='yes\n')
 
@@ -91,7 +113,7 @@ class ResourceBase(session.make_sessions_mixin([('otherrods', 'rods')], [('alice
         self.admin.run_icommand(['irm', self.testfile, '../public/' + self.testfile])
         self.admin.run_icommand('irm -rf ../../bundle')
 
-        super(ResourceBase, self).tearDown()
+        super(Test_S3_NoCache_Base, self).tearDown()
         with session.make_session_for_existing_admin() as admin_session:
             admin_session.run_icommand('irmtrash -M')
             admin_session.run_icommand(['iadmin', 'rmresc', self.testresc])
@@ -101,7 +123,10 @@ class ResourceBase(session.make_sessions_mixin([('otherrods', 'rods')], [('alice
             print("run_resource_teardown - END")
 
         # delete s3 bucket
-        s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key)
+        if self.proto == 'HTTPS':
+            s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key)
+        else:
+            s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key, secure=False)
         objects = s3_client.list_objects_v2(self.s3bucketname, recursive=True)
 
         try:
@@ -117,6 +142,12 @@ class ResourceBase(session.make_sessions_mixin([('otherrods', 'rods')], [('alice
         with open(self.keypairfile) as f:
             self.aws_access_key_id = f.readline().rstrip()
             self.aws_secret_access_key = f.readline().rstrip()
+
+    # read the endpoint address from the file endpointfile
+    def read_endpoint(self, endpointfile):
+        # read endpoint file
+        with open(endpointfile) as f:
+            return f.readline().rstrip()
 
     def set_up_aws_config_dir(self):
         # read access keys from keypair file
@@ -142,9 +173,6 @@ class ResourceBase(session.make_sessions_mixin([('otherrods', 'rods')], [('alice
             cred_file.write('[default]\n')
             cred_file.write('aws_access_key_id = ' + aws_access_key_id + '\n')
             cred_file.write('aws_secret_access_key = ' + aws_secret_access_key + '\n')
-
-class ResourceSuite_S3_NoCache(ResourceBase):
-
 
     ###################
     # iget
@@ -748,9 +776,9 @@ class ResourceSuite_S3_NoCache(ResourceBase):
         # assertions
         self.admin.assert_icommand("iadmin mkresc thirdresc s3 %s:/%s/tmp/%s/thirdrescVault %s" %
                                    (hostname, self.s3bucketname, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")   # create third resource
+
         self.admin.assert_icommand("iadmin mkresc fourthresc s3 %s:/%s/tmp/%s/fourthrescVault %s" %
                                    (hostname, self.s3bucketname, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")  # create fourth resource
-
 
         self.admin.assert_icommand("ils -L " + filename, 'STDERR_SINGLELINE', "does not exist")              # should not be listed
         self.admin.assert_icommand("iput " + filename)                                         # put file
@@ -831,7 +859,6 @@ class ResourceSuite_S3_NoCache(ResourceBase):
         # assertions
         self.admin.assert_icommand("iadmin mkresc thirdresc s3 %s:/%s/tmp/%s/thirdrescVault %s" %
                                    (hostname, self.s3bucketname, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")  # create third resource
-
 
 
         self.admin.assert_icommand("ils -L " + filename, 'STDERR_SINGLELINE', "does not exist")  # should not be listed
@@ -915,7 +942,6 @@ class ResourceSuite_S3_NoCache(ResourceBase):
         homepath = "/" + self.admin.zone_name + "/home/" + \
             self.user0.username + "/" + self.user0._session_id
         self.admin.assert_icommand("irepl -r -M -R " + self.testresc + " " + homepath, "EMPTY")  # creates replica
-
 
     ###################
     # irm
@@ -1089,7 +1115,6 @@ class ResourceSuite_S3_NoCache(ResourceBase):
         if os.path.exists(filepath):
            os.unlink(filepath)
 
-
     @unittest.skip("skipping because this isn't really an s3 test and server changed")
     def test_itrim_returns_on_negative_status__ticket_3531(self):
         # local setup
@@ -1126,8 +1151,7 @@ class ResourceSuite_S3_NoCache(ResourceBase):
             os.unlink(filepath)
 
 
-# specific test cases unique to cacheless S3
-class Test_S3_NoCache_Base(ResourceSuite_S3_NoCache):
+    # tests add for cacheless S3
 
     def test_iput_large_file_over_smaller(self):
 
@@ -1210,50 +1234,6 @@ class Test_S3_NoCache_Base(ResourceSuite_S3_NoCache):
                 os.unlink(filename_get)
 
 
-    def test_sequential_open_writes(self):
-
-        rule_file_path = 'test_sequential_open_writes.r'
-        target_obj = '/'.join([self.user0.session_collection, 'file1.txt'])
-
-        rule_str = '''
-test_simultaneous_open_writes {{
-            msiDataObjCreate("{target_obj}", "destRescName=demoResc", *fd)
-            msiDataObjWrite(*fd, "abcd", *len)
-            msiDataObjClose(*fd, *status)
-
-            # open write close consecutively
-            msiDataObjOpen("objPath={target_obj}++++rescName=demoResc++++openFlags=O_WRONLY", *fd1)
-            msiDataObjLseek(*fd1, 4, "SEEK_SET", *status)
-            msiDataObjWrite(*fd1, "XXXXXXXXXX", *len)
-            msiDataObjClose(*fd1, *status)
-
-            msiDataObjOpen("objPath={target_obj}++++rescName=demoResc++++openFlags=O_WRONLY", *fd2)
-            msiDataObjLseek(*fd2, 14, "SEEK_SET", *status)
-            msiDataObjWrite(*fd2, "YYYYYYYYYY", *len)
-            msiDataObjClose(*fd2, *status)
-
-            msiDataObjOpen("objPath={target_obj}++++rescName=demoResc++++openFlags=O_WRONLY", *fd3)
-            msiDataObjLseek(*fd3, 24, "SEEK_SET", *status)
-            msiDataObjWrite(*fd3, "ZZZZZZZZZZ", *len)
-            msiDataObjClose(*fd3, *status)
-        }}
-INPUT null
-OUTPUT ruleExecOut
-
-        '''.format(**locals())
-
-        try:
-            with open(rule_file_path, 'w') as rule_file:
-                rule_file.write(rule_str)
-
-            self.user0.assert_icommand("irule -F %s" % rule_file_path)
-            self.user0.assert_icommand("iget {target_obj} -".format(**locals()), 'STDOUT_SINGLELINE', 'abcdXXXXXXXXXXYYYYYYYYYYZZZZZZZZZZ')
-        finally:
-            # local cleanup
-            self.user0.assert_icommand("irm -f {target_obj}".format(**locals()))
-            if os.path.exists(rule_file_path):
-                os.unlink(rule_file_path)
-
     @unittest.skip("simulteneous opens are no longer allowed")
     def test_simultaneous_open_writes(self):
 
@@ -1316,8 +1296,6 @@ OUTPUT ruleExecOut
             self.user0.assert_icommand("irm -f {target_obj}".format(**locals()))
             if os.path.exists(rule_file_path):
                 os.unlink(rule_file_path)
-
-
 
     @unittest.skipIf(True, "skip until issue 5018 fixed")
     def test_read_write_zero_length_file_issue_1890(self):
@@ -1494,7 +1472,6 @@ OUTPUT ruleExecOut
             if os.path.exists(read_rule_file_path):
                 os.unlink(read_rule_file_path)
 
-
     @unittest.skipIf(True, "TODO")
     def test_detached_mode(self):
 
@@ -1507,7 +1484,8 @@ OUTPUT ruleExecOut
         resource_host = "irods.org"
 
         # change demoResc to use detached mode
-        s3_context_detached = "S3_DEFAULT_HOSTNAME=%s;S3_AUTH_FILE=%s;S3_REGIONNAME=%s;S3_RETRY_COUNT=3;S3_WAIT_TIME_SEC=2;S3_PROTO=HTTPS;ARCHIVE_NAMING_POLICY=consistent;HOST_MODE=cacheless_detached;S3_ENABLE_MD5=1;S3_ENABLE_MPU=%d;S3_SIGNATURE_VERSION=%d" % (self.s3endPoint, self.keypairfile, self.s3region, self.s3EnableMPU, self.s3signature_version)
+
+        s3_context_detached = "S3_DEFAULT_HOSTNAME=%s;S3_AUTH_FILE=%s;S3_REGIONNAME=%s;S3_RETRY_COUNT=2;S3_WAIT_TIME_SEC=3;S3_PROTO=%s;ARCHIVE_NAMING_POLICY=consistent;HOST_MODE=cacheless_detached;S3_ENABLE_MD5=1;S3_ENABLE_MPU=%d" % (self.s3endPoint, self.keypairfile, self.s3region, self.proto, self.s3EnableMPU)
 
         self.admin.assert_icommand("iadmin modresc demoResc context %s" % s3_context_detached , 'EMPTY')
         self.admin.assert_icommand("iadmin modresc demoResc host %s" % resource_host, 'EMPTY')
@@ -1569,7 +1547,10 @@ OUTPUT ruleExecOut
     def recursive_register_from_s3_bucket(self):
 
         # create some files on s3
-        s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key)
+        if self.proto == 'HTTPS':
+            s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key)
+        else:
+            s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key, secure=False)
         file_contents = b'random test data'
         f = io.BytesIO(file_contents)
         size = len(file_contents)
