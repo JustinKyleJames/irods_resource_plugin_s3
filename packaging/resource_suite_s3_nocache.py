@@ -1089,8 +1089,8 @@ class ResourceSuite_S3_NoCache(ResourceBase):
         if os.path.exists(filepath):
            os.unlink(filepath)
 
-    
-    @unittest.skip("skipping because this isn't really an s3 test and server changed")    
+
+    @unittest.skip("skipping because this isn't really an s3 test and server changed")
     def test_itrim_returns_on_negative_status__ticket_3531(self):
         # local setup
         filename = "filetotesterror.txt"
@@ -1254,7 +1254,7 @@ OUTPUT ruleExecOut
             if os.path.exists(rule_file_path):
                 os.unlink(rule_file_path)
 
-    @unittest.skip("simulteneous opens are no longer allowed")    
+    @unittest.skip("simulteneous opens are no longer allowed")
     def test_simultaneous_open_writes(self):
 
         rule_file_path = 'test_simultaneous_open_writes.r'
