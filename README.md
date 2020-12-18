@@ -165,5 +165,4 @@ This plugin has been manually tested to work with google cloud storage. This wor
 
 * Set `S3_ENABLE_MPU=0` in the context string. Google does not seem to support multipart uploads.
 * Set `S3_DEFAULT_HOSTNAME=storage.googleapis.com` in the context string.
-* Set `S3_SIGNATURE_VERSION=s3v4` in the context string.
 * The values in the `S3_AUTH_FILE` have to be generated according to the instructions: https://cloud.google.com/storage/docs/migrating#keys
