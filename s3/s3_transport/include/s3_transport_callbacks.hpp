@@ -253,7 +253,6 @@ namespace irods::experimental::io::s3_transport
                 callback_for_write_to_s3_base(libs3_types::bucket_context& _saved_bucket_context,
                                               upload_manager& _manager)
                     : enable_md5{false}
-                    , server_encrypt{false}
                     , thread_identifier{0}
                     , object_key{}
                     , shmem_key{}
@@ -316,7 +315,6 @@ namespace irods::experimental::io::s3_transport
 
                 libs3_types::status          status;
                 bool                         enable_md5;
-                bool                         server_encrypt;
                 uint64_t                     thread_identifier;
                 std::string                  object_key;
                 std::string                  shmem_key;
@@ -521,7 +519,6 @@ namespace irods::experimental::io::s3_transport
                 callback_for_write_to_s3_base(libs3_types::bucket_context& _saved_bucket_context,
                                               upload_manager& _manager)
                     : enable_md5{false}
-                    , server_encrypt{false}
                     , thread_identifier{0}
                     , shared_memory_timeout_in_seconds{constants::DEFAULT_SHARED_MEMORY_TIMEOUT_IN_SECONDS}
                     , object_key{}
@@ -628,7 +625,6 @@ namespace irods::experimental::io::s3_transport
                 //std::reference_wrapper<upload_manager> manager;
                 libs3_types::status          status;
                 bool                         enable_md5;
-                bool                         server_encrypt;
                 uint64_t                     thread_identifier;
                 time_t                       shared_memory_timeout_in_seconds;
                 std::string                  object_key;

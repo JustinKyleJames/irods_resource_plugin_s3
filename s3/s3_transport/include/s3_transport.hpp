@@ -1662,7 +1662,6 @@ namespace irods::experimental::io::s3_transport
             }
 
             write_callback->enable_md5 = config_.enable_md5_flag;
-            write_callback->server_encrypt = config_.server_encrypt_flag;
             write_callback->thread_identifier = get_thread_identifier();
             write_callback->object_key = object_key_;
             write_callback->shmem_key = shmem_key_;
@@ -1690,6 +1689,9 @@ namespace irods::experimental::io::s3_transport
                 //    partData.put_object_data.content_length, resource_name );
                 //}
                 put_props_.expires = -1;
+
+                // server encrypt flag not valid for part upload
+                put_props_.useServerSideEncryption = false;
 
                 rodsLog(config_.debug_log_level, "%s:%d (%s) [[%lu]] S3_upload_part (ctx, %s, props, handler, %lu, "
                        "uploadId, %lu, 0, partData)\n", __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
@@ -1793,7 +1795,6 @@ namespace irods::experimental::io::s3_transport
 
                 write_callback->offset = 0;
                 write_callback->enable_md5 = config_.enable_md5_flag;
-                write_callback->server_encrypt = config_.server_encrypt_flag;
                 write_callback->thread_identifier = get_thread_identifier();
                 write_callback->object_key = object_key_;
                 write_callback->shmem_key = shmem_key_;
@@ -1809,6 +1810,7 @@ namespace irods::experimental::io::s3_transport
                 //    partData.put_object_data.content_length, resource_name );
                 //}
                 put_props_.expires = -1;
+                put_props_.useServerSideEncryption = config_.server_encrypt_flag;
 
                 rodsLog(config_.debug_log_level, "%s:%d (%s) [[%lu]] S3_put_object(ctx, %s, "
                        "%lu, put_props_, 0, &putObjectHandler, &data)\n",

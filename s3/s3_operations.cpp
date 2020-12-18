@@ -361,10 +361,9 @@ namespace irods_s3 {
         s3_config.s3_uri_request_style = s3_get_uri_request_style(_ctx.prop_map()) == S3UriStyleVirtualHost ? "host" : "path";
         s3_config.minimum_part_size = s3_get_minimum_part_size(_ctx.prop_map());
         s3_config.debug_log_level = debug_log_level;
-
         s3_config.region_name = get_region_name(_ctx.prop_map());
-
         s3_config.put_repl_flag = ( oprType == PUT_OPR || oprType == REPLICATE_DEST || oprType == COPY_DEST );
+        s3_config.server_encrypt_flag = s3GetServerEncrypt(_ctx.prop_map());
 
         // get open mode
         std::ios_base::openmode open_mode = data.open_mode;

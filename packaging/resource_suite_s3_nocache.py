@@ -87,6 +87,10 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
         self.anothervault = "/tmp/" + self.anotherresc
 
         self.s3_context = "S3_DEFAULT_HOSTNAME=%s;S3_AUTH_FILE=%s;S3_REGIONNAME=%s;S3_RETRY_COUNT=2;S3_WAIT_TIME_SEC=3;S3_PROTO=%s;ARCHIVE_NAMING_POLICY=consistent;HOST_MODE=cacheless_attached;S3_ENABLE_MD5=1;S3_ENABLE_MPU=%d" % (self.s3endPoint, self.keypairfile, self.s3region, self.proto, self.s3EnableMPU)
+        try:
+            self.s3_context += ';S3_SERVER_ENCRYPT=' + str(self.s3sse)
+        except AttributeError:
+            pass
 
         self.admin.assert_icommand("iadmin modresc demoResc name origResc", 'STDOUT_SINGLELINE', 'rename', input='yes\n')
 

@@ -63,6 +63,7 @@ uint64_t s3_get_minimum_part_size(irods::plugin_property_map& _prop_map);
 bool s3GetEnableMultiPartUpload (irods::plugin_property_map& _prop_map);
 S3UriStyle s3_get_uri_request_style(irods::plugin_property_map& _prop_map);
 std::string get_region_name(irods::plugin_property_map& _prop_map);
+bool s3GetServerEncrypt (irods::plugin_property_map& _prop_map);
 
 void StoreAndLogStatus(S3Status status, const S3ErrorDetails *error,
         const char *function, const S3BucketContext *pCtx, S3Status *pStatus,

@@ -757,7 +757,7 @@ bool s3GetEnableMultiPartUpload (
     return enable;
 }
 
-static bool s3GetServerEncrypt (
+bool s3GetServerEncrypt (
     irods::plugin_property_map& _prop_map )
 {
     irods::error ret;
