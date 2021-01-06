@@ -127,6 +127,68 @@ namespace irods_s3 {
     irods::error s3_file_stat_operation_with_flag_for_retry_on_not_found(irods::plugin_context& _ctx,
             struct stat* _statbuf, bool retry_on_not_found );
 
+    // update and return the physical path in case of decoupled naming
+    // returns true if path updated, else false
+    void update_physical_path_for_decoupled_naming(irods::plugin_context& _ctx)
+    {
+        unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+        irods::file_object_ptr object = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
+
+        rodsLog(debug_log_level, "%s:%d (%s) [[%lu]]%s\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
+        // retrieve archive naming policy from resource plugin context
+        std::string archive_naming_policy = CONSISTENT_NAMING; // default
+        irods::error ret = _ctx.prop_map().get<std::string>(ARCHIVE_NAMING_POLICY_KW, archive_naming_policy); // get plugin context property
+        if(!ret.ok()) {
+            std::stringstream msg;
+            msg << "[resource_name=" << get_resource_name(_ctx.prop_map()) << "] "
+                << ret.result();
+            rodsLog(LOG_ERROR, msg.str().c_str());
+        }
+        boost::to_lower(archive_naming_policy);
+
+        // if archive naming policy is decoupled
+        // we use the object's reversed id as S3 key name prefix
+        if (archive_naming_policy == DECOUPLED_NAMING) {
+            // extract object name and bucket name from physical path
+            std::vector< std::string > tokens;
+            irods::string_tokenize(object->physical_path(), "/", tokens);
+            std::string bucket_name = tokens.front();
+            std::string object_name = tokens.back();
+
+            // get data id from L1desc
+            int index = -1;
+            for (int i = 0; i < NUM_L1_DESC; ++i) {
+               if (L1desc[i].inuseFlag) {
+                   if (L1desc[i].dataObjInp && L1desc[i].dataObjInfo &&
+                           L1desc[i].dataObjInp->objPath == object->logical_path()
+                           && L1desc[i].dataObjInfo->filePath == object->physical_path()) {
+
+                       index = i;
+                       break;
+                   }
+                }
+            }
+
+            if (index > 0) {
+
+                std::string obj_id = boost::lexical_cast<std::string>(L1desc[index].dataObjInfo->dataId);
+                std::reverse(obj_id.begin(), obj_id.end());
+
+                // make S3 key name
+                std::ostringstream s3_key_name;
+                s3_key_name << "/" << bucket_name << "/" << obj_id << "/" << object_name;
+
+                // update physical path
+                rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] updating physical_path to %s\n",
+                        __FILE__, __LINE__, __FUNCTION__, thread_id, s3_key_name.str().c_str());
+                object->physical_path(s3_key_name.str());
+                strncpy(L1desc[index].dataObjInfo->filePath, s3_key_name.str().c_str(), MAX_NAME_LEN);
+                L1desc[index].dataObjInfo->filePath[MAX_NAME_LEN - 1] = '\0';
+            }
+
+        }
+    }
+
     std::ios_base::openmode translate_open_mode_posix_to_stream(int oflag, const std::string& call_from) noexcept
     {
         using std::ios_base;
@@ -251,15 +313,14 @@ namespace irods_s3 {
                        L1desc[i].dataObjInfo->dataSize, L1desc[i].srcL1descInx);
             }
         }
-        // ********* END TODO DEBUG - print L1desc for all
-
         rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] ------------------------------------\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
+        // ********* END TODO DEBUG - print L1desc for all
 
         // get number of threads and oprType
         // Note: On a replication from an s3 src within a replication node, there are two entries for the
-        //   replica - one for PUT and one for REPL_DEST.  During the initial PUT there is only one 
+        //   replica - one for PUT and one for REPL_DEST.  During the initial PUT there is only one
         //   entry.  Tp see of we are doing the PUT or REPL, look for the last entry on the list.
-        // TODO:  Come up with a more reliable way to determine this. 
+        // TODO:  Come up with a more reliable way to determine this.
         bool found = false;
         for (int i = 0; i < NUM_L1_DESC; ++i) {
             if (L1desc[i].inuseFlag) {
@@ -284,8 +345,6 @@ namespace irods_s3 {
         }
         rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] oprType set to %d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, oprType);
         rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] data_size set to %ld\n", __FILE__, __LINE__, __FUNCTION__, thread_id, data_size);
-
-
 
         // if this is a replication and we're the destination, get the data size from the source dataObjInfo
         if (oprType == REPLICATE_DEST) {
@@ -442,11 +501,16 @@ namespace irods_s3 {
                 open_mode = translate_open_mode_posix_to_stream(file_obj->flags(), __FUNCTION__);
             }
 
+            // update the physical path
+            update_physical_path_for_decoupled_naming(_ctx);
+
             int fd = fd_data.get_and_increment_fd_counter();
             per_thread_data data;
             data.open_mode = open_mode;
             fd_data.set(fd, data);
             file_obj->file_descriptor(fd);
+
+            rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] physical_path = %s\n", __FILE__, __LINE__, __FUNCTION__, thread_id, file_obj->physical_path().c_str());
 
             return SUCCESS();
 
@@ -462,10 +526,12 @@ namespace irods_s3 {
     irods::error s3_file_open_operation( irods::plugin_context& _ctx) {
 
         if (is_cacheless_mode(_ctx.prop_map())) {
-            rodsLog(debug_log_level, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()));
+            rodsLog(debug_log_level, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__,
+                    std::hash<std::thread::id>{}(std::this_thread::get_id()));
+
+            unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
 
             irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
-            unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
 
             // get oprType
             // note on replication there will be two matching entries for repl source, one for put and one for repl src
@@ -638,9 +704,10 @@ namespace irods_s3 {
 
             unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
 
-            rodsLog(debug_log_level, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, thread_id); 
+            rodsLog(debug_log_level, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
 
             irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
+            rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] physical_path = %s\n", __FILE__, __LINE__, __FUNCTION__, thread_id, file_obj->physical_path().c_str());
 
             int fd = file_obj->file_descriptor();
 

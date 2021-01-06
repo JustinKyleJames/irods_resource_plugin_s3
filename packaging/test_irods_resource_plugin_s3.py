@@ -118,3 +118,12 @@ class Test_S3_NoCache_SSE(Test_S3_NoCache_Base, unittest.TestCase):
         self.s3sse=1
         self.s3EnableMPU=1
         super(Test_S3_NoCache_SSE, self).__init__(*args, **kwargs)
+
+class Test_S3_NoCache_Decoupled(Test_S3_NoCache_Base, unittest.TestCase):
+    def __init__(self, *args, **kwargs):
+        self.keypairfile='/projects/irods/vsphere-testing/externals/amazon_web_services-CI.keypair'
+        self.s3region='us-east-1'
+        self.s3endPoint='s3.amazonaws.com'
+        self.s3EnableMPU=0
+        self.archive_naming_policy = 'decoupled'
+        super(Test_S3_NoCache_Decoupled, self).__init__(*args, **kwargs)
