@@ -2375,6 +2375,7 @@ irods::resource* plugin_factory( const std::string& _inst_name, const std::strin
     resc->set_property< int >( irods::RESOURCE_CHECK_PATH_PERM, DO_CHK_PATH_PERM );
     resc->set_property< int >( irods::RESOURCE_CREATE_PATH,     CREATE_PATH );
     resc->set_property< int >( "category",        FILE_CAT );
+    resc->set_property< bool >( irods::RESOURCE_SKIP_VAULT_PATH_CHECK_ON_UNLINK, true);
 
     return static_cast<irods::resource*>( resc );
 
