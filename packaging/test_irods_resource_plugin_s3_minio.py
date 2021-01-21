@@ -1,21 +1,3 @@
-try:
-   from minio import Minio
-   from minio.error import ResponseError
-except ImportError:
-   print('This test requires minio: perhaps try pip install minio')
-   exit()
-
-import commands
-import datetime
-import os
-import platform
-import random
-import re
-import shutil
-import string
-import subprocess
-import urllib3
-
 from resource_suite_s3_nocache import Test_S3_NoCache_Base
 from resource_suite_s3_cache import Test_S3_Cache_Base
 
@@ -24,13 +6,6 @@ if sys.version_info >= (2,7):
     import unittest
 else:
     import unittest2 as unittest
-
-from .. import lib
-from . import session
-from ..configuration import IrodsConfig
-from .resource_suite import ResourceSuite
-from .test_chunkydevtest import ChunkyDevTest
-
 
 class Test_Compound_With_S3_Resource(Test_S3_Cache_Base, unittest.TestCase):
     def __init__(self, *args, **kwargs):

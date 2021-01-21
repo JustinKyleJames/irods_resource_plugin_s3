@@ -81,16 +81,16 @@ namespace irods::experimental::io::s3_transport
     struct upload_page
     {
        buffer_type        buffer;
-       bool               terminate_flag;
     };
 
     struct upload_manager
     {
-        upload_manager(libs3_types::bucket_context& _saved_bucket_context)
+        explicit upload_manager(libs3_types::bucket_context& _saved_bucket_context)
             : saved_bucket_context{_saved_bucket_context}
             , xml{""}
             , remaining{0}
             , offset{0}
+            , shared_memory_timeout_in_seconds{60}
         {
         }
 
@@ -117,6 +117,7 @@ namespace irods::experimental::io::s3_transport
             , content_length{0}
             , bytes_written{0}
             , saved_bucket_context{_saved_bucket_context}
+            , thread_identifier{0}
         {}
 
         buffer_type         buffer;
@@ -136,7 +137,7 @@ namespace irods::experimental::io::s3_transport
 
     struct data_for_head_callback
     {
-        data_for_head_callback(libs3_types::bucket_context& _bucket_context)
+        explicit data_for_head_callback(libs3_types::bucket_context& _bucket_context)
             : last_modified{0}
             , content_length{0}
             , status{libs3_types::status_ok}

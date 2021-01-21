@@ -146,7 +146,7 @@ namespace irods::experimental::io::s3_transport
 
     public:
 
-        explicit s3_transport(const config _config)
+        explicit s3_transport(const config& _config)
 
             : transport<CharT>{}
             , root_resc_name_{}
@@ -541,7 +541,7 @@ namespace irods::experimental::io::s3_transport
             // Put the buffer on the circular buffer.
             // We must copy the buffer because it will persist after send returns.
             buffer_type copied_buffer(_buffer, _buffer + _buffer_size);
-            circular_buffer_.push_back({copied_buffer, false});
+            circular_buffer_.push_back({copied_buffer});
 
             rodsLog(config_.debug_log_level, "%s:%d (%s) [[%lu]] wrote buffer of size %ld\n",
                     __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), _buffer_size);
@@ -1312,7 +1312,6 @@ namespace irods::experimental::io::s3_transport
             error_codes result = shm_obj.exec([this](auto& data) {
 
                 std::stringstream msg;
-                unsigned int retry_cnt = 0;
 
                 std::stringstream xml("");
 
@@ -1342,7 +1341,7 @@ namespace irods::experimental::io::s3_transport
 
                     int manager_remaining = xml.str().size();
                     upload_manager_.offset = 0;
-                    retry_cnt = 0;
+                    unsigned int retry_cnt = 0;
                     S3MultipartCommitHandler commit_handler
                         = { {s3_multipart_upload::commit_callback::on_response_properties,
                              s3_multipart_upload::commit_callback::on_response_completion },
@@ -1620,9 +1619,9 @@ namespace irods::experimental::io::s3_transport
 
                 circular_buffer_.pop_front(page);
 
-                rodsLog(config_.debug_log_level, "%s:%d (%s) [[%lu]] read page [buffer=%p][buffer_size=%lu][terminate_flag=%d]\n",
+                rodsLog(config_.debug_log_level, "%s:%d (%s) [[%lu]] read page [buffer=%p][buffer_size=%lu]\n",
                         __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), page.buffer.data(),
-                        page.buffer.size(), page.terminate_flag);
+                        page.buffer.size());
 
                 write_callback_from_buffer->buffer = page.buffer;
 
@@ -1784,9 +1783,9 @@ namespace irods::experimental::io::s3_transport
 
                     circular_buffer_.pop_front(page);
 
-                    rodsLog(config_.debug_log_level, "%s:%d (%s) [[%lu]] read page [buffer=%p][buffer_size=%lu][terminate_flag=%d]\n",
+                    rodsLog(config_.debug_log_level, "%s:%d (%s) [[%lu]] read page [buffer=%p][buffer_size=%lu]\n",
                             __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), page.buffer.data(),
-                            page.buffer.size(), page.terminate_flag);
+                            page.buffer.size());
 
                     write_callback_from_buffer->buffer = page.buffer;
                     write_callback->content_length = config_.object_size;
@@ -1875,7 +1874,6 @@ namespace irods::experimental::io::s3_transport
 
         std::string                  cache_file_path_;
         std::fstream                 cache_fstream_;
-        int                          cache_fd_;
 
         inline static int            file_descriptor_counter_ = minimum_valid_file_descriptor;
 

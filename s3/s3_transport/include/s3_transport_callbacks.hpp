@@ -67,7 +67,7 @@ namespace irods::experimental::io::s3_transport
                     <shared_data::multipart_shared_data>;
 
                 callback_for_read_from_s3_base *data =
-                    (callback_for_read_from_s3_base*)callback_data;
+                    static_cast<callback_for_read_from_s3_base*>(callback_data);
 
                 // just touch shmem so we know we are active
                 if (data->callback_counter++ % 10000 == 0) {
@@ -189,6 +189,7 @@ namespace irods::experimental::io::s3_transport
 
             callback_for_read_from_s3_to_buffer(libs3_types::bucket_context& _saved_bucket_context)
                 : callback_for_read_from_s3_base<buffer_type>{_saved_bucket_context}
+                , output_buffer{nullptr}
             {}
 
             libs3_types::status callback_implementation(int libs3_buffer_size,
@@ -279,7 +280,7 @@ namespace irods::experimental::io::s3_transport
                         <shared_data::multipart_shared_data>;
 
                     callback_for_write_to_s3_base *data =
-                        (callback_for_write_to_s3_base*)callback_data;
+                        static_cast<callback_for_write_to_s3_base*>(callback_data);
 
                     // just touch shmem so we know we are active
                     if (data->callback_counter++ % 10000 == 0) {
@@ -440,9 +441,9 @@ namespace irods::experimental::io::s3_transport
 
                         circular_buffer.pop_front(page);
 
-                        rodsLog(LOG_DEBUG, "%s:%d (%s) [[%lu]] read page [buffer=%p][buffer_size=%lu][terminate_flag=%d]\n",
+                        rodsLog(LOG_DEBUG, "%s:%d (%s) [[%lu]] read page [buffer=%p][buffer_size=%lu]\n",
                                 __FILE__, __LINE__, __FUNCTION__, this->thread_identifier, page.buffer.data(),
-                                page.buffer.size(), page.terminate_flag);
+                                page.buffer.size());
 
                         buffer = page.buffer;
                         this->offset = 0;
@@ -756,10 +757,10 @@ namespace irods::experimental::io::s3_transport
 
                         circular_buffer.pop_front(page);
 
-                        rodsLog(LOG_DEBUG, "%s:%d (%s) [[%lu]] read page [buffer=%p][buffer_size=%lu]"
-                                "[terminate_flag=%d]\n", __FILE__, __LINE__, __FUNCTION__,
+                        rodsLog(LOG_DEBUG, "%s:%d (%s) [[%lu]] read page [buffer=%p][buffer_size=%lu]\n",
+                                __FILE__, __LINE__, __FUNCTION__,
                                 this->thread_identifier, page.buffer.data(),
-                                page.buffer.size(), page.terminate_flag);
+                                page.buffer.size());
 
                         buffer = page.buffer;
                         this->offset = 0;

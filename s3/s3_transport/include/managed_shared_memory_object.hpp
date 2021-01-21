@@ -50,7 +50,7 @@ namespace irods::experimental::interprocess
                 named_shared_memory_object& = delete;
 
             template <typename... Args>
-            named_shared_memory_object(std::string shm_name,
+            named_shared_memory_object(const std::string& shm_name,
                     time_t shared_memory_timeout_in_seconds,
                     uint64_t shm_size,
                     Args&& ...args)

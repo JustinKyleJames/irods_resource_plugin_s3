@@ -159,7 +159,8 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
             self.aws_secret_access_key = f.readline().rstrip()
 
     # read the endpoint address from the file endpointfile
-    def read_endpoint(self, endpointfile):
+    @classmethod
+    def read_endpoint(cls, endpointfile):
         # read endpoint file
         with open(endpointfile) as f:
             return f.readline().rstrip()
@@ -787,7 +788,6 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
         hostuser = getpass.getuser()
         doublefile = "doublefile.txt"
         lib.execute_command("cat %s %s > %s" % (filename, filename, doublefile), use_unsafe_shell=True)
-        doublesize = str(os.stat(doublefile).st_size)
 
         # assertions
         self.admin.assert_icommand("iadmin mkresc thirdresc s3 %s:/%s/tmp/%s/thirdrescVault %s" %
@@ -1618,9 +1618,6 @@ OUTPUT ruleExecOut
 
             self.user0.assert_icommand("irm -f {file2}".format(**locals()))  # imv
 
-            # local cleanup
-            hostname = lib.get_hostname()
-
             if os.path.exists(file1):
                 os.unlink(file1)
 
@@ -1646,7 +1643,6 @@ OUTPUT ruleExecOut
             # create and put file
             file1 = "f1"
             file2 = "f1.get"
-            filepath = lib.create_local_testfile(file1)
             self.user0.assert_icommand("iput -R s3repl {file1}".format(**locals()))  # iput
 
             # get file from first repl
@@ -1670,7 +1666,6 @@ OUTPUT ruleExecOut
         finally:
 
             # cleanup
-            pass
             self.user0.assert_icommand("irm -f %s" % file1, 'EMPTY')
             self.admin.assert_icommand("iadmin rmchildfromresc s3repl s3resc1", 'EMPTY')
             self.admin.assert_icommand("iadmin rmchildfromresc s3repl s3resc2", 'EMPTY')

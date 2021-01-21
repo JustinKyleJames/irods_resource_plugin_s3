@@ -40,7 +40,7 @@ namespace irods::experimental::io::s3_transport::shared_data
         using interprocess_recursive_mutex = boost::interprocess::interprocess_recursive_mutex;
         using error_codes = irods::experimental::io::s3_transport::error_codes;
 
-        multipart_shared_data(const interprocess_types::void_allocator &allocator)
+        explicit multipart_shared_data(const interprocess_types::void_allocator &allocator)
             : threads_remaining_to_close{0}
             , done_initiate_multipart{false}
             , upload_id{allocator}

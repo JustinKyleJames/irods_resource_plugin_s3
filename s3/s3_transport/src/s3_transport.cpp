@@ -123,8 +123,11 @@ namespace irods::experimental::io::s3_transport
         rand_mutex.unlock();
         // Add up to 1000 ms (1 sec)
         int addl = static_cast<int>((static_cast<double>(random) / static_cast<double>(RAND_MAX)) * 1000.0);
-        useconds_t us = ( _s * 1000000 ) + ( (_ms + addl) * 1000 );
-        usleep( us );
+
+        struct timespec tim, rem;
+        tim.tv_sec = 0;
+        tim.tv_nsec = 1000 * (( _s * 1000000 ) + ( (_ms + addl) * 1000 ));
+        nanosleep(&tim, &rem);
     } // end s3_sleep
 
     namespace s3_head_object_callback

@@ -294,7 +294,6 @@ namespace irods_s3 {
         }
 
         // get the file size
-        data_size = s3_transport_config::UNKNOWN_OBJECT_SIZE;
         {
             std::lock_guard<std::mutex> lock(global_mutex);
             data_size = irods_s3::data_size;
@@ -337,7 +336,6 @@ namespace irods_s3 {
                     if (data_size == s3_transport_config::UNKNOWN_OBJECT_SIZE) {
                         data_size = L1desc[i].dataSize;
                     }
-                    oprType = L1desc[i].dataObjInp->oprType;
                 }
            } else if (found) {
                break;
@@ -927,7 +925,6 @@ namespace irods_s3 {
             bzero (_statbuf, sizeof (struct stat));
 
             boost::filesystem::path p(object->physical_path());
-            std::string filename = p.filename().string();
 
             irods::error ret;
             std::string bucket;
@@ -1612,7 +1609,8 @@ namespace irods_s3 {
         irods::hierarchy_parser*            _out_parser,
         float*                              _out_vote )
     {
-        rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] _opr=%s\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()), _opr->c_str());
+        rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] _opr=%s\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()),
+                _opr == nullptr ? "nullptr" : _opr->c_str());
 
         irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
 

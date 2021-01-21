@@ -10,13 +10,13 @@ Install the plugin either via your package manager (`yum`, `apt-get`) and [the b
 
 To build the S3 Resource Plugin, you will need to have:
 
- - the iRODS Development Tools (irods-dev(el) and irods-runtime) from https://irods.org/download
+- the iRODS Development Tools (irods-dev(el) and irods-runtime) from https://irods.org/download
 
- - libxml2-dev(el)
+- libxml2-dev(el)
 
- - libcurl4-gnutls-dev / curl-devel
+- libcurl4-gnutls-dev / curl-devel
 
- - libs3 from https://github.com/irods/libs3
+- libs3 from https://github.com/irods/libs3
 
 ## Build Instructions
 
@@ -124,16 +124,16 @@ Note that when using iput or iget the operations will always be cacheless.  At t
 
 In the cases where a cache file must be used, the base directory for the cache files can be set using the `S3_CACHE_DIR` parameter in the context string.  If it is not set, a directory under `/tmp` will be created and used.  The cache files are transient and are removed once the data object is closed.
 
-#### Expectations on clients using the s3_transport/dstream directly when the put_repl_flag is set to true.
+#### Expectations on clients using the s3_transport/dstream directly when the put_repl_flag is set to true
 
 When the put_repl_flag is true, the s3_transport has some expectations on the behavior of the client.  If these are not followed the results are undefined and the transfers will likely fail.
 
 1.  If the number_of_client_transfer_threads is set to 1, a single thread will send all of the bytes starting from the first byte to the last byte in sequential order.
 2.  If the number_of_client_transfer_threads is greater than 1:
-  - Each thread will perform a lseek() and start writing at the offset of thread_number * (object_size / number_of_client_transfer_threads).
-  - The last thread will send the extra bytes.
-  - Each thread will call s3_transport_ptr->set_part_size(n) where n is the size of its part.
-  - The bytes for each thread will be sent sequentially and all bytes will be sent.
+- Each thread will perform a lseek() and start writing at the offset of thread_number * (object_size / number_of_client_transfer_threads).
+- The last thread will send the extra bytes.
+- Each thread will call s3_transport_ptr->set_part_size(n) where n is the size of its part.
+- The bytes for each thread will be sent sequentially and all bytes will be sent.
 
 This conforms to the way iput breaks up the files when doing parallel writes.  The reason for these is so that the s3_transport object can always determine the part number by the object size and offset.
 
