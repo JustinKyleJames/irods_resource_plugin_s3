@@ -527,9 +527,10 @@ namespace irods::experimental::io::s3_transport
             }
 
             // Put the buffer on the circular buffer.
-            // We must copy the buffer because it will persist after send returns.
-            buffer_type copied_buffer(_buffer, _buffer + _buffer_size);
-            circular_buffer_.push_back({copied_buffer});
+            // TODO make more efficient
+            for (int i = 0; i < _buffer_size; ++i) {
+                circular_buffer_.push_back(_buffer[i]);
+            }
 
             rodsLog(config_.debug_log_level, "%s:%d (%s) [[%lu]] wrote buffer of size %ld\n",
                     __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), _buffer_size);
@@ -1459,21 +1460,21 @@ namespace irods::experimental::io::s3_transport
                 offset = get_file_offset();
             }
 
-            std::shared_ptr<callback_for_read_from_s3_base<buffer_type>> read_callback;
+            std::shared_ptr<callback_for_read_from_s3_base> read_callback;
 
             S3GetObjectHandler get_object_handler = {
                 {
-                    callback_for_read_from_s3_base<buffer_type>::on_response_properties,
-                    callback_for_read_from_s3_base<buffer_type>::on_response_completion
+                    callback_for_read_from_s3_base::on_response_properties,
+                    callback_for_read_from_s3_base::on_response_completion
                 },
-                callback_for_read_from_s3_base<buffer_type>::invoke_callback
+                callback_for_read_from_s3_base::invoke_callback
             };
 
             if (buffer == nullptr) {
                 // Download to cache
-                read_callback.reset(new callback_for_read_from_s3_to_cache<buffer_type>
+                read_callback.reset(new callback_for_read_from_s3_to_cache
                         (bucket_context_));
-                static_cast<callback_for_read_from_s3_to_cache<buffer_type>*>
+                static_cast<callback_for_read_from_s3_to_cache*>
                     (read_callback.get())->set_and_open_cache_file(cache_file_path_);
             } else {
                 // Download to buffer
@@ -1493,10 +1494,10 @@ namespace irods::experimental::io::s3_transport
                     }
                 }
 
-                read_callback.reset(new callback_for_read_from_s3_to_buffer<buffer_type>(bucket_context_));
-                static_cast<callback_for_read_from_s3_to_buffer<buffer_type>*>(read_callback.get())
+                read_callback.reset(new callback_for_read_from_s3_to_buffer(bucket_context_));
+                static_cast<callback_for_read_from_s3_to_buffer*>(read_callback.get())
                     ->set_output_buffer(buffer);
-                static_cast<callback_for_read_from_s3_to_buffer<buffer_type>*>(read_callback.get())
+                static_cast<callback_for_read_from_s3_to_buffer*>(read_callback.get())
                     ->set_output_buffer_size(length);
 
             }
@@ -1575,7 +1576,7 @@ namespace irods::experimental::io::s3_transport
         } // end s3_download_part_worker_routine
 
         void s3_upload_part_worker_routine(bool read_from_cache = false,
-                                           unsigned int part_number = 0,
+                                           unsigned int part_number = 0,   // zero based part number for cache only
                                            unsigned int part_size = 0)
         {
 
@@ -1583,7 +1584,7 @@ namespace irods::experimental::io::s3_transport
             namespace types = shared_data::interprocess_types;
 
 
-            std::shared_ptr<s3_multipart_upload::callback_for_write_to_s3_base<buffer_type>> write_callback;
+            std::shared_ptr<s3_multipart_upload::callback_for_write_to_s3_base> write_callback;
 
             // read upload_id from shmem
 
@@ -1599,30 +1600,33 @@ namespace irods::experimental::io::s3_transport
 
             S3PutObjectHandler put_object_handler = {
                 {
-                    s3_multipart_upload::callback_for_write_to_s3_base<buffer_type>::on_response_properties,
-                    s3_multipart_upload::callback_for_write_to_s3_base<buffer_type>::on_response_completion
+                    s3_multipart_upload::callback_for_write_to_s3_base::on_response_properties,
+                    s3_multipart_upload::callback_for_write_to_s3_base::on_response_completion
                 },
-                s3_multipart_upload::callback_for_write_to_s3_base<buffer_type>::invoke_callback
+                s3_multipart_upload::callback_for_write_to_s3_base::invoke_callback
             };
 
             off_t offset;
 
+            unsigned int start_part_number;
+            unsigned int end_part_number;
+            int64_t content_length;
+
             if (read_from_cache) {
 
-                // read from cache
+                // read from cache, write to s3
 
-                write_callback.reset(new s3_multipart_upload::callback_for_write_from_cache_to_s3<buffer_type>
+                write_callback.reset(new s3_multipart_upload::callback_for_write_from_cache_to_s3
                         (bucket_context_, upload_manager_));
 
-                s3_multipart_upload::callback_for_write_from_cache_to_s3<buffer_type>
+                s3_multipart_upload::callback_for_write_from_cache_to_s3
                     *write_callback_from_cache =
-                    static_cast<s3_multipart_upload::callback_for_write_from_cache_to_s3<buffer_type>*>
+                    static_cast<s3_multipart_upload::callback_for_write_from_cache_to_s3*>
                     (write_callback.get());
 
                 write_callback_from_cache->set_and_open_cache_file(cache_file_path_);
 
                 offset = part_size * part_number;
-                int64_t content_length;
 
                 // get the object size from the cache file
                 auto object_size = get_cache_file_size();
@@ -1635,50 +1639,37 @@ namespace irods::experimental::io::s3_transport
                     content_length = part_size;
                 }
 
-                write_callback->sequence = part_number + 1;
-                write_callback->content_length = content_length;
-                write_callback->offset = offset;
-                write_callback->thread_identifier = get_thread_identifier();
+                start_part_number = end_part_number = part_number + 1;
 
             } else {
 
-                // Read from buffer
+                // Read from buffer, write to s3
 
                 write_callback.reset(new
-                        s3_multipart_upload::callback_for_write_from_buffer_to_s3<buffer_type>(
+                        s3_multipart_upload::callback_for_write_from_buffer_to_s3(
                             bucket_context_, upload_manager_, circular_buffer_));
-
-                s3_multipart_upload::callback_for_write_from_buffer_to_s3<buffer_type>
-                    *write_callback_from_buffer =
-                    static_cast<s3_multipart_upload::callback_for_write_from_buffer_to_s3<buffer_type>*>
-                    (write_callback.get());
-
-                upload_page<buffer_type> page;
-
-                // read the first page
-                rodsLog(config_.debug_log_level, "%s:%d (%s) [[%lu]] waiting to read\n",
-                        __FILE__, __LINE__, __FUNCTION__, get_thread_identifier());
-
-                circular_buffer_.pop_front(page);
-
-                rodsLog(config_.debug_log_level, "%s:%d (%s) [[%lu]] read page [buffer=%p][buffer_size=%lu]\n",
-                        __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), page.buffer.data(),
-                        page.buffer.size());
-
-                write_callback_from_buffer->buffer = page.buffer;
 
                 // determine the sequence number from the offset, file size, and buffer size
                 // the last page might be larger so doing a little trick to handle that case (second term)
                 //  Note:  We bailed early if config_.part_size == 0
-                unsigned long sequence = (get_file_offset() / get_part_size()) +
-                    (get_file_offset() % get_part_size() == 0 ? 0 : 1) + 1;
+                unsigned int thread_number = (get_file_offset() / get_part_size()) +
+                    (get_file_offset() % get_part_size() == 0 ? 0 : 1);
 
-                write_callback->sequence = sequence;
-                write_callback->content_length = config_.part_size;
+                int64_t bytes_per_thread =
+                    thread_number == 0
+                    ? get_part_size()
+                    : get_file_offset() / thread_number;
 
-                // estimate the size and resize the etags vector
-                unsigned long  number_of_parts = config_.object_size / config_.part_size;
-                number_of_parts = number_of_parts < sequence ? sequence : number_of_parts;
+                unsigned int parts_per_thread = (bytes_per_thread / config_.minimum_part_size);
+
+                start_part_number = thread_number * parts_per_thread + 1;
+                end_part_number = start_part_number + parts_per_thread - 1;
+
+rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] start_part_number=%zu end_part_number=%zu thread_number=%zu parts_per_thread=%zu bytes_per_thread=%zu file_offset=%zu", __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), start_part_number, end_part_number, thread_number, parts_per_thread, get_file_offset());
+
+                // estimate the size and resize the etags vector TODO
+                unsigned int number_of_parts = config_.object_size / config_.part_size;
+                number_of_parts = number_of_parts < end_part_number ? end_part_number : number_of_parts;
 
                 // resize the etags vector if necessary
                 int resize_error = shm_obj.atomic_exec([this, number_of_parts, &shm_obj](auto& data) {
@@ -1709,59 +1700,70 @@ namespace irods::experimental::io::s3_transport
             write_callback->shmem_key = shmem_key_;
             write_callback->shared_memory_timeout_in_seconds = config_.shared_memory_timeout_in_seconds;
 
-            do {
+            for (unsigned int sequence = start_part_number; sequence <= end_part_number; ++sequence) {
 
-                if (read_from_cache) {
-                    write_callback->offset = offset;
+                do {
+
+                    if (read_from_cache) {
+                        write_callback->offset = offset;
+                        write_callback->content_length = content_length;
+                    } else {
+                        write_callback->content_length = (
+                                sequence == end_part_number
+                                ? config_.part_size - (sequence - start_part_number) * config_.minimum_part_size
+                                : config_.minimum_part_size );
+                    }
+
+                    write_callback->thread_identifier = get_thread_identifier();
+
+                    std::stringstream msg;
+
+                    msg << "Multipart:  Start part " << static_cast<int>(write_callback->sequence) << ", key \""
+                        << object_key_ << "\", uploadid \"" << upload_id
+                        << "\", len " << static_cast<int>(write_callback->content_length);
+                    rodsLog(config_.debug_log_level,  "%s:%d (%s) [[%lu]] %s\n", __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
+                            msg.str().c_str() );
+
+                    S3PutProperties put_props{};
+                    put_props.md5 = nullptr;
+                    put_props.expires = -1;
+
+                    // server encrypt flag not valid for part upload
+                    put_props.useServerSideEncryption = false;
+
+                    rodsLog(config_.debug_log_level, "%s:%d (%s) [[%lu]] S3_upload_part (ctx, %s, props, handler, %lu, "
+                           "uploadId, %lu, 0, partData)\n", __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
+                           object_key_.c_str(), write_callback->sequence,
+                           write_callback->content_length);
+
+                    S3_upload_part(&bucket_context_, object_key_.c_str(), &put_props,
+                            &put_object_handler, write_callback->sequence, upload_id.c_str(),
+                            write_callback->content_length, 0, 0, write_callback.get());
+
+                    rodsLog(config_.debug_log_level, "%s:%d (%s) [[%lu]] S3_upload_part returned [part=%lu][status=%s].\n",
+                            __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), write_callback->sequence,
+                            S3_get_status_name(write_callback->status));
+
+                    msg.str(std::string());
+                    msg.clear();
+                    msg << "Multipart:  -- END -- BW=";// << bw << " MB/s";
+                    rodsLog(config_.debug_log_level,  "%s:%d (%s) [[%lu]] %s\n", __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
+                            msg.str().c_str() );
+
+                    if (write_callback->status != libs3_types::status_ok) s3_sleep( config_.retry_wait_seconds, 0 );
+                // note can't retry this because data is lost - therefore for now this is set to false
+                } while ((write_callback->status != libs3_types::status_ok) && false && S3_status_is_retryable(write_callback->status) &&
+                        (++retry_cnt < config_.retry_count_limit));
+
+                if (write_callback->status != libs3_types::status_ok) {
+
+
+                    this->set_error(ERROR(S3_PUT_ERROR, "failed in S3_upload_part"));
+
+                    shm_obj.atomic_exec([](auto& data) {
+                        data.last_error_code = error_codes::UPLOAD_FILE_ERROR;
+                    });
                 }
-
-                std::stringstream msg;
-
-                msg << "Multipart:  Start part " << static_cast<int>(write_callback->sequence) << ", key \""
-                    << object_key_ << "\", uploadid \"" << upload_id
-                    << "\", len " << static_cast<int>(write_callback->content_length);
-                rodsLog(config_.debug_log_level,  "%s:%d (%s) [[%lu]] %s\n", __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
-                        msg.str().c_str() );
-
-                S3PutProperties put_props{};
-                put_props.md5 = nullptr;
-                put_props.expires = -1;
-
-                // server encrypt flag not valid for part upload
-                put_props.useServerSideEncryption = false;
-
-                rodsLog(config_.debug_log_level, "%s:%d (%s) [[%lu]] S3_upload_part (ctx, %s, props, handler, %lu, "
-                       "uploadId, %lu, 0, partData)\n", __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
-                       object_key_.c_str(), write_callback->sequence,
-                       write_callback->content_length);
-
-                S3_upload_part(&bucket_context_, object_key_.c_str(), &put_props,
-                        &put_object_handler, write_callback->sequence, upload_id.c_str(),
-                        write_callback->content_length, 0, 0, write_callback.get());
-
-                rodsLog(config_.debug_log_level, "%s:%d (%s) [[%lu]] S3_upload_part returned [part=%lu][status=%s].\n",
-                        __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), write_callback->sequence,
-                        S3_get_status_name(write_callback->status));
-
-                msg.str(std::string());
-                msg.clear();
-                msg << "Multipart:  -- END -- BW=";// << bw << " MB/s";
-                rodsLog(config_.debug_log_level,  "%s:%d (%s) [[%lu]] %s\n", __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
-                        msg.str().c_str() );
-
-                if (write_callback->status != libs3_types::status_ok) s3_sleep( config_.retry_wait_seconds, 0 );
-            // note can't retry this because data is lost - therefore for now this is set to false
-            } while ((write_callback->status != libs3_types::status_ok) && false && S3_status_is_retryable(write_callback->status) &&
-                    (++retry_cnt < config_.retry_count_limit));
-
-            if (write_callback->status != libs3_types::status_ok) {
-
-
-                this->set_error(ERROR(S3_PUT_ERROR, "failed in S3_upload_part"));
-
-                shm_obj.atomic_exec([](auto& data) {
-                    data.last_error_code = error_codes::UPLOAD_FILE_ERROR;
-                });
             }
         }
 
@@ -1772,7 +1774,7 @@ namespace irods::experimental::io::s3_transport
             namespace types = shared_data::interprocess_types;
 
 
-            std::shared_ptr<s3_upload::callback_for_write_to_s3_base<buffer_type>> write_callback;
+            std::shared_ptr<s3_upload::callback_for_write_to_s3_base> write_callback;
 
             unsigned int retry_cnt = 0;
 
@@ -1780,22 +1782,22 @@ namespace irods::experimental::io::s3_transport
 
                 S3PutObjectHandler put_object_handler = {
                     {
-                        s3_upload::callback_for_write_to_s3_base<buffer_type>::on_response_properties,
-                        s3_upload::callback_for_write_to_s3_base<buffer_type>::on_response_completion
+                        s3_upload::callback_for_write_to_s3_base::on_response_properties,
+                        s3_upload::callback_for_write_to_s3_base::on_response_completion
                     },
-                    s3_upload::callback_for_write_to_s3_base<buffer_type>::invoke_callback
+                    s3_upload::callback_for_write_to_s3_base::invoke_callback
                 };
 
                 if (read_from_cache) {
 
                     // read from cache
 
-                    write_callback.reset(new s3_upload::callback_for_write_from_cache_to_s3<buffer_type>
+                    write_callback.reset(new s3_upload::callback_for_write_from_cache_to_s3
                             (bucket_context_, upload_manager_));
 
-                    s3_upload::callback_for_write_from_cache_to_s3<buffer_type>
+                    s3_upload::callback_for_write_from_cache_to_s3
                         *write_callback_from_cache =
-                        static_cast<s3_upload::callback_for_write_from_cache_to_s3<buffer_type>*>
+                        static_cast<s3_upload::callback_for_write_from_cache_to_s3*>
                         (write_callback.get());
 
                     write_callback_from_cache->set_and_open_cache_file(cache_file_path_);
@@ -1809,32 +1811,13 @@ namespace irods::experimental::io::s3_transport
                     // Read from buffer
 
                     write_callback.reset(new
-                            s3_upload::callback_for_write_from_buffer_to_s3<buffer_type>(
+                            s3_upload::callback_for_write_from_buffer_to_s3(
                                 bucket_context_, upload_manager_, circular_buffer_));
 
-                    s3_upload::callback_for_write_from_buffer_to_s3<buffer_type>
-                        *write_callback_from_buffer =
-                        static_cast<s3_upload::callback_for_write_from_buffer_to_s3<buffer_type>*>
-                        (write_callback.get());
-
-                    upload_page<buffer_type> page;
-
-                    // read the first page
-                    rodsLog(config_.debug_log_level, "%s:%d (%s) [[%lu]] waiting to read\n",
-                            __FILE__, __LINE__, __FUNCTION__, get_thread_identifier());
-
-                    circular_buffer_.pop_front(page);
-
-                    rodsLog(config_.debug_log_level, "%s:%d (%s) [[%lu]] read page [buffer=%p][buffer_size=%lu]\n",
-                            __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), page.buffer.data(),
-                            page.buffer.size());
-
-                    write_callback_from_buffer->buffer = page.buffer;
                     write_callback->content_length = config_.object_size;
 
                 }
 
-                write_callback->offset = 0;
                 write_callback->enable_md5 = config_.enable_md5_flag;
                 write_callback->thread_identifier = get_thread_identifier();
                 write_callback->object_key = object_key_;
@@ -1891,7 +1874,7 @@ namespace irods::experimental::io::s3_transport
 
         std::unique_ptr<std::thread> begin_part_upload_thread_ptr_;
 
-        irods::experimental::circular_buffer<upload_page<buffer_type>>
+        irods::experimental::circular_buffer<char_type>
                                      circular_buffer_;
 
         std::ios_base::openmode      mode_;

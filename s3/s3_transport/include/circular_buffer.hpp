@@ -31,6 +31,16 @@ namespace experimental {
                         } );
             }
 
+            // peek item at n without removing from queue
+            void peek(size_t n, T& entry)
+            {
+                (*lws_)([this, n] { return n < cb_.size(); },
+                        [this, n, &entry] {
+                            auto iter = cb_.begin();
+                            entry = *(iter + n);
+                        } );
+            }
+
             void push_back(const T& entry)
             {
                 (*lws_)([this] { return cb_.size() < cb_.capacity(); },

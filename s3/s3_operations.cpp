@@ -220,8 +220,6 @@ namespace irods_s3 {
     {
         unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
         irods::file_object_ptr object = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
-
-        rodsLog(debug_log_level, "%s:%d (%s) [[%lu]]%s\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
         // retrieve archive naming policy from resource plugin context
         std::string archive_naming_policy = CONSISTENT_NAMING; // default
         irods::error ret = _ctx.prop_map().get<std::string>(ARCHIVE_NAMING_POLICY_KW, archive_naming_policy); // get plugin context property
@@ -445,10 +443,10 @@ namespace irods_s3 {
         s3_config.access_key = access_key;
         s3_config.secret_access_key = secret_access_key;
         s3_config.shared_memory_timeout_in_seconds = 60;
-        s3_config.circular_buffer_size = circular_buffer_size;
+        s3_config.minimum_part_size = s3GetMPUChunksize(_ctx.prop_map());
+        s3_config.circular_buffer_size = circular_buffer_size * s3_config.minimum_part_size;
         s3_config.s3_protocol_str = get_protocol_as_string(_ctx.prop_map());
         s3_config.s3_uri_request_style = s3_get_uri_request_style(_ctx.prop_map()) == S3UriStyleVirtualHost ? "host" : "path";
-        s3_config.minimum_part_size = s3GetMPUChunksize(_ctx.prop_map());
         s3_config.debug_log_level = debug_log_level;
         s3_config.region_name = get_region_name(_ctx.prop_map());
         s3_config.put_repl_flag = ( oprType == PUT_OPR || oprType == REPLICATE_DEST || oprType == COPY_DEST );

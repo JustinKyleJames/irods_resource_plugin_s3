@@ -38,7 +38,6 @@ namespace irods::experimental::io::s3_transport
 {
 
 
-    template <typename buffer_type>
     class callback_for_read_from_s3_base
     {
 
@@ -116,14 +115,13 @@ namespace irods::experimental::io::s3_transport
             libs3_types::status          status;
     };
 
-    template <typename buffer_type>
-    class callback_for_read_from_s3_to_cache : public callback_for_read_from_s3_base<buffer_type>
+    class callback_for_read_from_s3_to_cache : public callback_for_read_from_s3_base
     {
 
         public:
 
             explicit callback_for_read_from_s3_to_cache(libs3_types::bucket_context& _saved_bucket_context)
-                : callback_for_read_from_s3_base<buffer_type>{_saved_bucket_context}
+                : callback_for_read_from_s3_base{_saved_bucket_context}
             {}
 
             libs3_types::status callback_implementation(int libs3_buffer_size,
@@ -179,16 +177,13 @@ namespace irods::experimental::io::s3_transport
 
     };
 
-    template <typename buffer_type>
-    class callback_for_read_from_s3_to_buffer : public callback_for_read_from_s3_base<buffer_type>
+    class callback_for_read_from_s3_to_buffer : public callback_for_read_from_s3_base
     {
 
         public:
 
-            using output_char_type   = typename buffer_type::value_type;
-
             explicit callback_for_read_from_s3_to_buffer(libs3_types::bucket_context& _saved_bucket_context)
-                : callback_for_read_from_s3_base<buffer_type>{_saved_bucket_context}
+                : callback_for_read_from_s3_base{_saved_bucket_context}
                 , output_buffer{nullptr}
                 , output_buffer_size{0}
             {}
@@ -221,15 +216,15 @@ namespace irods::experimental::io::s3_transport
                 output_buffer_size = size;
             }
 
-            void set_output_buffer(output_char_type *buffer)
+            void set_output_buffer(libs3_types::char_type *buffer)
             {
                 output_buffer = buffer;
             }
 
         private:
 
-            output_char_type *output_buffer;
-            int64_t          output_buffer_size;
+            libs3_types::char_type *output_buffer;
+            int64_t                output_buffer_size;
 
     };
 
@@ -246,7 +241,6 @@ namespace irods::experimental::io::s3_transport
     namespace s3_upload
     {
 
-        template <typename buffer_type>
         class callback_for_write_to_s3_base
         {
 
@@ -259,12 +253,12 @@ namespace irods::experimental::io::s3_transport
                     , object_key{}
                     , shmem_key{}
                     , shared_memory_timeout_in_seconds{constants::DEFAULT_SHARED_MEMORY_TIMEOUT_IN_SECONDS}
-                    , offset{0}
                     , content_length{0}
                     , saved_bucket_context{_saved_bucket_context}
                     , manager{_manager}
                     , bytes_written{0}
                     , callback_counter{0}
+                    , offset{0}
                 {}
 
 
@@ -311,7 +305,16 @@ namespace irods::experimental::io::s3_transport
                     store_and_log_status( status, error, __FUNCTION__, data->saved_bucket_context,
                             data->status);
 
+                    if (libs3_types::status_ok == status) {
+                        // do cleanup
+                        callback_for_write_to_s3_base *data =
+                            static_cast<callback_for_write_to_s3_base*>(callback_data);
+                        data->post_success_cleanup();
+                    }
+
                 }
+
+                virtual void post_success_cleanup() = 0;
 
                 virtual ~callback_for_write_to_s3_base() {};
 
@@ -322,7 +325,6 @@ namespace irods::experimental::io::s3_transport
                 std::string                  shmem_key;
                 time_t                       shared_memory_timeout_in_seconds;
 
-                int64_t                      offset;
                 int64_t                      content_length;
                 libs3_types::bucket_context& saved_bucket_context; // To enable more detailed error messages
                 upload_manager&              manager;
@@ -331,18 +333,18 @@ namespace irods::experimental::io::s3_transport
                 // Counter incremented each data callback.  Every Nth iteration touch shared memory
                 // so that we know the process didn't die and leave shared memory corrupted
                 int                          callback_counter;
+                int64_t                      offset;       /* For multiple upload */
 
         };
 
-        template <typename buffer_type>
-        class callback_for_write_from_cache_to_s3 : public callback_for_write_to_s3_base<buffer_type>
+        class callback_for_write_from_cache_to_s3 : public callback_for_write_to_s3_base
         {
 
             public:
 
                 callback_for_write_from_cache_to_s3(libs3_types::bucket_context& _saved_bucket_context,
                                                     upload_manager& _manager)
-                    : callback_for_write_to_s3_base<buffer_type>{_saved_bucket_context, _manager}
+                    : callback_for_write_to_s3_base{_saved_bucket_context, _manager}
                 {}
 
                 int callback_implementation(int libs3_buffer_size,
@@ -380,6 +382,8 @@ namespace irods::experimental::io::s3_transport
 
                 }
 
+                void post_success_cleanup() {}
+
                 ~callback_for_write_from_cache_to_s3() {
                     if (cache_fstream.is_open()) {
                         cache_fstream.close();
@@ -403,19 +407,17 @@ namespace irods::experimental::io::s3_transport
 
         };
 
-        template <typename buffer_type>
-        class callback_for_write_from_buffer_to_s3 : public callback_for_write_to_s3_base<buffer_type>
+        class callback_for_write_from_buffer_to_s3 : public callback_for_write_to_s3_base
         {
 
             public:
 
-                using circular_buffer_type = irods::experimental::circular_buffer<upload_page<buffer_type>>;
-                using output_char_type   = typename buffer_type::value_type;
+                using circular_char_type = irods::experimental::circular_buffer<libs3_types::char_type>;
 
                 callback_for_write_from_buffer_to_s3(libs3_types::bucket_context& _saved_bucket_context,
                                                      upload_manager& _manager,
-                                                     circular_buffer_type& _circular_buffer)
-                    : callback_for_write_to_s3_base<buffer_type>{_saved_bucket_context, _manager}
+                                                     circular_char_type& _circular_buffer)
+                    : callback_for_write_to_s3_base{_saved_bucket_context, _manager}
                     , circular_buffer{_circular_buffer}
                 {}
 
@@ -425,53 +427,35 @@ namespace irods::experimental::io::s3_transport
 
                     assert(libs3_buffer_size >= 0);
 
+                    int offset = 0;
+
                     // if we've already written the expected number of bytes, just return 0 which will
                     // trigger the completion
-                    if (this->bytes_written >= this->content_length) {
-                        return 0;
+
+                    while ( this->bytes_written < this->content_length &&
+                            offset < libs3_buffer_size) {
+
+                        circular_buffer.peek(this->bytes_written, libs3_buffer[offset]);
+                        offset++;
+                        this->bytes_written++;
                     }
 
-                    // if we've exhausted our current buffer, read the next buffer from the circular_buffer
-                    while (this->offset >= static_cast<int64_t>(buffer.size())) {
+                    return offset;
 
-                        upload_page<buffer_type> page;
+                }
 
-                        // read the first page
-                        rodsLog(LOG_DEBUG, "%s:%d (%s) [[%lu]] waiting to read\n", __FILE__, __LINE__, __FUNCTION__,
-                                this->thread_identifier);
+                void post_success_cleanup() {
 
-                        circular_buffer.pop_front(page);
-
-                        rodsLog(LOG_DEBUG, "%s:%d (%s) [[%lu]] read page [buffer=%p][buffer_size=%lu]\n",
-                                __FILE__, __LINE__, __FUNCTION__, this->thread_identifier, page.buffer.data(),
-                                page.buffer.size());
-
-                        buffer = page.buffer;
-                        this->offset = 0;
+                    // had a success, remove all bytes from buffer
+                    for (int64_t i = 0; i < this->bytes_written; ++i) {
+                        libs3_types::char_type c;
+                        circular_buffer.pop_front(c);
                     }
-
-                    auto remaining_transport_buffer_size = static_cast<int64_t>(buffer.size()) - this->offset;
-
-                    bool libs3_buffer_larger_than_remaining_transport_buffer = static_cast<int64_t>(libs3_buffer_size)
-                        > remaining_transport_buffer_size;
-
-                    int64_t length = libs3_buffer_larger_than_remaining_transport_buffer
-                        ? remaining_transport_buffer_size
-                        : libs3_buffer_size;
-
-                    memcpy(libs3_buffer, buffer.data() + this->offset, length);
-
-                    this->offset += length;
-                    this->bytes_written += length;
-
-                    return length;
-
                 }
 
                 ~callback_for_write_from_buffer_to_s3() {};
 
-                buffer_type buffer;
-                irods::experimental::circular_buffer<upload_page<buffer_type>>& circular_buffer;
+                irods::experimental::circular_buffer<libs3_types::char_type>& circular_buffer;
 
         };
 
@@ -512,7 +496,6 @@ namespace irods::experimental::io::s3_transport
         } // end namespace commit_callback
 
 
-        template <typename buffer_type>
         class callback_for_write_to_s3_base
         {
 
@@ -526,12 +509,12 @@ namespace irods::experimental::io::s3_transport
                     , object_key{}
                     , shmem_key{}
                     , sequence{0}
-                    , offset{0}
                     , content_length{0}
                     , saved_bucket_context{_saved_bucket_context}
                     , manager{_manager}
                     , bytes_written{0}
                     , callback_counter{0}
+                    , offset{0}
                 {}
 
 
@@ -619,7 +602,16 @@ namespace irods::experimental::io::s3_transport
                     store_and_log_status( status, error, __FUNCTION__, data->saved_bucket_context,
                             data->status);
 
+                    if (libs3_types::status_ok == status) {
+                        // do cleanup
+                        callback_for_write_to_s3_base *data =
+                            static_cast<callback_for_write_to_s3_base*>(callback_data);
+                        data->post_success_cleanup();
+                    }
+
                 }
+
+                virtual void post_success_cleanup() = 0;
 
                 virtual ~callback_for_write_to_s3_base() {};
 
@@ -631,7 +623,6 @@ namespace irods::experimental::io::s3_transport
                 std::string                  shmem_key;
 
                 unsigned long                sequence;
-                int64_t                      offset;       // For multiple upload
                 int64_t                      content_length;
                 libs3_types::bucket_context& saved_bucket_context; // To enable more detailed error messages
 
@@ -643,18 +634,18 @@ namespace irods::experimental::io::s3_transport
                 // Counter incremented each data callback.  Every Nth iteration touch shared memory
                 // so that we know the process didn't die and leave shared memory corrupted
                 int                          callback_counter;
+                int64_t                      offset;
 
         };
 
-        template <typename buffer_type>
-        class callback_for_write_from_cache_to_s3 : public callback_for_write_to_s3_base<buffer_type>
+        class callback_for_write_from_cache_to_s3 : public callback_for_write_to_s3_base
         {
 
             public:
 
                 callback_for_write_from_cache_to_s3(libs3_types::bucket_context& _saved_bucket_context,
                                                     upload_manager& _manager)
-                    : callback_for_write_to_s3_base<buffer_type>{_saved_bucket_context, _manager}
+                    : callback_for_write_to_s3_base{_saved_bucket_context, _manager}
                 {}
 
                 int callback_implementation(int libs3_buffer_size,
@@ -709,6 +700,8 @@ namespace irods::experimental::io::s3_transport
                     }
                 }
 
+                void post_success_cleanup() {}
+
             private:
 
                 std::string   filename;
@@ -716,19 +709,17 @@ namespace irods::experimental::io::s3_transport
 
         };
 
-        template <typename buffer_type>
-        class callback_for_write_from_buffer_to_s3 : public callback_for_write_to_s3_base<buffer_type>
+        class callback_for_write_from_buffer_to_s3 : public callback_for_write_to_s3_base
         {
 
             public:
 
-                using circular_buffer_type = irods::experimental::circular_buffer<upload_page<buffer_type>>;
-                using output_char_type   = typename buffer_type::value_type;
+                using circular_char_type = irods::experimental::circular_buffer<libs3_types::char_type>;
 
                 callback_for_write_from_buffer_to_s3(libs3_types::bucket_context& _saved_bucket_context,
                                                      upload_manager& _manager,
-                                                     circular_buffer_type& _circular_buffer)
-                    : callback_for_write_to_s3_base<buffer_type>{_saved_bucket_context, _manager}
+                                                     circular_char_type& _circular_buffer)
+                    : callback_for_write_to_s3_base{_saved_bucket_context, _manager}
                     , circular_buffer{_circular_buffer}
                 {}
 
@@ -738,55 +729,35 @@ namespace irods::experimental::io::s3_transport
 
                     assert(libs3_buffer_size >= 0);
 
+                    int offset = 0;
+
                     // if we've already written the expected number of bytes, just return 0 which will
                     // trigger the completion
-                    if (this->bytes_written >= this->content_length) {
-                        return 0;
+
+                    while ( this->bytes_written < this->content_length &&
+                            offset < libs3_buffer_size) {
+
+                        circular_buffer.peek(this->bytes_written, libs3_buffer[offset]);
+                        offset++;
+                        this->bytes_written++;
                     }
 
-                    // if we've exhausted our current buffer, read the next buffer from the circular_buffer
-                    while (this->offset >= static_cast<int64_t>(buffer.size())) {
+                    return offset;
 
-                        upload_page<buffer_type> page;
+                }
 
-                        // read the first page
-                        rodsLog(LOG_DEBUG, "%s:%d (%s) [[%lu]] waiting to read\n",
-                                __FILE__, __LINE__, __FUNCTION__,
-                                this->thread_identifier);
+                void post_success_cleanup() {
 
-                        circular_buffer.pop_front(page);
-
-                        rodsLog(LOG_DEBUG, "%s:%d (%s) [[%lu]] read page [buffer=%p][buffer_size=%lu]\n",
-                                __FILE__, __LINE__, __FUNCTION__,
-                                this->thread_identifier, page.buffer.data(),
-                                page.buffer.size());
-
-                        buffer = page.buffer;
-                        this->offset = 0;
+                    // had a success, remove all bytes from buffer
+                    for (int64_t i = 0; i < this->bytes_written; ++i) {
+                        libs3_types::char_type c;
+                        circular_buffer.pop_front(c);
                     }
-
-                    auto remaining_transport_buffer_size = buffer.size() - this->offset;
-
-                    bool libs3_buffer_larger_than_remaining_transport_buffer = static_cast<unsigned long>(libs3_buffer_size)
-                        > remaining_transport_buffer_size;
-
-                    int64_t length = libs3_buffer_larger_than_remaining_transport_buffer
-                        ? remaining_transport_buffer_size
-                        : libs3_buffer_size;
-
-                    memcpy(libs3_buffer, buffer.data() + this->offset, length);
-
-                    this->offset += length;
-                    this->bytes_written += length;
-
-                    return length;
-
                 }
 
                 ~callback_for_write_from_buffer_to_s3() {};
 
-                buffer_type buffer;
-                irods::experimental::circular_buffer<upload_page<buffer_type>>& circular_buffer;
+                irods::experimental::circular_buffer<libs3_types::char_type>& circular_buffer;
 
         };
 

@@ -141,7 +141,7 @@ const std::string throttle_timeout_minutes{"THROTTLE_TIMEOUT_MINUTES"};
 const std::string s3_number_of_threads{"S3_NUMBER_OF_THREADS"};        //  to save number of threads
 const size_t      S3_DEFAULT_RETRY_WAIT_SEC = 2;
 const size_t      S3_DEFAULT_RETRY_COUNT = 3;
-const int         S3_DEFAULT_CIRCULAR_BUFFER_SIZE = 10;
+const int         S3_DEFAULT_CIRCULAR_BUFFER_SIZE = 2;
 const int         DEFAULT_THROTTLE_TIMEOUT_MINUTES = 30;
 const int         MIN_THROTTLE_THREAD_COUNT = 32;
 
