@@ -12,6 +12,7 @@
 #include <new>
 #include <ctime>
 #include <fstream>
+#include <cstring>
 
 // boost includes
 #include <boost/algorithm/string/predicate.hpp>
@@ -33,14 +34,16 @@
 #include "managed_shared_memory_object.hpp"
 #include "s3_multipart_shared_data.hpp"
 #include "s3_transport_types.hpp"
+#include "s3_transport.hpp"
+
 
 namespace irods::experimental::io::s3_transport
 {
-
+    template <typename CharT>
+    class s3_transport;
 
     class callback_for_read_from_s3_base
     {
-
         public:
 
             callback_for_read_from_s3_base(libs3_types::bucket_context& _saved_bucket_context)
@@ -241,6 +244,7 @@ namespace irods::experimental::io::s3_transport
     namespace s3_upload
     {
 
+        template <typename CharT>
         class callback_for_write_to_s3_base
         {
 
@@ -259,6 +263,7 @@ namespace irods::experimental::io::s3_transport
                     , bytes_written{0}
                     , callback_counter{0}
                     , offset{0}
+                    , transport_object_ptr{nullptr}
                 {}
 
 
@@ -334,17 +339,19 @@ namespace irods::experimental::io::s3_transport
                 // so that we know the process didn't die and leave shared memory corrupted
                 int                          callback_counter;
                 int64_t                      offset;       /* For multiple upload */
+                s3_transport<CharT>*         transport_object_ptr;
 
         };
 
-        class callback_for_write_from_cache_to_s3 : public callback_for_write_to_s3_base
+        template <typename CharT>
+        class callback_for_write_from_cache_to_s3 : public callback_for_write_to_s3_base<CharT>
         {
 
             public:
 
                 callback_for_write_from_cache_to_s3(libs3_types::bucket_context& _saved_bucket_context,
                                                     upload_manager& _manager)
-                    : callback_for_write_to_s3_base{_saved_bucket_context, _manager}
+                    : callback_for_write_to_s3_base<CharT>{_saved_bucket_context, _manager}
                 {}
 
                 int callback_implementation(int libs3_buffer_size,
@@ -407,7 +414,8 @@ namespace irods::experimental::io::s3_transport
 
         };
 
-        class callback_for_write_from_buffer_to_s3 : public callback_for_write_to_s3_base
+        template <typename CharT>
+        class callback_for_write_from_buffer_to_s3 : public callback_for_write_to_s3_base<CharT>
         {
 
             public:
@@ -417,7 +425,7 @@ namespace irods::experimental::io::s3_transport
                 callback_for_write_from_buffer_to_s3(libs3_types::bucket_context& _saved_bucket_context,
                                                      upload_manager& _manager,
                                                      circular_char_type& _circular_buffer)
-                    : callback_for_write_to_s3_base{_saved_bucket_context, _manager}
+                    : callback_for_write_to_s3_base<CharT>{_saved_bucket_context, _manager}
                     , circular_buffer{_circular_buffer}
                 {}
 
@@ -427,30 +435,35 @@ namespace irods::experimental::io::s3_transport
 
                     assert(libs3_buffer_size >= 0);
 
-                    int offset = 0;
+                    // if a critical error occurred in the transport, the writer to the buffer
+                    // may have hung up, so as not to get in a deadlock, just return
+                    if (this->transport_object_ptr && !this->transport_object_ptr->get_error().ok()) {
+                        return 0;
+                    }
 
                     // if we've already written the expected number of bytes, just return 0 which will
                     // trigger the completion
-
-                    while ( this->bytes_written < this->content_length &&
-                            offset < libs3_buffer_size) {
-
-                        circular_buffer.peek(this->bytes_written, libs3_buffer[offset]);
-                        offset++;
-                        this->bytes_written++;
+                    if (this->content_length < this->bytes_written) {
+                        return 0;
                     }
 
-                    return offset;
+                    auto bytes_to_return =
+                        libs3_buffer_size < this->content_length - this->bytes_written
+                        ? libs3_buffer_size
+                        : this->content_length - this->bytes_written;
+
+                    circular_buffer.peek(this->bytes_written, bytes_to_return, libs3_buffer);
+
+                    this->bytes_written += bytes_to_return;
+
+                    return bytes_to_return;
 
                 }
 
                 void post_success_cleanup() {
 
-                    // had a success, remove all bytes from buffer
-                    for (int64_t i = 0; i < this->bytes_written; ++i) {
-                        libs3_types::char_type c;
-                        circular_buffer.pop_front(c);
-                    }
+                    // had a success, remove all processed bytes from buffer
+                    circular_buffer.pop_front(this->bytes_written);
                 }
 
                 ~callback_for_write_from_buffer_to_s3() {};
@@ -496,8 +509,10 @@ namespace irods::experimental::io::s3_transport
         } // end namespace commit_callback
 
 
+        template <typename CharT>
         class callback_for_write_to_s3_base
         {
+
 
             public:
 
@@ -515,6 +530,7 @@ namespace irods::experimental::io::s3_transport
                     , bytes_written{0}
                     , callback_counter{0}
                     , offset{0}
+                    , transport_object_ptr{nullptr}
                 {}
 
 
@@ -635,17 +651,19 @@ namespace irods::experimental::io::s3_transport
                 // so that we know the process didn't die and leave shared memory corrupted
                 int                          callback_counter;
                 int64_t                      offset;
+                s3_transport<CharT>*         transport_object_ptr;
 
         };
 
-        class callback_for_write_from_cache_to_s3 : public callback_for_write_to_s3_base
+        template <typename CharT>
+        class callback_for_write_from_cache_to_s3 : public callback_for_write_to_s3_base<CharT>
         {
 
             public:
 
                 callback_for_write_from_cache_to_s3(libs3_types::bucket_context& _saved_bucket_context,
                                                     upload_manager& _manager)
-                    : callback_for_write_to_s3_base{_saved_bucket_context, _manager}
+                    : callback_for_write_to_s3_base<CharT>{_saved_bucket_context, _manager}
                 {}
 
                 int callback_implementation(int libs3_buffer_size,
@@ -709,7 +727,8 @@ namespace irods::experimental::io::s3_transport
 
         };
 
-        class callback_for_write_from_buffer_to_s3 : public callback_for_write_to_s3_base
+        template <typename CharT>
+        class callback_for_write_from_buffer_to_s3 : public callback_for_write_to_s3_base<CharT>
         {
 
             public:
@@ -719,7 +738,7 @@ namespace irods::experimental::io::s3_transport
                 callback_for_write_from_buffer_to_s3(libs3_types::bucket_context& _saved_bucket_context,
                                                      upload_manager& _manager,
                                                      circular_char_type& _circular_buffer)
-                    : callback_for_write_to_s3_base{_saved_bucket_context, _manager}
+                    : callback_for_write_to_s3_base<CharT>{_saved_bucket_context, _manager}
                     , circular_buffer{_circular_buffer}
                 {}
 
@@ -729,30 +748,35 @@ namespace irods::experimental::io::s3_transport
 
                     assert(libs3_buffer_size >= 0);
 
-                    int offset = 0;
+                    // if a critical error occurred in the transport, the writer to the buffer
+                    // may have hung up, so as not to get in a deadlock, just return
+                    if (this->transport_object_ptr && !this->transport_object_ptr->get_error().ok()) {
+                        return 0;
+                    }
 
                     // if we've already written the expected number of bytes, just return 0 which will
                     // trigger the completion
-
-                    while ( this->bytes_written < this->content_length &&
-                            offset < libs3_buffer_size) {
-
-                        circular_buffer.peek(this->bytes_written, libs3_buffer[offset]);
-                        offset++;
-                        this->bytes_written++;
+                    if (this->content_length < this->bytes_written) {
+                        return 0;
                     }
 
-                    return offset;
+                    auto bytes_to_return =
+                        libs3_buffer_size < this->content_length - this->bytes_written
+                        ? libs3_buffer_size
+                        : this->content_length - this->bytes_written;
+rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] BEGIN reading from circular_buffer\n", __FILE__, __LINE__, __FUNCTION__, this->thread_identifier);
+                    circular_buffer.peek(this->bytes_written, bytes_to_return, libs3_buffer);
+rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] END returning bytes\n", __FILE__, __LINE__, __FUNCTION__, this->thread_identifier);
+
+                    this->bytes_written += bytes_to_return;
+
+                    return bytes_to_return;
 
                 }
 
                 void post_success_cleanup() {
-
-                    // had a success, remove all bytes from buffer
-                    for (int64_t i = 0; i < this->bytes_written; ++i) {
-                        libs3_types::char_type c;
-                        circular_buffer.pop_front(c);
-                    }
+                    // had a success, remove all processed bytes from buffer
+                    circular_buffer.pop_front(this->bytes_written);
                 }
 
                 ~callback_for_write_from_buffer_to_s3() {};
