@@ -123,7 +123,7 @@ namespace irods_s3 {
             int fd_counter;
     };
 
-    int debug_log_level = LOG_NOTICE;
+    int debug_log_level = LOG_DEBUG;
     fd_to_data_map fd_data;
 
     irods::error s3_file_stat_operation_with_flag_for_retry_on_not_found(irods::plugin_context& _ctx,
@@ -446,7 +446,7 @@ namespace irods_s3 {
         s3_config.bucket_name = bucket_name;
         s3_config.access_key = access_key;
         s3_config.secret_access_key = secret_access_key;
-        s3_config.shared_memory_timeout_in_seconds = 60;
+        s3_config.shared_memory_timeout_in_seconds = 180;
         s3_config.minimum_part_size = s3GetMPUChunksize(_ctx.prop_map());
         s3_config.circular_buffer_size = circular_buffer_size * s3_config.minimum_part_size;
         s3_config.s3_protocol_str = get_protocol_as_string(_ctx.prop_map());
@@ -457,6 +457,9 @@ namespace irods_s3 {
         s3_config.server_encrypt_flag = s3GetServerEncrypt(_ctx.prop_map());
         s3_config.cache_directory = s3_cache_dir_str;
         s3_config.multipart_enabled = s3GetEnableMultiPartUpload (_ctx.prop_map());
+
+        s3_config.retry_count_limit = 5;
+        s3_config.retry_wait_seconds = 5;
 
         rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] [put_repl_flag=%d][object_size=%ld][multipart_enabled=%d][minimum_part_size=%ld] ",
                 __FILE__, __LINE__, __FUNCTION__, thread_id, s3_config.put_repl_flag, s3_config.object_size,

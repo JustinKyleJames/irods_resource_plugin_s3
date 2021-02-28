@@ -764,9 +764,7 @@ namespace irods::experimental::io::s3_transport
                         libs3_buffer_size < this->content_length - this->bytes_written
                         ? libs3_buffer_size
                         : this->content_length - this->bytes_written;
-rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] BEGIN reading from circular_buffer\n", __FILE__, __LINE__, __FUNCTION__, this->thread_identifier);
                     circular_buffer.peek(this->bytes_written, bytes_to_return, libs3_buffer);
-rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] END returning bytes\n", __FILE__, __LINE__, __FUNCTION__, this->thread_identifier);
 
                     this->bytes_written += bytes_to_return;
 

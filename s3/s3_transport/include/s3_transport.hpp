@@ -209,7 +209,6 @@ namespace irods::experimental::io::s3_transport
             } else {
                 bucket_context_.uriStyle    = S3UriStylePath;
             }
-
         }
 
         ~s3_transport()
@@ -692,7 +691,7 @@ namespace irods::experimental::io::s3_transport
         bool begin_multipart_upload(named_shared_memory_object& shm_obj)
         {
             auto last_error_code = shm_obj.atomic_exec([](auto& data) {
-                return data.last_error_code;
+                    return data.last_error_code;
             });
 
             // first one in initiates the multipart (everyone has same shared_memory_lock)
@@ -700,7 +699,7 @@ namespace irods::experimental::io::s3_transport
 
                 // send initiate message to S3
                 error_codes ret = shm_obj.atomic_exec([this](auto& data) {
-                    return initiate_multipart_upload();
+                    return this->initiate_multipart_upload();
                 });
 
                 if (error_codes::SUCCESS != ret) {
@@ -735,7 +734,6 @@ namespace irods::experimental::io::s3_transport
 
             // shmem is already locked here
 
-
             namespace bf = boost::filesystem;
 
             bf::path cache_file =  bf::path(config_.cache_directory) / bf::path(object_key_ + "-cache");
@@ -749,7 +747,7 @@ namespace irods::experimental::io::s3_transport
             }
             cache_file_path_ = cache_file.string();
 
-            bool start_download = shm_obj.exec([](auto& data) {
+            bool start_download = shm_obj.atomic_exec([](auto& data) {
                 bool start_download = data.cache_file_download_progress ==
                     cache_file_download_status::NOT_STARTED ||
                     data.cache_file_download_progress == cache_file_download_status::FAILED;
@@ -772,7 +770,7 @@ namespace irods::experimental::io::s3_transport
                     rodsLog(LOG_ERROR, "%s:%d (%s) [[%lu]] Not enough disk space to download object to cache.\n",
                             __FILE__, __LINE__, __FUNCTION__, get_thread_identifier());
 
-                    return shm_obj.exec([](auto& data) {
+                    return shm_obj.atomic_exec([](auto& data) {
                         return data.cache_file_download_progress = cache_file_download_status::FAILED;
                     });
                 }
@@ -821,12 +819,12 @@ namespace irods::experimental::io::s3_transport
                     rodsLog(LOG_ERROR, "%s:%d (%s) [[%lu]] Failed downloading to cache - bytes_downloaded (%lu) != s3_object_size (%lu).\n",
                             __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), bytes_downloaded, s3_object_size);
                     fflush(stderr);
-                    return shm_obj.exec([](auto& data) {
+                    return shm_obj.atomic_exec([](auto& data) {
                         return data.cache_file_download_progress = cache_file_download_status::FAILED;
                     });
                 }
 
-                return shm_obj.exec([](auto& data) {
+                return shm_obj.atomic_exec([](auto& data) {
 
 
                     data.cache_file_download_progress = cache_file_download_status::SUCCESS;
@@ -836,7 +834,7 @@ namespace irods::experimental::io::s3_transport
             }
 
             // check the download status and return
-            return shm_obj.exec([](auto& data) { return data.cache_file_download_progress; });
+            return shm_obj.atomic_exec([](auto& data) { return data.cache_file_download_progress; });
 
         }
 
@@ -908,7 +906,7 @@ namespace irods::experimental::io::s3_transport
 
             // set cache file download flag to NOT_STARTED
             // already locked so just exec()
-            shm_obj.exec([](auto& data) {
+            shm_obj.atomic_exec([](auto& data) {
                     data.cache_file_download_progress = cache_file_download_status::NOT_STARTED;
                     return data.cache_file_download_progress;
             });
@@ -1241,8 +1239,7 @@ namespace irods::experimental::io::s3_transport
                 config_.shared_memory_timeout_in_seconds,
                 constants::MAX_S3_SHMEM_SIZE};
 
-            // no lock here as it is already locked
-            return shm_obj.exec([this, &put_props, &retry_cnt](auto& data) {
+            return shm_obj.atomic_exec([this, &put_props, &retry_cnt](auto& data) {
 
                 retry_cnt = 0;
 
@@ -1302,8 +1299,7 @@ namespace irods::experimental::io::s3_transport
                 constants::MAX_S3_SHMEM_SIZE};
 
             // read upload_id from shared_memory
-            // no lock here as it is already locked
-            std::string upload_id = shm_obj.exec([](auto& data) {
+            std::string upload_id = shm_obj.atomic_exec([](auto& data) {
                 return data.upload_id.c_str();
             });
 
@@ -1347,14 +1343,18 @@ namespace irods::experimental::io::s3_transport
                 config_.shared_memory_timeout_in_seconds,
                 constants::MAX_S3_SHMEM_SIZE};
 
-            // no lock here as it is already locked
-            error_codes result = shm_obj.exec([this](auto& data) {
+            error_codes result = shm_obj.atomic_exec([this](auto& data) {
 
                 std::stringstream msg;
 
                 std::stringstream xml("");
 
                 std::string upload_id  = data.upload_id.c_str();
+
+                if ("" == upload_id) {
+                    this->set_error(ERROR(S3_PUT_ERROR, "null upload_id in complete_multipart_upload"));
+                    return error_codes::COMPLETE_MULTIPART_UPLOAD_ERROR;
+                }
 
                 if (error_codes::SUCCESS == data.last_error_code) { // If someone aborted, don't complete...
 
@@ -1408,7 +1408,7 @@ namespace irods::experimental::io::s3_transport
                         if(upload_manager_.status >= 0) {
                             msg << " - \"" << S3_get_status_name( upload_manager_.status ) << "\"";
                         }
-                        return error_codes::UPLOAD_FILE_ERROR;
+                        return error_codes::COMPLETE_MULTIPART_UPLOAD_ERROR;
                     }
                 }
 
@@ -1559,7 +1559,7 @@ namespace irods::experimental::io::s3_transport
                     constants::MAX_S3_SHMEM_SIZE};
 
                 if (shmem_already_locked) {
-                    shm_obj.exec([](auto& data) {
+                    shm_obj.atomic_exec([](auto& data) {
                         data.last_error_code = error_codes::DOWNLOAD_FILE_ERROR;
                     });
                 } else {
@@ -1579,7 +1579,6 @@ namespace irods::experimental::io::s3_transport
                                            off_t file_offset = 0           // only used for streaming
                                            )
         {
-rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] upload_part_worker_routine started", __FILE__, __LINE__, __FUNCTION__, get_thread_identifier());
 
             namespace bi = boost::interprocess;
             namespace types = shared_data::interprocess_types;
@@ -1695,8 +1694,6 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] upload_part_worker_routine started", __F
                 start_part_number = thread_number * parts_per_thread + 1;
                 end_part_number = start_part_number + parts_per_thread - 1;
 
-rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] start_part_number=%zu end_part_number=%zu thread_number=%zu parts_per_thread=%zu bytes_per_thread=%zu file_offset=%lld", __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), start_part_number, end_part_number, thread_number, parts_per_thread, bytes_per_thread, file_offset);
-
                 // estimate the size and resize the etags vector TODO
                 unsigned int number_of_parts = config_.object_size / part_size;
                 number_of_parts = number_of_parts < end_part_number ? end_part_number : number_of_parts;
@@ -1732,6 +1729,8 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] start_part_number=%zu end_part_number=%z
             write_callback->shared_memory_timeout_in_seconds = config_.shared_memory_timeout_in_seconds;
             write_callback->transport_object_ptr = this;
 
+            int retry_wait_seconds = config_.retry_wait_seconds;
+
             for (unsigned int sequence = start_part_number; sequence <= end_part_number; ++sequence) {
 
                 do {
@@ -1746,7 +1745,6 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] start_part_number=%zu end_part_number=%z
                                 : config_.circular_buffer_size / 2 );
                     }
 
-                    write_callback->thread_identifier = get_thread_identifier();
                     write_callback->sequence = sequence;
 
                     std::stringstream msg;
@@ -1771,7 +1769,10 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] start_part_number=%zu end_part_number=%z
 
                     S3_upload_part(&bucket_context_, object_key_.c_str(), &put_props,
                             &put_object_handler, write_callback->sequence, upload_id.c_str(),
-                            write_callback->content_length, 0, 0, write_callback.get());
+                            write_callback->content_length, 0, 120000, write_callback.get());
+
+                    // zero out bytes_written in case of failure and re-run
+                    write_callback->bytes_written = 0;
 
                     rodsLog(config_.debug_log_level, "%s:%d (%s) [[%lu]] S3_upload_part returned [part=%lu][status=%s].\n",
                             __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), write_callback->sequence,
@@ -1783,9 +1784,13 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] start_part_number=%zu end_part_number=%z
                     rodsLog(config_.debug_log_level,  "%s:%d (%s) [[%lu]] %s\n", __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
                             msg.str().c_str() );
 
-                    if (write_callback->status != libs3_types::status_ok) s3_sleep( config_.retry_wait_seconds, 0 );
+                    if (write_callback->status != libs3_types::status_ok) {
+                        s3_sleep( retry_wait_seconds, 0 );
+                        retry_wait_seconds *= 2;
+                    }
+
                 // note can't retry this because data is lost - therefore for now this is set to false
-                } while ((write_callback->status != libs3_types::status_ok) && false && S3_status_is_retryable(write_callback->status) &&
+                } while ((write_callback->status != libs3_types::status_ok) && S3_status_is_retryable(write_callback->status) &&
                         (++retry_cnt < config_.retry_count_limit));
 
                 if (write_callback->status != libs3_types::status_ok) {

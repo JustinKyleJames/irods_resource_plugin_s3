@@ -82,6 +82,9 @@
 #endif
 #include <sys/stat.h>
 
+#include <chrono>
+#include <thread>
+
 // =-=-=-=-=-=-=-
 // other includes
 #include <string.h>
@@ -209,9 +212,13 @@ void s3_sleep(
     randMutex.lock();
     int random = rand();
     randMutex.unlock();
-    int addl = (int)(((double)random / (double)RAND_MAX) * 1000.0); // Add up to 1000 ms (1 sec)
-    useconds_t us = ( _s * 1000000 ) + ( (_ms + addl) * 1000 );
-    usleep( us );
+    //int addl = (int)(((double)random / (double)RAND_MAX) * 1000.0); // Add up to 1000 ms (1 sec)
+    //int addl = (int)(((double)random / (double)RAND_MAX) * .5 * _s * 1000.0); // Add up to 50% of sleep time
+    //useconds_t us = ( _s * 1000000 ) + ( (_ms + addl) * 1000 );
+    //usleep( us );
+    int addl = (int)(((double)random / (double)RAND_MAX) * .5 * _s); // Add up to 50% of sleep time
+    std::this_thread::sleep_for (std::chrono::seconds (_s+addl));
+
 }
 
 // Returns timestamp in usec for delta-t comparisons
