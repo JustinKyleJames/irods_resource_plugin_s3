@@ -1,3 +1,5 @@
+from __future__ import print_function
+
 try:
    from minio import Minio
    from minio.error import ResponseError
@@ -15,6 +17,7 @@ import shutil
 import string
 import subprocess
 import urllib3
+import getpass
 
 from resource_suite_s3_nocache import Test_S3_NoCache_Base
 
@@ -287,15 +290,20 @@ class Test_S3_Cache_Base(ResourceSuite, ChunkyDevTest):
         filename = "secondreplicatest.txt"
         filepath = lib.create_local_testfile(filename)
         # assertions
-        self.admin.assert_icommand("ils -L "+filename,'STDERR_SINGLELINE',"does not exist")          # should not be listed
-        self.admin.assert_icommand("iput -R "+self.testresc+" "+filename)                # put file
-        self.admin.assert_icommand("ils -L "+filename,'STDOUT_SINGLELINE',filename)                   # for debugging
-        self.admin.assert_icommand("irepl "+filename)                                    # replicate to default resource
-        self.admin.assert_icommand("ils -L "+filename,'STDOUT_SINGLELINE',filename)                   # for debugging
-        self.admin.assert_icommand("irepl "+filename)                                    # replicate overtop default resource
-        self.admin.assert_icommand_fail("ils -L "+filename,'STDOUT_SINGLELINE',[" 3 "," & "+filename]) # should not have a replica 3
-        self.admin.assert_icommand("irepl -R "+self.testresc+" "+filename)               # replicate overtop test resource
-        self.admin.assert_icommand_fail("ils -L "+filename,'STDOUT_SINGLELINE',[" 3 "," & "+filename]) # should not have a replica 3
+        self.admin.assert_icommand("ils -L " + filename, 'STDERR_SINGLELINE', "does not exist")          # should not be listed
+        self.admin.assert_icommand("iput -R " + self.testresc + " " + filename)                # put file
+        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', filename)                   # for debugging
+        # replicate to default resource
+        self.admin.assert_icommand("irepl " + filename)
+        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', filename)                   # for debugging
+        # replicate overtop default resource
+        self.admin.assert_icommand(['irepl', filename], 'STDERR', 'SYS_NOT_ALLOWED')
+        # should not have a replica 3
+        self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 3 ", " & " + filename])
+        # replicate overtop test resource
+        self.admin.assert_icommand(['irepl', '-R', self.testresc, filename], 'STDERR', 'SYS_NOT_ALLOWED')
+        # should not have a replica 3
+        self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 3 ", " & " + filename])
         # local cleanup
         os.remove(filepath)
 
@@ -304,21 +312,25 @@ class Test_S3_Cache_Base(ResourceSuite, ChunkyDevTest):
         filename = "thirdreplicatest.txt"
         filepath = lib.create_local_testfile(filename)
         hostname = lib.get_hostname()
+        hostuser = getpass.getuser()
         # assertions
-        self.admin.assert_icommand("iadmin mkresc thirdresc unixfilesystem %s:/tmp/thirdrescVault" % hostname, 'STDOUT_SINGLELINE', "Creating") # create third resource
-        self.admin.assert_icommand("ils -L "+filename,'STDERR_SINGLELINE',"does not exist") # should not be listed
-        self.admin.assert_icommand("iput "+filename)                            # put file
-        self.admin.assert_icommand("irepl -R "+self.testresc+" "+filename)      # replicate to test resource
-        self.admin.assert_icommand("irepl -R thirdresc "+filename)              # replicate to third resource
-        self.admin.assert_icommand("irepl "+filename)                           # replicate overtop default resource
-        self.admin.assert_icommand("ils -L "+filename,'STDOUT_SINGLELINE',filename)          # for debugging
-        self.admin.assert_icommand("irepl -R "+self.testresc+" "+filename)      # replicate overtop test resource
-        self.admin.assert_icommand("ils -L "+filename,'STDOUT_SINGLELINE',filename)          # for debugging
-        self.admin.assert_icommand("irepl -R thirdresc "+filename)              # replicate overtop third resource
-        self.admin.assert_icommand("ils -L "+filename,'STDOUT_SINGLELINE',filename)          # for debugging
-        self.admin.assert_icommand_fail("ils -L "+filename,'STDOUT_SINGLELINE',[" 4 "," & "+filename]) # should not have a replica 4
-        self.admin.assert_icommand_fail("ils -L "+filename,'STDOUT_SINGLELINE',[" 5 "," & "+filename]) # should not have a replica 5
-        self.admin.assert_icommand("irm -f "+filename)                          # cleanup file
+        self.admin.assert_icommand("iadmin mkresc thirdresc unixfilesystem %s:/tmp/%s/thirdrescVault" %
+                                   (hostname, hostuser), 'STDOUT_SINGLELINE', "Creating")  # create third resource
+        self.admin.assert_icommand("ils -L " + filename, 'STDERR_SINGLELINE', "does not exist")  # should not be listed
+        self.admin.assert_icommand("iput " + filename)                            # put file
+        self.admin.assert_icommand("irepl -R " + self.testresc + " " + filename)      # replicate to test resource
+        self.admin.assert_icommand("irepl -R thirdresc " + filename)              # replicate to third resource
+        self.admin.assert_icommand(['irepl', filename], 'STDERR', 'SYS_NOT_ALLOWED') # replicate overtop default resource
+        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', filename)          # for debugging
+        self.admin.assert_icommand(['irepl', '-R', self.testresc, filename], 'STDERR', 'SYS_NOT_ALLOWED') # replicate overtop test resource
+        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', filename)          # for debugging
+        self.admin.assert_icommand(['irepl', '-R', 'thirdresc', filename], 'STDERR', 'SYS_NOT_ALLOWED') # replicate overtop third resource
+        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', filename)          # for debugging
+        # should not have a replica 4
+        self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 4 ", " & " + filename])
+        # should not have a replica 5
+        self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 5 ", " & " + filename])
+        self.admin.assert_icommand("irm -f " + filename)                          # cleanup file
         self.admin.assert_icommand("iadmin rmresc thirdresc")                   # remove third resource
         # local cleanup
         os.remove(filepath)
@@ -331,23 +343,63 @@ class Test_S3_Cache_Base(ResourceSuite, ChunkyDevTest):
         os.system("cat %s %s > %s" % (filename, filename, doublefile))
         doublesize = str(os.stat(doublefile).st_size)
         # assertions
-        self.admin.assert_icommand("ils -L "+filename,'STDERR_SINGLELINE',"does not exist") # should not be listed
-        self.admin.assert_icommand("iput "+filename)                            # put file
-        self.admin.assert_icommand("ils -L "+filename,'STDOUT_SINGLELINE',filename)          # for debugging
-        self.admin.assert_icommand("irepl -R "+self.testresc+" "+filename)      # replicate to test resource
-        self.admin.assert_icommand("ils -L "+filename,'STDOUT_SINGLELINE',filename)          # for debugging
-        self.admin.assert_icommand("iput -f %s %s" % (doublefile, filename) )   # overwrite default repl with different data
-        self.admin.assert_icommand("ils -L "+filename,'STDOUT_SINGLELINE',[" 0 "," & "+filename]) # default resource cache should have clean copy
-        self.admin.assert_icommand("ils -L "+filename,'STDOUT_SINGLELINE',[" 0 "," "+doublesize+" "," & "+filename]) # default resource cache should have new double clean copy
-        self.admin.assert_icommand("ils -L "+filename,'STDOUT_SINGLELINE',[" 1 "," & "+filename]) # default resource archive should have clean copy
-        self.admin.assert_icommand("ils -L "+filename,'STDOUT_SINGLELINE',[" 1 "," "+doublesize+" "," & "+filename]) # default resource archive should have new double clean copy
-        self.admin.assert_icommand_fail("ils -L "+filename,'STDOUT_SINGLELINE',[" 2 "+self.testresc," "+doublesize+" ","  "+filename]) # test resource should not have doublesize file
-        self.admin.assert_icommand("irepl -R "+self.testresc+" "+filename)      # replicate back onto test resource
-        self.admin.assert_icommand("ils -L "+filename,'STDOUT_SINGLELINE',[" 2 "+self.testresc," "+doublesize+" "," & "+filename]) # test resource should have new clean doublesize file
-        self.admin.assert_icommand_fail("ils -L "+filename,'STDOUT_SINGLELINE',[" 3 "," & "+filename]) # should not have a replica 3
+        self.admin.assert_icommand("ils -L " + filename, 'STDERR_SINGLELINE', "does not exist")  # should not be listed
+        self.admin.assert_icommand("iput " + filename)                            # put file
+        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', filename)          # for debugging
+        self.admin.assert_icommand("irepl -R " + self.testresc + " " + filename)      # replicate to test resource
+        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', filename)          # for debugging
+        # overwrite default repl with different data
+        self.admin.assert_icommand("iput -f %s %s" % (doublefile, filename))
+        # default resource cache should have clean copy
+        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", " & " + filename])
+        # default resource cache should have new double clean copy
+        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", " " + doublesize + " ", " & " + filename])
+        # default resource archive should have clean copy
+        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 1 ", " & " + filename])
+        # default resource archive should have new double clean copy
+        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 1 ", " " + doublesize + " ", " & " + filename])
+        # test resource should not have doublesize file
+        self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE',
+                                        [" 2 " + self.testresc, " " + doublesize + " ", "  " + filename])
+        # replicate back onto test resource
+        self.admin.assert_icommand("irepl -R " + self.testresc + " " + filename)
+        # test resource should have new clean doublesize file
+        self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE',
+                                   [" 2 " + self.testresc, " " + doublesize + " ", " & " + filename])
+        # should not have a replica 3
+        self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 3 ", " & " + filename])
         # local cleanup
         os.remove(filepath)
         os.remove(doublefile)
+
+    def test_iput_with_purgec(self):
+        # local setup
+        filename = "purgecfile.txt"
+        filepath = os.path.abspath(filename)
+        with open(filepath, 'wt') as f:
+            print("TESTFILE -- [" + filepath + "]", file=f, end='')
+
+        try:
+            self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', filename)  # should not be listed
+            self.admin.assert_icommand("iput --purgec " + filename, 'STDOUT', 'Specifying a minimum number of replicas to keep is deprecated.')  # put file
+            # should not be listed (trimmed)
+            self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", filename])
+            # should be listed once - replica 1
+            self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 1 ", filename])
+            self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 2 ", filename])  # should be listed only once
+            self.admin.assert_icommand(['irm', '-f', filename])
+
+            self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', filename)  # should not be listed
+            self.admin.assert_icommand(['iput', '-b', '--purgec', filename], 'STDOUT', 'Specifying a minimum number of replicas to keep is deprecated.')  # put file... in bulk!
+            # should not be listed (trimmed)
+            self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", filename])
+            # should be listed once - replica 1
+            self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 1 ", filename])
+            self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 2 ", filename])  # should be listed only once
+
+        finally:
+            if os.path.exists(filepath):
+                os.unlink(filepath)
 
     def test_iput_with_purgec(self):
         # local setup
