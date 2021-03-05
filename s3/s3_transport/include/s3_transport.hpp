@@ -696,14 +696,20 @@ namespace irods::experimental::io::s3_transport
                 ? bytes_this_thread
                 : file_offset_ / thread_number;
 
-            // Determine number of parts per thread.  Last thread which may have extra bytes will
-            // just have the same number of parts with extra bytes tacked on to last part.
-            // If parts is not divisible by circular buffer size then we need one additional part.
+            // Determine number of parts per thread.  If parts is not divisible by circular buffer
+            // size then we need one additional part. The last thread is treated specially because
+            // it may have additional bytes.
             unsigned int parts_per_thread = bytes_all_threads_except_last / config_.circular_buffer_size
                 + ( bytes_all_threads_except_last % config_.circular_buffer_size == 0 ? 0 : 1 );
 
             start_part_number = thread_number * parts_per_thread + 1;
-            end_part_number = start_part_number + parts_per_thread - 1;
+            if (bytes_this_thread == bytes_all_threads_except_last) {
+                end_part_number = start_part_number + parts_per_thread - 1;
+            } else {
+                unsigned int parts_last_thread = bytes_this_thread / config_.circular_buffer_size
+                    + (bytes_this_thread % config_.circular_buffer_size == 0 ? 0 : 1);
+                end_part_number = start_part_number + parts_last_thread - 1;
+            }
         }
 
 
