@@ -452,7 +452,16 @@ namespace irods::experimental::io::s3_transport
                         ? libs3_buffer_size
                         : this->content_length - this->bytes_written;
 
-                    circular_buffer.peek(this->bytes_written, bytes_to_return, libs3_buffer);
+                    try {
+                        circular_buffer.peek(this->bytes_written, bytes_to_return, libs3_buffer);
+                    } catch (timeout_exception& e) {
+                        //
+                        rodsLog(LOG_ERROR, "%s:%d (%s) [[%lu]] "
+                                "Timed out waiting to read from circular buffer.  "
+                                "Remote likely hung up...\n",
+                                __FILE__, __LINE__, __FUNCTION__, this->thread_identifier);
+                        return 0;
+                    }
 
                     this->bytes_written += bytes_to_return;
 
@@ -463,7 +472,14 @@ namespace irods::experimental::io::s3_transport
                 void post_success_cleanup() {
 
                     // had a success, remove all processed bytes from buffer
-                    circular_buffer.pop_front(this->bytes_written);
+                    try {
+                        circular_buffer.pop_front(this->bytes_written);
+                    } catch (timeout_exception& e) {
+                        // this should never happen but catch and log just in case
+                        rodsLog(LOG_ERROR, "%s:%d (%s) [[%lu]] "
+                                "Unexpected timeout when removing entries from circular buffer."
+                                __FILE__, __LINE__, __FUNCTION__, this->thread_identifier);
+                    }
                 }
 
                 ~callback_for_write_from_buffer_to_s3() {};
@@ -765,7 +781,16 @@ namespace irods::experimental::io::s3_transport
                         ? libs3_buffer_size
                         : this->content_length - this->bytes_written;
 
-                    circular_buffer.peek(this->bytes_written, bytes_to_return, libs3_buffer);
+                    try {
+                        circular_buffer.peek(this->bytes_written, bytes_to_return, libs3_buffer);
+                    } catch (timeout_exception& e) {
+                        //
+                        rodsLog(LOG_ERROR, "%s:%d (%s) [[%lu]] "
+                                "Timed out waiting to read from circular buffer.  "
+                                "Remote likely hung up...\n",
+                                __FILE__, __LINE__, __FUNCTION__, this->thread_identifier);
+                        return 0;
+                    }
 
                     this->bytes_written += bytes_to_return;
 
@@ -775,7 +800,14 @@ namespace irods::experimental::io::s3_transport
 
                 void post_success_cleanup() {
                     // had a success, remove all processed bytes from buffer
-                    circular_buffer.pop_front(this->bytes_written);
+                    try {
+                        circular_buffer.pop_front(this->bytes_written);
+                    } catch (timeout_exception& e) {
+                        // this should never happen but catch and log just in case
+                        rodsLog(LOG_ERROR, "%s:%d (%s) [[%lu]] "
+                                "Unexpected timeout when removing entries from circular buffer."
+                                __FILE__, __LINE__, __FUNCTION__, this->thread_identifier);
+                    }
                 }
 
                 ~callback_for_write_from_buffer_to_s3() {};

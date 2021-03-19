@@ -557,19 +557,31 @@ namespace irods::experimental::io::s3_transport
             while (offset < _buffer_size) {
                 rodsLog(config_.debug_log_level, "%s:%d (%s) [[%lu]] pushing buffer of size %ld on circular_buffer\n",
                         __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), config_.circular_buffer_size);
-                offset += circular_buffer_.push_back(&_buffer[offset], &_buffer[_buffer_size]);
-                rodsLog(config_.debug_log_level, "%s:%d (%s) [[%lu]] wrote buffer of size %ld on circular_buffer\n",
-                        __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), config_.circular_buffer_size);
+                try {
+                    offset += circular_buffer_.push_back(&_buffer[offset], &_buffer[_buffer_size]);
+                } catch (timeout_exception& e) {
+
+                    // timeout trying to push onto circular buffer
+                    rodsLog(LOG_ERROR, "%s:%d (%s) [[%lu]] "
+                            "Unexpected timeout when pushing onto circular buffer.  "
+                            "Thread writing to S3 may have died.  Returning 0 bytes processed."
+                            __FILE__, __LINE__, __FUNCTION__, this->thread_identifier);
+                    return 0;
+                }
+
             }
 
-            rodsLog(config_.debug_log_level, "%s:%d (%s) [[%lu]] pushing buffer of size %ld on circular_buffer\n",
-                    __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), _buffer_size - offset + 1);
+            try {
+                circular_buffer_.push_back(&_buffer[offset], &_buffer[_buffer_size]);
+            } catch (timeout_exception& e) {
 
-            circular_buffer_.push_back(&_buffer[offset], &_buffer[_buffer_size]);
-
-            rodsLog(config_.debug_log_level, "%s:%d (%s) [[%lu]] wrote buffer of size %ld on circular_buffer\n",
-                    __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), _buffer_size - offset + 1);
-
+                // timeout trying to push onto circular buffer
+                rodsLog(LOG_ERROR, "%s:%d (%s) [[%lu]] "
+                        "Unexpected timeout when pushing onto circular buffer.  "
+                        "Thread writing to S3 may have died.  Returning 0 bytes processed."
+                        __FILE__, __LINE__, __FUNCTION__, this->thread_identifier);
+                return 0;
+            }
 
             return _buffer_size;
 
