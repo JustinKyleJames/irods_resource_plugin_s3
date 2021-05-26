@@ -43,6 +43,7 @@ class Test_S3_NoCache_MPU_Disabled(Test_S3_NoCache_Base, unittest.TestCase):
 class Test_S3_NoCache_Decoupled(Test_S3_NoCache_Base, unittest.TestCase):
     def __init__(self, *args, **kwargs):
         """Set up the test."""
+        self.proto = 'HTTP'
         self.keypairfile='/var/lib/irods/minio.keypair'
         self.s3region='us-east-1'
         self.s3endPoint = 'localhost:9000'
@@ -65,5 +66,3 @@ class Test_S3_NoCache_Decoupled(Test_S3_NoCache_Base, unittest.TestCase):
     @unittest.skipIf(True, 'test does not work in decoupled because we are using same bucket for multiple resources')
     def test_put_get_large_file_in_repl_node(self):
         pass
-
-
