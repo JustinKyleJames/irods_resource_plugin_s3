@@ -82,14 +82,26 @@ def main():
 
     time.sleep(10)
 
-    try:
-        test_output_file = 'log/test_output.log'
-        irods_python_ci_utilities.subprocess_get_output(['sudo', 'su', '-', 'irods', '-c', 'python2 scripts/run_tests.py --xml_output --run_s test_irods_resource_plugin_s3_minio 2>&1 | tee {0}; exit $PIPESTATUS'.format(test_output_file)], check_rc=True)
-    finally:
-        if output_root_directory:
-            irods_python_ci_utilities.gather_files_satisfying_predicate('/var/lib/irods/log', output_root_directory, lambda x: True)
-            shutil.copy('/var/lib/irods/log/test_output.log', output_root_directory)
-            shutil.copytree('/var/lib/irods/test-reports', os.path.join(output_root_directory, 'test-reports'))
+    with open('/tmp/ci_debug.log', 'w') as f:
+
+        try:
+            test_output_file = 'log/test_output.log'
+            f.write('before run_tests.py\n')
+            irods_python_ci_utilities.subprocess_get_output(['sudo', 'su', '-', 'irods', '-c', 'python2 scripts/run_tests.py --xml_output --run_s test_irods_resource_plugin_s3_minio 2>&1 | tee {0}; exit $PIPESTATUS'.format(test_output_file)], check_rc=True)
+            f.write('after run_tests.py\n')
+        finally:
+            f.write('before check output_root_directory\n')
+            if output_root_directory:
+                f.write('before gather files\n')
+                irods_python_ci_utilities.gather_files_satisfying_predicate('/var/lib/irods/log', output_root_directory, lambda x: True)
+                f.write('after gather files\n')
+                f.write('before copy test_output.log output_root_directory=%s\n' % output_root_directory)
+                shutil.copy('/var/lib/irods/log/test_output.log', output_root_directory)
+                f.write('after copy test_output.log\n')
+                f.write('before copytree test-reports\n')
+                shutil.copytree('/var/lib/irods/test-reports\n', os.path.join(output_root_directory, 'test-reports'))
+                f.write('after copytree test-reports\n')
+                print('done')
 
 
 if __name__ == '__main__':
