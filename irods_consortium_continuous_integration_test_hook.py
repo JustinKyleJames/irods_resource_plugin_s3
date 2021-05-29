@@ -61,7 +61,7 @@ def download_and_start_minio_server():
     os.environ['MINIO_ACCESS_KEY'] = access_key
     os.environ['MINIO_SECRET_KEY'] = secret_key
    
-    subprocess.Popen(['./minio', 'server', '/data'])
+    return subprocess.Popen(['./minio', 'server', '/data'])
 
 
 def main():
@@ -78,13 +78,14 @@ def main():
     irods_python_ci_utilities.install_os_packages_from_files(glob.glob(os.path.join(os_specific_directory, 'irods-resource-plugin-s3*.{0}'.format(package_suffix))))
 
     install_build_prerequisites()
-    download_and_start_minio_server()
+    minio_process = download_and_start_minio_server()
 
     time.sleep(10)
 
     try:
         test_output_file = 'log/test_output.log'
         irods_python_ci_utilities.subprocess_get_output(['sudo', 'su', '-', 'irods', '-c', 'python2 scripts/run_tests.py --xml_output --run_s test_irods_resource_plugin_s3_minio 2>&1 | tee {0}; exit $PIPESTATUS'.format(test_output_file)], check_rc=True)
+        minio_process.terminate()
     finally:
         if output_root_directory:
             irods_python_ci_utilities.gather_files_satisfying_predicate('/var/lib/irods/log', output_root_directory, lambda x: True)
