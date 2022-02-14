@@ -1125,9 +1125,8 @@ irods::error s3GetFile(
     }
 
     callback_data_t data;
-    S3BucketContext bucketContext;
+    S3BucketContext bucketContext{};
 
-    bzero (&bucketContext, sizeof (bucketContext));
     bucketContext.bucketName = bucket.c_str();
     bucketContext.protocol = s3GetProto(_prop_map);
     bucketContext.stsDate = s3GetSTSDate(_prop_map);
@@ -1147,7 +1146,7 @@ irods::error s3GetFile(
 
         size_t retry_cnt = 0;
         do {
-            bzero (&data, sizeof (data));
+            std::memset(&data, 0, sizeof(data));
             data.prop_map_ptr = &_prop_map;
             data.fd = cache_fd;
             data.contentLength = data.originalContentLength = _fileSize;
@@ -1179,7 +1178,7 @@ irods::error s3GetFile(
         std::stringstream msg;
 
         // Only the FD part of this will be constant
-        bzero (&data, sizeof (data));
+        std::memset(&data, 0, sizeof(data));
         data.prop_map_ptr = &_prop_map;
         data.fd = cache_fd;
         data.contentLength = data.originalContentLength = _fileSize;
@@ -1592,9 +1591,8 @@ irods::error s3PutCopyFile(
     }
 
     callback_data_t data;
-    S3BucketContext bucketContext;
+    S3BucketContext bucketContext{};
 
-    bzero (&bucketContext, sizeof (bucketContext));
     bucketContext.bucketName = bucket.c_str();
     bucketContext.protocol = s3GetProto(_prop_map);
     bucketContext.stsDate = s3GetSTSDate(_prop_map);
@@ -1620,7 +1618,7 @@ irods::error s3PutCopyFile(
         };
 
         do {
-            bzero (&data, sizeof (data));
+            std::memset(&data, 0, sizeof(data));
             data.prop_map_ptr = &_prop_map;
             data.fd = cache_fd;
             data.contentLength = data.originalContentLength = _fileSize;
@@ -1675,7 +1673,7 @@ irods::error s3PutCopyFile(
         multipart_data_t partData;
         int partContentLength = 0;
 
-        bzero (&data, sizeof (data));
+        std::memset(&data, 0, sizeof(data));
         data.prop_map_ptr = &_prop_map;
         data.fd = cache_fd;
         data.contentLength = data.originalContentLength = _fileSize;
@@ -1755,7 +1753,7 @@ irods::error s3PutCopyFile(
         }
 
         // Following used by S3_COPYOBJECT only
-        S3BucketContext srcBucketContext;
+        S3BucketContext srcBucketContext{};
         std::string authRegionStr = get_region_name(_prop_map);
         if (_mode == S3_COPYOBJECT) {
             if (const auto err = parseS3Path(_filename, srcBucket, srcKey, _prop_map); !err.ok()) {
@@ -1763,7 +1761,6 @@ irods::error s3PutCopyFile(
                             "[resource_name={}] Failed parsing the S3 bucket and key from the physical path: \"{}\".",
                             resource_name, _filename), err);
             }
-            bzero (&srcBucketContext, sizeof (srcBucketContext));
             srcBucketContext.bucketName = srcBucket.c_str();
             srcBucketContext.protocol = s3GetProto(_prop_map);
             srcBucketContext.stsDate = s3GetSTSDate(_prop_map);
@@ -1954,11 +1951,10 @@ irods::error s3CopyFile(
 
     callback_data_t data;
     data.prop_map_ptr = &_src_ctx.prop_map();
-    S3BucketContext bucketContext;
+    S3BucketContext bucketContext{};
     int64_t lastModified;
     char eTag[256];
 
-    bzero (&bucketContext, sizeof (bucketContext));
     bucketContext.bucketName = src_bucket.c_str();
     bucketContext.protocol = _proto;
     bucketContext.stsDate = _stsDate;
@@ -1981,7 +1977,7 @@ irods::error s3CopyFile(
 
     size_t retry_cnt = 0;
     do {
-        bzero (&data, sizeof (data));
+        std::memset(&data, 0 sizeof(data));
         data.prop_map_ptr = &_src_ctx.prop_map();
         std::string&& hostname = s3GetHostname(_src_ctx.prop_map());
         bucketContext.hostName = hostname.c_str(); // Safe to do, this is a local copy of the data structure
@@ -2344,8 +2340,7 @@ irods::error register_archive_object(
     // =-=-=-=-=-=-=-
     // build out a dataObjInfo_t struct for use in the call
     // to rsRegDataObj
-    dataObjInfo_t dst_data_obj;
-    bzero( &dst_data_obj, sizeof( dst_data_obj ) );
+    dataObjInfo_t dst_data_obj{};
 
     resc_mgr.hier_to_leaf_id(resc_hier.c_str(), dst_data_obj.rescId);
     strncpy( dst_data_obj.objPath,       obj.name().c_str(),       MAX_NAME_LEN );
@@ -2381,8 +2376,7 @@ irods::error register_archive_object(
 
     // =-=-=-=-=-=-=-
     // repl to an existing copy
-    regReplica_t reg_inp;
-    bzero( &reg_inp, sizeof( reg_inp ) );
+    regReplica_t reg_inp{};
     reg_inp.srcDataObjInfo  = &src_data_obj;
     reg_inp.destDataObjInfo = &dst_data_obj;
     int reg_status = rsRegReplica( _comm, &reg_inp );
