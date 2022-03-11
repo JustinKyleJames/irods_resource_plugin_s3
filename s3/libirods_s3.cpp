@@ -41,6 +41,7 @@
 #include <ctime>
 #include <tuple>
 #include <random>
+#include <fmt/format.h>
 
 // =-=-=-=-=-=-=-
 // boost includes
@@ -329,7 +330,7 @@ static S3Status getObjectDataCallback(
 
     if (bufferSize == 0 || !buffer || !callbackData) {
         irods::log(ERROR(SYS_INVALID_INPUT_PARAM, fmt::format(
-                        "[resource_name={}] Invalid input parameter.", resource_name));
+                        "[resource_name={}] Invalid input parameter.", resource_name)));
     }
 
     ssize_t wrote = pwrite(cb->fd, buffer, bufferSize, cb->offset);
@@ -482,7 +483,7 @@ irods::error readS3AuthInfo (
 
     if (linecnt != 2) {
         return ERROR(SYS_CONFIG_FILE_ERR, fmt::format(
-                    "[resource_name={}] Read {} lines in the auth file. Expected 2.",
+                    fmt::runtime("[resource_name={}] Read {} lines in the auth file. Expected 2."),
                     linecnt));
     }
 
@@ -1561,7 +1562,7 @@ irods::error s3PutCopyFile(
 
     if (const auto err = parseS3Path(_s3ObjName, bucket, key, _prop_map); !err.ok()) {
         return PASSMSG(fmt::format(
-                    "[resource_name={}] Failed parsing the S3 bucket and key from the physical path: \"{}\".",
+                    fmt::runtime("[resource_name={}] Failed parsing the S3 bucket and key from the physical path: \"{}\"."),
                     _s3ObjName), err);
     }
 
@@ -1977,7 +1978,7 @@ irods::error s3CopyFile(
 
     size_t retry_cnt = 0;
     do {
-        std::memset(&data, 0 sizeof(data));
+        std::memset(&data, 0, sizeof(data));
         data.prop_map_ptr = &_src_ctx.prop_map();
         std::string&& hostname = s3GetHostname(_src_ctx.prop_map());
         bucketContext.hostName = hostname.c_str(); // Safe to do, this is a local copy of the data structure
@@ -2042,6 +2043,8 @@ irods::error s3GetAuthCredentials(
 /// @brief Checks the basic operation parameters and updates the physical path in the file object
 irods::error s3CheckParams(irods::plugin_context& _ctx)
 {
+    std::string resource_name = get_resource_name(_ctx.prop_map());
+
     if (const auto err = _ctx.valid(); !err.ok()) {
         return PASSMSG(fmt::format(
                     "[resource_name={}] Resource context is invalid",

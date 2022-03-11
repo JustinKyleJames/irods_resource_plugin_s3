@@ -1109,7 +1109,7 @@ namespace irods_s3 {
         // get ref to fco
         irods::data_object_ptr object = boost::dynamic_pointer_cast<irods::data_object>(_ctx.fco());
 
-        std::memset(_statbuf, 0 sizeof(struct stat));
+        std::memset(_statbuf, 0, sizeof(struct stat));
 
         boost::filesystem::path p(object->physical_path());
 
@@ -1153,7 +1153,7 @@ namespace irods_s3 {
         size_t retry_cnt = 0;
         callback_data_t data;
         do {
-            std::memset(&data, 0 sizeof(data));
+            std::memset(&data, 0, sizeof(data));
             std::string&& hostname = s3GetHostname(_ctx.prop_map());
             bucketContext.hostName = hostname.c_str();
             data.pCtx = &bucketContext;
@@ -1605,7 +1605,7 @@ namespace irods_s3 {
             if (!copy_file_err.ok()) {
                 return PASSMSG(fmt::format(
                             "[resource_name={}] Failed to copy object from: \"{}\" to \"{}\".",
-                            get_resource_name(_ctx.prop_map()), object->physical_path(), _new_file_name), err);
+                            get_resource_name(_ctx.prop_map()), object->physical_path(), _new_file_name), copy_file_err);
             }
 
             // issue 1855 (irods issue 4326) - resources must now set physical path
@@ -1781,7 +1781,7 @@ namespace irods_s3 {
                         get_resource_name(_ctx.prop_map()), object->physical_path()));
         }
 
-        if (object->size() > 0 && object->size != static_cast<size_t>(statbuf.st_size)) {
+        if (object->size() > 0 && object->size() != static_cast<size_t>(statbuf.st_size)) {
             return ERROR(SYS_COPY_LEN_ERR, fmt::format(
                         "[resource_name={}] Error for file: \"{}\" inp data size: {} does not match stat size: {}.",
                         get_resource_name(_ctx.prop_map()), object->physical_path(), object->size(), statbuf.st_size));
@@ -1850,7 +1850,7 @@ namespace irods_s3 {
 
         // retrieve archive naming policy from resource plugin context
         std::string archive_naming_policy = CONSISTENT_NAMING; // default
-        ret = _ctx.prop_map().get<std::string>(ARCHIVE_NAMING_POLICY_KW, archive_naming_policy); // get plugin context property
+        auto ret = _ctx.prop_map().get<std::string>(ARCHIVE_NAMING_POLICY_KW, archive_naming_policy); // get plugin context property
         if(!ret.ok()) {
             std::stringstream msg;
             msg << "[resource_name=" << get_resource_name(_ctx.prop_map()) << "] "
@@ -1886,7 +1886,7 @@ namespace irods_s3 {
                         get_resource_name(_ctx.prop_map()), _cache_file_name, object->physical_path()), err);
         }
 
-        return result;
+        return SUCCESS();
     }
 
     // =-=-=-=-=-=-=-
