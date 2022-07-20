@@ -54,6 +54,7 @@
 #include <assert.h>
 #include <curl/curl.h>
 #include <fmt/format.h>
+#include <chrono>
 
 extern size_t g_retry_count;
 extern size_t g_retry_wait;
@@ -72,6 +73,8 @@ namespace irods_s3 {
     int64_t data_size = s3_transport_config::UNKNOWN_OBJECT_SIZE;
     int number_of_threads = 0;
     int oprType = -1;
+
+    bool file_create_without_close = false;
 
     // data per thread
     struct per_thread_data {
@@ -631,7 +634,9 @@ namespace irods_s3 {
 
         if (is_cacheless_mode(_ctx.prop_map())) {
 
-            unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+            file_create_without_close = true;
+
+            std::uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
 
             irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
 
@@ -904,7 +909,9 @@ namespace irods_s3 {
 
         if (is_cacheless_mode(_ctx.prop_map())) {
 
-            unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+            file_create_without_close = false;
+
+            std::uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
 
             irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
             rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] physical_path = %s\n", __FILE__, __LINE__, __FUNCTION__, thread_id, file_obj->physical_path().c_str());
@@ -1216,7 +1223,22 @@ namespace irods_s3 {
             return SUCCESS();
         }
 
+        // issue 1978 - If they called create without close, the object will not yet exist in s3.
+        // To be consistent with POSIX, return size of 0.
+        if (data.status == S3StatusHttpErrorNotFound && file_create_without_close) {
+
+            _statbuf->st_mode = S_IFREG;
+            _statbuf->st_nlink = 1;
+            _statbuf->st_uid = getuid ();
+            _statbuf->st_gid = getgid ();
+            _statbuf->st_atime = _statbuf->st_mtime = _statbuf->st_ctime = std::chrono::system_clock::now().time_since_epoch().count();
+            _statbuf->st_size = 0;
+
+            return SUCCESS();
+        }
+
         if (data.status == S3StatusHttpErrorNotFound && retry_on_not_found) {
+
             // This is likely a case where read after write consistency has not been reached.
             // Provide a detailed error message and return
             auto msg = fmt::format("[resource_name={}]  - Error stat'ing the S3 object: \"{}\"",
