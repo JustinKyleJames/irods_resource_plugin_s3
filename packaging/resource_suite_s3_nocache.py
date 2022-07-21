@@ -2046,6 +2046,29 @@ OUTPUT ruleExecOut
             # cleanup
             self.admin.assert_icommand("iadmin rmresc s3resc1", 'EMPTY')
 
+    def test_itouch_issue_1978(self):
+
+        file1 = "f1"
+        file1_get = "f1.get"
+
+        try:
+
+            self.user0.assert_icommand("itouch {file1}".format(**locals()))
+            self.user0.assert_icommand("iget -f {file1} {file1_get}".format(**locals()))
+
+            self.assertEquals(os.path.getsize(file1_get), 0)
+            os.unlink(file1_get)
+            self.user0.assert_icommand("irm -f {file1}".format(**locals()))
+
+            self.user0.assert_icommand("itouch {file1}".format(**locals()))
+            self.user0.assert_icommand("iget -f {file1} {file1_get}".format(**locals()))
+            self.assertEquals(os.path.getsize(file1_get), 0)
+
+        finally:
+
+            self.user0.assert_icommand("irm -f {file1}".format(**locals()))
+            if os.path.exists(file1_get):
+                os.unlink(file1_get)
 
 class Test_S3_NoCache_Glacier_Base(session.make_sessions_mixin([('otherrods', 'rods')], [('alice', 'apass'), ('bobby', 'bpass')])):
 
