@@ -3,6 +3,8 @@
 #include "s3_operations.hpp"
 #include "libirods_s3.hpp"
 #include "s3_transport.hpp"
+#include "s3_transport_util.hpp"
+#include "managed_shared_memory_object.hpp"
 
 // =-=-=-=-=-=-=-
 // irods includes
@@ -1224,15 +1226,36 @@ namespace irods_s3 {
         }
 
         // issue 1978 - If they called create without close, the object will not yet exist in s3.
-        // To be consistent with POSIX, return size of 0.
         if (data.status == S3StatusHttpErrorNotFound && file_create_without_close) {
+
+            // The object does not yet exist on S3 because close has not been called.
+            // To simulate POSIX behavior, get the max byte written and return that as
+            // the file size.
+
+            // Get the interprocess shared memory and read the max byte written
+            std::string resource_name = get_resource_name(_ctx.prop_map());
+            std::string bucket_name;
+            std::string object_key;
+            std::string shmem_key = irods::experimental::io::s3_transport::constants::SHARED_MEMORY_KEY_PREFIX +
+                std::to_string(std::hash<std::string>{}(resource_name + "/" + key));
+
+            namespace transport = irods::experimental::io::s3_transport;
+
+            irods::experimental::interprocess::shared_memory::named_shared_memory_object<transport::shared_data::multipart_shared_data>
+                shm_obj{shmem_key,
+                    180,  // shmem timeout
+                    transport::constants::MAX_S3_SHMEM_SIZE};
+
+            auto max_byte_written = shm_obj.atomic_exec([](auto& data) {
+                    return data.max_byte_written;
+            });
 
             _statbuf->st_mode = S_IFREG;
             _statbuf->st_nlink = 1;
             _statbuf->st_uid = getuid ();
             _statbuf->st_gid = getgid ();
             _statbuf->st_atime = _statbuf->st_mtime = _statbuf->st_ctime = std::chrono::system_clock::now().time_since_epoch().count();
-            _statbuf->st_size = 0;
+            _statbuf->st_size = max_byte_written;
 
             return SUCCESS();
         }

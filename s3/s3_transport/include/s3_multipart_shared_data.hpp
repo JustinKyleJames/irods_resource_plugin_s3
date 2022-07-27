@@ -53,6 +53,7 @@ namespace irods::experimental::io::s3_transport::shared_data
             , file_open_counter{0}
             , cache_file_flushed{false}
             , know_number_of_threads{true}
+            , max_byte_written{0}
         {}
 
         void reset_fields()
@@ -68,6 +69,7 @@ namespace irods::experimental::io::s3_transport::shared_data
             file_open_counter = 0;
             cache_file_flushed = false;
             know_number_of_threads = true;
+            max_byte_written = 0;
         }
 
         bool can_delete() {
@@ -88,6 +90,7 @@ namespace irods::experimental::io::s3_transport::shared_data
         int                                   file_open_counter;
         bool                                  cache_file_flushed;
         bool                                  know_number_of_threads;
+        std::int64_t                          max_byte_written;
     };
 
 }

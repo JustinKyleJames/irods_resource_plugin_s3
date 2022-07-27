@@ -554,8 +554,14 @@ namespace irods::experimental::io::s3_transport
                     msg << "send() position=" << position_before_write << " size=" << _buffer_size << " position_after_write=" << current_position;
                     rodsLog(config_.developer_messages_log_level, "%s:%d (%s) [[%lu]] %s\n", __FILE__, __LINE__, __FUNCTION__, this->get_thread_identifier(), msg.str().c_str());
 
-                    // return bytes written
                     std::streamsize bytes_written = current_position - position_before_write;
+
+                    // save the current position to max_byte_written
+                    if (current_position > data.max_byte_written) {
+                        data.max_byte_written = current_position;
+                    }
+
+                    // return bytes written
                     return bytes_written;
                 });
             }
@@ -661,6 +667,14 @@ namespace irods::experimental::io::s3_transport
                 set_error(ERROR(S3_PUT_ERROR, "Unexpected timeout when pushing onto circular buffer."));
                 return 0;
             }
+
+            // save the max byte written to shared memory
+            shm_obj.atomic_exec([this, _buffer_size](auto& data) {
+                    auto offset = get_file_offset() + _buffer_size;
+                    if (offset > data.max_byte_written) {
+                        data.max_byte_written = offset;
+                    }
+            });
 
             return _buffer_size;
 
