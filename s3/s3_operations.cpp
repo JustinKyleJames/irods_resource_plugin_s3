@@ -76,7 +76,7 @@ namespace irods_s3 {
     int number_of_threads = 0;
     int oprType = -1;
 
-    bool file_create_without_close = false;
+    bool file_open_create_without_close = false;
 
     // data per thread
     struct per_thread_data {
@@ -637,7 +637,7 @@ namespace irods_s3 {
 
         if (is_cacheless_mode(_ctx.prop_map())) {
 
-            file_create_without_close = true;
+            file_open_create_without_close = true;
 
             std::uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
 
@@ -678,6 +678,8 @@ namespace irods_s3 {
 
 
         if (is_cacheless_mode(_ctx.prop_map())) {
+
+            file_open_create_without_close = true;
 
             using std::ios_base;
             using irods::experimental::io::s3_transport::object_s3_status;
@@ -912,7 +914,7 @@ namespace irods_s3 {
 
         if (is_cacheless_mode(_ctx.prop_map())) {
 
-            file_create_without_close = false;
+            file_open_create_without_close = false;
 
             std::uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
 
@@ -1150,6 +1152,56 @@ namespace irods_s3 {
             return ret;
         }
 
+        // issue 1978 - If they called open/create without close, the object will not yet exist in s3.
+        if (file_open_create_without_close) {
+
+            // The object does not yet exist on S3 or the object that is in S3 is not up-to-date because close has
+            // not been called.  If we are using a cache file, do a stat() of that.  Otherwise, return the maximum
+            // byte written.
+
+            namespace transport = irods::experimental::io::s3_transport;
+            namespace bf = boost::filesystem;
+
+            _statbuf->st_mode = S_IFREG;
+            _statbuf->st_nlink = 1;
+            _statbuf->st_uid = getuid ();
+            _statbuf->st_gid = getgid ();
+            _statbuf->st_atime = _statbuf->st_mtime = _statbuf->st_ctime = std::chrono::system_clock::now().time_since_epoch().count();
+
+            // attempt to get size from cache file
+            std::string s3_cache_dir_str = get_cache_directory(_ctx.prop_map());
+            bf::path cache_file =  bf::path(s3_cache_dir_str) / bf::path(key + "-cache");
+            struct stat st;
+
+            if (0 == stat(cache_file.string().c_str(), &st)) {
+
+                _statbuf->st_size = st.st_size;
+
+            } else {
+
+                // Not using a cache file.  Read the max byte written from interprocess shmem.
+
+                std::string bucket_name;
+                std::string shmem_key = irods::experimental::io::s3_transport::constants::SHARED_MEMORY_KEY_PREFIX +
+                    std::to_string(std::hash<std::string>{}(resource_name + "/" + key));
+
+
+                irods::experimental::interprocess::shared_memory::named_shared_memory_object<transport::shared_data::multipart_shared_data>
+                    shm_obj{shmem_key,
+                        180,  // shmem timeout
+                        transport::constants::MAX_S3_SHMEM_SIZE};
+
+                auto max_byte_written = shm_obj.atomic_exec([](auto& data) {
+                        return data.max_byte_written;
+                });
+
+                _statbuf->st_size = max_byte_written;
+            }
+
+            return SUCCESS();
+        }
+
+
         ret = s3InitPerOperation( _ctx.prop_map() );
         if (!ret.ok()) {
             ret = PASSMSG(fmt::format(
@@ -1222,41 +1274,6 @@ namespace irods_s3 {
             _statbuf->st_gid = getgid ();
             _statbuf->st_atime = _statbuf->st_mtime = _statbuf->st_ctime = savedProperties.lastModified;
             _statbuf->st_size = savedProperties.contentLength;
-
-            return SUCCESS();
-        }
-
-        // issue 1978 - If they called create without close, the object will not yet exist in s3.
-        if (data.status == S3StatusHttpErrorNotFound && file_create_without_close) {
-
-            // The object does not yet exist on S3 because close has not been called.
-            // To simulate POSIX behavior, get the max byte written and return that as
-            // the file size.
-
-            // Get the interprocess shared memory and read the max byte written
-            std::string resource_name = get_resource_name(_ctx.prop_map());
-            std::string bucket_name;
-            std::string object_key;
-            std::string shmem_key = irods::experimental::io::s3_transport::constants::SHARED_MEMORY_KEY_PREFIX +
-                std::to_string(std::hash<std::string>{}(resource_name + "/" + key));
-
-            namespace transport = irods::experimental::io::s3_transport;
-
-            irods::experimental::interprocess::shared_memory::named_shared_memory_object<transport::shared_data::multipart_shared_data>
-                shm_obj{shmem_key,
-                    180,  // shmem timeout
-                    transport::constants::MAX_S3_SHMEM_SIZE};
-
-            auto max_byte_written = shm_obj.atomic_exec([](auto& data) {
-                    return data.max_byte_written;
-            });
-
-            _statbuf->st_mode = S_IFREG;
-            _statbuf->st_nlink = 1;
-            _statbuf->st_uid = getuid ();
-            _statbuf->st_gid = getgid ();
-            _statbuf->st_atime = _statbuf->st_mtime = _statbuf->st_ctime = std::chrono::system_clock::now().time_since_epoch().count();
-            _statbuf->st_size = max_byte_written;
 
             return SUCCESS();
         }

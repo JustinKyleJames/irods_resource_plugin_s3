@@ -2070,6 +2070,40 @@ OUTPUT ruleExecOut
             if os.path.exists(file1_get):
                 os.unlink(file1_get)
 
+    def test_istream_issue_2025(self):
+
+        file1 = "f1"
+        file1_get = "f1.get"
+
+        file_contents = 'contents to be written to file'
+        more_file_contents = ' contents to be appended to file'
+
+        with open(file1, 'w') as f:
+            f.write(file_contents)
+
+        with open(file1, 'a') as f:
+            f.write(more_file_contents)
+
+        try:
+
+            self.user0.assert_icommand(['istream', 'write', file1], input=file_contents)
+            self.user0.assert_icommand(['istream', 'write', '--append', file1], input=more_file_contents)
+            self.user0.assert_icommand("iget -f {file1} {file1_get}".format(**locals()))
+
+            # make sure the files are the same
+            self.assertEquals(os.path.getsize(file1_get), os.path.getsize(file1))
+            self.user0.assert_icommand("diff %s %s " % (file1_get, file1), 'EMPTY')
+
+        finally:
+
+            self.user0.assert_icommand("irm -f {file1}".format(**locals()))
+
+            if os.path.exists(file1):
+                os.unlink(file1)
+
+            if os.path.exists(file1_get):
+                os.unlink(file1_get)
+
 class Test_S3_NoCache_Glacier_Base(session.make_sessions_mixin([('otherrods', 'rods')], [('alice', 'apass'), ('bobby', 'bpass')])):
 
     def __init__(self, *args, **kwargs):
