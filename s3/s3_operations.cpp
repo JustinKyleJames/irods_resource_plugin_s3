@@ -416,6 +416,7 @@ namespace irods_s3 {
 
         if (oflag & O_APPEND) {
             mode |= ios_base::app;
+            mode &= ~ios_base::trunc;  // turn off trunc flag
         }
 
         return mode;
