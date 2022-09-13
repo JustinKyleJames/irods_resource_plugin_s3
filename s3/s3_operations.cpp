@@ -1161,6 +1161,7 @@ namespace irods_s3 {
 
             namespace transport = irods::experimental::io::s3_transport;
             namespace bf = boost::filesystem;
+            namespace shared_memory = irods::experimental::interprocess::shared_memory;
 
             _statbuf->st_mode = S_IFREG;
             _statbuf->st_nlink = 1;
@@ -1182,13 +1183,14 @@ namespace irods_s3 {
                 // Not using a cache file.  Read the max byte written from interprocess shmem.
 
                 std::string bucket_name;
-                std::string shmem_key = irods::experimental::io::s3_transport::constants::SHARED_MEMORY_KEY_PREFIX +
+                std::string shmem_key = transport::constants::SHARED_MEMORY_KEY_PREFIX +
                     std::to_string(std::hash<std::string>{}(resource_name + "/" + key));
 
 
-                irods::experimental::interprocess::shared_memory::named_shared_memory_object<transport::shared_data::multipart_shared_data>
+                constexpr auto shmem_timeout = 180;
+                shared_memory::named_shared_memory_object<transport::shared_data::multipart_shared_data>
                     shm_obj{shmem_key,
-                        180,  // shmem timeout
+                        shmem_timeout,
                         transport::constants::MAX_S3_SHMEM_SIZE};
 
                 auto max_byte_written = shm_obj.atomic_exec([](auto& data) {

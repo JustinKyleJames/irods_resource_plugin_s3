@@ -149,10 +149,8 @@ namespace irods::experimental::io::s3_transport
 
         unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
 
-        // restoration_tier is not valid for DEEP_ARCHIVE
-        std::string xml;
-
         // restoration tier only valid for GLACIER
+        std::string xml;
         if (storage_class == S3_STORAGE_CLASS_DEEP_ARCHIVE) {
             xml = fmt::format("<RestoreRequest>\n "
                               "  <Days>{}</Days>\n"
