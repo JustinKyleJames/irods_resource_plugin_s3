@@ -381,7 +381,14 @@ typedef enum
 	S3StatusHttpErrorForbidden,
 	S3StatusHttpErrorNotFound,
 	S3StatusHttpErrorConflict,
-	S3StatusHttpErrorUnknown
+	S3StatusHttpErrorUnknown,
+
+    /**
+     * Chunked encoding errors
+    **/
+    S3StatusChunkEncodingError,
+    S3StatusTrailingHeadersError,
+    S3StatusInvalidChunkCallback
 } S3Status;
 
 /**

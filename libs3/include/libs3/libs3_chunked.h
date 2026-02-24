@@ -3,33 +3,15 @@
  *
  * This header extends libs3.h with support for HTTP chunked transfer encoding
  * and trailing headers.
- *
  */
 
 #ifndef LIBS3_CHUNKED_H
 #define LIBS3_CHUNKED_H
 
-/* Include the base libs3 header */
 #include "libs3/libs3.h"
 
 #ifdef __cplusplus
 extern "C" {
-#endif
-
-/* ========================================================================
- * CHUNKED ENCODING STATUS CODES (additions to S3Status enum)
- * ======================================================================== */
-
-#ifndef S3StatusChunkEncodingError
-#define S3StatusChunkEncodingError ((S3Status)79)
-#endif
-
-#ifndef S3StatusTrailingHeadersError
-#define S3StatusTrailingHeadersError ((S3Status)80)
-#endif
-
-#ifndef S3StatusInvalidChunkCallback
-#define S3StatusInvalidChunkCallback ((S3Status)81)
 #endif
 
 /* ========================================================================
@@ -216,7 +198,7 @@ S3Status chunked_set_signature_info(ChunkedRequestState *state,
                                    const unsigned char *signingKey);
 
 #ifdef __cplusplus
-}
+} // extern "C"
 #endif
 
 #endif /* LIBS3_CHUNKED_H */

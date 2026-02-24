@@ -148,7 +148,7 @@ namespace irods::experimental::io::s3_transport
 
                 if (!cache_fstream) {
                     logger::error("{}:{} ({}) [[{}]] could not open cache file",
-                            __FILE__, __LINE__, __FUNCTION__, this->thread_identifier);
+                            __FILE__, __LINE__, __func__, this->thread_identifier);
                     return S3StatusAbortedByCallback;
                 }
 
@@ -179,7 +179,7 @@ namespace irods::experimental::io::s3_transport
                 cache_fstream.open(filename.c_str(), std::ios_base::out);
                 if (!cache_fstream) {
                     logger::error("{}:{} ({}) [[{}]] could not open cache file",
-                            __FILE__, __LINE__, __FUNCTION__, this->thread_identifier);
+                            __FILE__, __LINE__, __func__, this->thread_identifier);
                 }
             }
 
@@ -385,7 +385,7 @@ namespace irods::experimental::io::s3_transport
 
                     if (!cache_fstream) {
                         logger::error("{}:{} ({}) [[{}]] could not open cache file",
-                                __FILE__, __LINE__, __FUNCTION__, this->thread_identifier);
+                                __FILE__, __LINE__, __func__, this->thread_identifier);
                         return S3StatusAbortedByCallback;
                     }
 
@@ -427,7 +427,7 @@ namespace irods::experimental::io::s3_transport
                     cache_fstream.open(filename.c_str(), std::ios_base::in);
                     if (!cache_fstream) {
                         logger::error("{}:{} ({}) [[{}]] could not open cache file",
-                                __FILE__, __LINE__, __FUNCTION__, this->thread_identifier);
+                                __FILE__, __LINE__, __func__, this->thread_identifier);
                     }
                 }
 
@@ -488,7 +488,7 @@ namespace irods::experimental::io::s3_transport
                         logger::error("{}:{} ({}) [[{}]] "
                                 "Timed out waiting to read from circular buffer.  "
                                 "Remote likely hung up...",
-                                __FILE__, __LINE__, __FUNCTION__, this->thread_identifier);
+                                __FILE__, __LINE__, __func__, this->thread_identifier);
 
                         // save that we got a timeout so that we don't keep retrying
 
@@ -526,7 +526,7 @@ namespace irods::experimental::io::s3_transport
                         // this should never happen but catch and log just in case
                         logger::error("{}:{} ({}) [[{}]] "
                                 "Unexpected timeout when removing entries from circular buffer.",
-                                __FILE__, __LINE__, __FUNCTION__, this->thread_identifier);
+                                __FILE__, __LINE__, __func__, this->thread_identifier);
                     }
                 }
 
@@ -665,7 +665,7 @@ namespace irods::experimental::io::s3_transport
                             }
 
                         } catch (const bi::bad_alloc& ba) {
-                            logger::error("{}:{} ({}) Exception caught allocating room for etags string. [{}]", __FILE__, __LINE__, __FUNCTION__, ba.what());
+                            logger::error("{}:{} ({}) Exception caught allocating room for etags string. [{}]", __FILE__, __LINE__, __func__, ba.what());
                             return S3StatusOutOfMemory;
                         }
                         return libs3_types::status_ok;
@@ -745,7 +745,7 @@ namespace irods::experimental::io::s3_transport
 
                     if (!cache_fstream) {
                         logger::error("{}:{} ({}) [[{}]] could not open cache file",
-                                __FILE__, __LINE__, __FUNCTION__, this->thread_identifier);
+                                __FILE__, __LINE__, __func__, this->thread_identifier);
                         return 0;
                     }
 
@@ -786,7 +786,7 @@ namespace irods::experimental::io::s3_transport
                     cache_fstream.open(filename.c_str(), std::ios_base::in);
                     if (!cache_fstream) {
                         logger::error("{}:{} ({}) [[{}]] could not open cache file",
-                                __FILE__, __LINE__, __FUNCTION__, this->thread_identifier);
+                                __FILE__, __LINE__, __func__, this->thread_identifier);
                     }
                 }
 
@@ -845,7 +845,7 @@ namespace irods::experimental::io::s3_transport
                     } catch(const std::system_error& se)  {
                         logger::error("{}:{} ({}) [[{}]] "
                                 "System error when peaking into circular buffer.  {}",
-                                __FILE__, __LINE__, __FUNCTION__, this->thread_identifier, se.what());
+                                __FILE__, __LINE__, __func__, this->thread_identifier, se.what());
                         return 0;
                     } catch (timeout_exception& e) {
 
@@ -854,7 +854,7 @@ namespace irods::experimental::io::s3_transport
                         logger::error("{}:{} ({}) [[{}]] "
                                 "Timed out waiting to read from circular buffer.  "
                                 "Remote likely hung up...",
-                                __FILE__, __LINE__, __FUNCTION__, this->thread_identifier);
+                                __FILE__, __LINE__, __func__, this->thread_identifier);
 
                         // save that we got a timeout so that we don't keep retrying
                         auto shmem_key =  this->shmem_key;
@@ -892,7 +892,7 @@ namespace irods::experimental::io::s3_transport
                         // this should never happen but catch and log just in case
                         logger::error("{}:{} ({}) [[{}]] "
                                 "Unexpected timeout when removing entries from circular buffer.",
-                                __FILE__, __LINE__, __FUNCTION__, this->thread_identifier);
+                                __FILE__, __LINE__, __func__, this->thread_identifier);
                     }
                 }
 

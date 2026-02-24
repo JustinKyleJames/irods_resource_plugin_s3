@@ -4,11 +4,6 @@
  * This file implements the high-level S3_put_object_chunked() API function
  * that allows applications to upload objects using HTTP chunked transfer
  * encoding with optional trailing headers.
- *
- * Copyright 2024
- * Based on original libs3 code Copyright 2008 Bryan Ischo <bryan@ischo.com>
- *
- * Licensed under LGPL v3 or GPL v2 (same as original libs3)
  */
 
 #include <string.h>
@@ -30,7 +25,6 @@ typedef struct ChunkedPutContext
 
     /* Status */
     S3Status status;
-
 } ChunkedPutContext;
 
 /**
@@ -106,21 +100,6 @@ static void chunked_put_complete_callback(
     }
 }
 
-/**
- * S3_put_object_chunked - Upload object using chunked transfer encoding
- *
- * This function uploads an object to S3 using HTTP chunked transfer encoding,
- * which allows streaming uploads without knowing the content length in advance.
- * Optionally, trailing headers can be sent after the body content.
- *
- * @param bucketContext Bucket context with credentials and settings
- * @param key Object key (name) in the bucket
- * @param putProperties Properties for the PUT operation (content-type, metadata, etc.)
- * @param requestContext Request context for async operations (NULL for synchronous)
- * @param timeoutMs Operation timeout in milliseconds (0 = no timeout)
- * @param handler Handler with callbacks for data and trailing headers
- * @param callbackData User data passed to all callbacks
- */
 void S3_put_object_chunked(const S3BucketContext *bucketContext,
                            const char *key,
                            const S3PutProperties *putProperties,
@@ -203,23 +182,6 @@ void S3_put_object_chunked(const S3BucketContext *bucketContext,
     request_perform(&params, requestContext);
 }
 
-/**
- * S3_upload_part_chunked - Upload multipart part using chunked transfer encoding
- *
- * This function uploads a single part of a multipart upload using HTTP chunked
- * transfer encoding, which allows streaming uploads with trailing headers for
- * checksums computed during upload.
- *
- * @param bucketContext Bucket context with credentials and settings
- * @param key Object key (name) in the bucket
- * @param putProperties Properties for the PUT operation
- * @param seq Part sequence number (1-based)
- * @param uploadId Multipart upload ID
- * @param requestContext Request context for async operations (NULL for synchronous)
- * @param timeoutMs Operation timeout in milliseconds (0 = no timeout)
- * @param handler Handler with callbacks for data and trailing headers
- * @param callbackData User data passed to all callbacks
- */
 void S3_upload_part_chunked(const S3BucketContext *bucketContext,
                             const char *key,
                             const S3PutProperties *putProperties,

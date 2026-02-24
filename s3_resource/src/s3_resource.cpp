@@ -1270,7 +1270,7 @@ bool s3_trailing_checksum_on_upload_enabled(
 #else
 			s3_logger::warn("[resource_name={}] {} flag set to 1 but this version of iRODS does not support CRC64/NVME.  This feature is disabled.",
 					resource_name, enable_trailing_checksum_on_upload);
-#endif
+#endif // IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
 		}
 	}
 	return enable_flag;

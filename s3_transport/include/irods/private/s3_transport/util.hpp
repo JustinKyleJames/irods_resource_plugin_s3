@@ -79,6 +79,11 @@ namespace irods::experimental::io::s3_transport
                                const libs3_types::bucket_context& saved_bucket_context,
                                libs3_types::status& pStatus,
                                std::uint64_t thread_id = 0);
+
+    // Remove the prefix from the beginning of the checksum_str.
+    // If the prefix is not detected the checksum_str is unaltered.
+    void remove_checksum_prefix(std::string& checksum_str, const std::string& checksum_prefix);
+
     // Sleep between _s / 2 and _s seconds.
     // The random addition ensures that threads don't all cluster up and retry
     // at the same time (dogpile effect)

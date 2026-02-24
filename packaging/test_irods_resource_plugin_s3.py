@@ -29,6 +29,7 @@ from ..configuration import IrodsConfig
 from .resource_suite import ResourceSuite
 from .test_chunkydevtest import ChunkyDevTest
 
+IRODS_SUPPORTS_CRC64NVME = IrodsConfig().version_tuple > (5, 0, 2)
 
 class Test_Compound_With_S3_Resource(Test_S3_Cache_Base, unittest.TestCase):
     def __init__(self, *args, **kwargs):
@@ -177,6 +178,7 @@ class Test_S3_Cache_Glacier(Test_S3_Cache_Glacier_Base, unittest.TestCase):
         self.s3stsdate=''
         super(Test_S3_Cache_Glacier, self).__init__(*args, **kwargs)
 
+@unittest.skipUnless(IRODS_SUPPORTS_CRC64NVME, 'iRODS server must support CRC64NVME')
 class Test_S3_NoCache_Trailing_Checksum(Test_S3_NoCache_Base, unittest.TestCase):
     '''
     Tests S3 uploads with trailing checksums enabled (CRC64/NVME).

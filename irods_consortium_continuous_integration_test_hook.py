@@ -54,7 +54,7 @@ def download_and_start_minio_server():
 
     path_to_minio = '/minio'
 
-    #Download the latest MinIO binary directly (supports aws-chunked encoding with trailing checksums)
+    # Download the latest MinIO binary directly (supports aws-chunked encoding with trailing checksums)
     subprocess.check_output(['wget', '-q', '--no-check-certificate', '-O', path_to_minio,
                              'https://dl.min.io/server/minio/release/linux-amd64/minio'])
     os.chmod(path_to_minio, os.stat(path_to_minio).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)

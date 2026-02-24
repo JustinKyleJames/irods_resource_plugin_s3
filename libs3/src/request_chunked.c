@@ -82,7 +82,6 @@ typedef struct ChunkedRequestState
     char credentialScope[128];        /* Date/region/service/aws4_request */
     unsigned char signingKey[32];     /* AWS4 signing key */
     int hasSignatureInfo;             /* 1 if signature info is populated */
-
 } ChunkedRequestState;
 
 /**

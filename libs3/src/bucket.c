@@ -158,8 +158,8 @@ void S3_test_bucket(S3Protocol protocol,
 		&testBucketCompleteCallback,   // completeCallback
 		tbData,                        // callbackData
 		timeoutMs,                     // timeoutMs
-		0,                               // xAmzObjectAttributes
-		0                                // chunkedState
+		0,                             // xAmzObjectAttributes
+		0                              // chunkedState
 	};
 
 	// Perform the request
@@ -732,8 +732,8 @@ void S3_list_bucket(const S3BucketContext* bucketContext,
 		&listBucketCompleteCallback,      // completeCallback
 		lbData,                           // callbackData
 		timeoutMs,                        // timeoutMs
-		0,                               // xAmzObjectAttributes
-		0                                // chunkedState
+		0,                                // xAmzObjectAttributes
+		0                                 // chunkedState
 	};
 
 	// Perform the request

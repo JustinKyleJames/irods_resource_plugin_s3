@@ -33,14 +33,8 @@ using s3_transport_config = irods::experimental::io::s3_transport::config;
 namespace fs = irods::experimental::filesystem;
 namespace io = irods::experimental::io;
 
-std::string keyfile = []() {
-    const char* env_keyfile = std::getenv("S3_TEST_KEYFILE");
-    return env_keyfile ? std::string(env_keyfile) : "/projects/irods/vsphere-testing/externals/amazon_web_services-CI.keypair";
-}();
-std::string hostname = []() {
-    const char* env_hostname = std::getenv("S3_TEST_HOSTNAME");
-    return env_hostname ? std::string(env_hostname) : "s3.amazonaws.com";
-}();
+std::string keyfile = "/projects/irods/vsphere-testing/externals/amazon_web_services-CI.keypair";
+std::string hostname = "s3.amazonaws.com";
 
 const unsigned int S3_DEFAULT_NON_DATA_TRANSFER_TIMEOUT_SECONDS = 300;
 
@@ -527,7 +521,7 @@ void do_upload_process(const std::string& bucket_name,
                     process_count, process_number, true, true, expected_cache_flag);
 
             // This has to be an exit rather than a return.  The forked process continued when this was a return which caused
-            // unexpected results.  This needs to be the _exit() system call (std::_exit()) rather than exit() in the forked
+            // unexpected results.  This needs to be the _exit() system call (std::_Exit()) rather than exit() in the forked
             // child process to ensure only the parent process performs standard I/O (stdio) cleanup and resource deallocation.
             std::_Exit(0);
         }
@@ -567,7 +561,7 @@ void do_download_process(const std::string& bucket_name,
                     process_count, process_number, expected_cache_flag);
 
             // This has to be an exit rather than a return.  The forked process continued when this was a return which caused
-            // unexpected results.  This needs to be the _exit() system call (std::_exit()) rather than exit() in the forked
+            // unexpected results.  This needs to be the _exit() system call (std::_Exit()) rather than exit() in the forked
             // child process to ensure only the parent process performs standard I/O (stdio) cleanup and resource deallocation.
             std::_Exit(0);
         }
@@ -987,6 +981,7 @@ TEST_CASE("s3_transport_upload_multiple_threads", "[upload][thread]")
     remove_bucket(bucket_name);
 }
 
+#ifdef IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
 TEST_CASE("s3_transport_upload_trailing_checksum", "[upload][thread][trailing_checksum]")
 {
 
@@ -1002,9 +997,7 @@ TEST_CASE("s3_transport_upload_trailing_checksum", "[upload][thread][trailing_ch
     {
         do_upload_thread(bucket_name, filename, object_prefix, keyfile, thread_count, expected_cache_flag,
                 "https", "both", trailing_checksum_on_upload_enabled);
-#ifdef IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
         check_upload_checksum_results(bucket_name, filename, object_prefix);
-#endif
     }
 
     SECTION("upload large file with multiple threads and trailing checksum")
@@ -1013,13 +1006,12 @@ TEST_CASE("s3_transport_upload_trailing_checksum", "[upload][thread][trailing_ch
         filename = "large_file";
         do_upload_thread(bucket_name, filename, object_prefix, keyfile, thread_count, expected_cache_flag,
                 "https", "both", trailing_checksum_on_upload_enabled);
-#ifdef IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
         check_upload_checksum_results(bucket_name, filename, object_prefix);
-#endif
     }
 
     remove_bucket(bucket_name);
 }
+#endif // IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
 
 TEST_CASE("s3_transport_download_large_multiple_threads", "[download][thread]")
 {

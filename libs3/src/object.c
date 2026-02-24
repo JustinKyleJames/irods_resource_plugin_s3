@@ -76,8 +76,8 @@ void S3_put_object(const S3BucketContext* bucketContext,
 		handler->responseHandler.completeCallback,   // completeCallback
 		callbackData,                                // callbackData
 		timeoutMs,                                   // timeoutMs
-		0,                               // xAmzObjectAttributes
-		0                                // chunkedState
+		0,                                           // xAmzObjectAttributes
+		0                                            // chunkedState
 	};
 
 	// Perform the request
@@ -273,8 +273,8 @@ void S3_copy_object_range(const S3BucketContext* bucketContext,
 		&copyObjectCompleteCallback,                                        // completeCallback
 		data,                                                               // callbackData
 		timeoutMs,                                                          // timeoutMs
-		0,                               // xAmzObjectAttributes
-		0                                // chunkedState
+		0,                                                                  // xAmzObjectAttributes
+		0                                                                   // chunkedState
 	};
 
 	// Perform the request
@@ -321,8 +321,8 @@ void S3_get_object(const S3BucketContext* bucketContext,
 		handler->responseHandler.completeCallback,   // completeCallback
 		callbackData,                                // callbackData
 		timeoutMs,                                   // timeoutMs
-		0,                               // xAmzObjectAttributes
-		0                                // chunkedState
+		0,                                           // xAmzObjectAttributes
+		0                                            // chunkedState
 	};
 
 	// Perform the request
