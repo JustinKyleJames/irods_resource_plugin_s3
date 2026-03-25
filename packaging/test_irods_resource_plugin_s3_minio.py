@@ -15,7 +15,7 @@ IRODS_SUPPORTS_CRC64NVME = IrodsConfig().version_tuple > (5, 0, 2)
 
 MINIO_TRAILING_CHECKSUM_MIN_VERSION = 'RELEASE.2023-01-20T02-05-44Z'
 try:
-    result = subprocess.run( ['ls', '-l', '/minio'], capture_output=True, text=True, timeout=5)
+    result = subprocess.run( ['ps', '-efl', 'minio'], capture_output=True, text=True, timeout=5)
     minio_version_result = f'{result.stdout + result.stderr}'
 except Exception as e:
     minio_version_result = type(e).__name__
