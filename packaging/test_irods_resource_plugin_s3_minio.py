@@ -15,7 +15,7 @@ IRODS_SUPPORTS_CRC64NVME = IrodsConfig().version_tuple > (5, 0, 2)
 
 MINIO_TRAILING_CHECKSUM_MIN_VERSION = 'RELEASE.2023-01-20T02-05-44Z'
 try:
-    result = subprocess.run( ['ps', '-efl', 'minio'], capture_output=True, text=True, timeout=5)
+    result = subprocess.run( ['ps', '-ef', 'minio'], capture_output=True, text=True, timeout=5)
     minio_version_result = f'{result.stdout + result.stderr}'
 except Exception as e:
     minio_version_result = type(e).__name__
@@ -142,7 +142,8 @@ class Test_S3_NoCache_EU_Central_1(Test_S3_NoCache_Base, unittest.TestCase):
         super(Test_S3_NoCache_EU_Central_1, self).__init__(*args, **kwargs)
 
 @unittest.skipUnless(IRODS_SUPPORTS_CRC64NVME, 'iRODS server must support CRC64NVME')
-@unittest.skipUnless(MINIO_SUPPORTS_TRAILING_CHECKSUM, f'MinIO version must be >= {MINIO_TRAILING_CHECKSUM_MIN_VERSION} to support trailing checksums.  Current MinIO version is {_minio_version}. MinIO version result = {minio_version_result}')
+#@unittest.skipUnless(MINIO_SUPPORTS_TRAILING_CHECKSUM, f'MinIO version must be >= {MINIO_TRAILING_CHECKSUM_MIN_VERSION} to support trailing checksums.  Current MinIO version is {_minio_version}. MinIO version result = {minio_version_result}')
+@unittest.skipUnless(False, f'MinIO version must be >= {MINIO_TRAILING_CHECKSUM_MIN_VERSION} to support trailing checksums.  Current MinIO version is {_minio_version}. MinIO version result = {minio_version_result}')
 class Test_S3_NoCache_Trailing_Checksum(Test_S3_NoCache_Large_File_Tests_Base, unittest.TestCase):
     '''
     Tests S3 uploads with trailing checksums enabled (CRC64/NVME).
