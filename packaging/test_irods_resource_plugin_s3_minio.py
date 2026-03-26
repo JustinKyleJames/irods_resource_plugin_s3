@@ -16,7 +16,10 @@ IRODS_SUPPORTS_CRC64NVME = IrodsConfig().version_tuple > (5, 0, 2)
 MINIO_TRAILING_CHECKSUM_MIN_VERSION = 'RELEASE.2023-01-20T02-05-44Z'
 
 def _get_minio_version():
-    """Get the MinIO server version by running the minio binary."""
+    """Get the MinIO server version by running the minio binary.
+
+    Returns a tuple of (version_string_or_None, error_string_or_None).
+    """
     try:
         result = subprocess.run(
             ['/minio', '--version'],
@@ -25,10 +28,10 @@ def _get_minio_version():
         match = re.search(r'RELEASE\.\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z',
                           result.stdout + result.stderr)
         if match:
-            return match.group()
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
-        pass
-    return None
+            return match.group(), None
+        return None, f'No version found in output: [{result.stdout + result.stderr}]'
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as e:
+        return None, str(e)
 
 #class Test_Compound_With_S3_Resource(Test_S3_Cache_Base, unittest.TestCase):
 #    def __init__(self, *args, **kwargs):
@@ -139,9 +142,9 @@ class Test_S3_NoCache_Trailing_Checksum(Test_S3_NoCache_Large_File_Tests_Base, u
     def setUpClass(cls):
         if not IRODS_SUPPORTS_CRC64NVME:
             raise unittest.SkipTest('iRODS server must support CRC64NVME')
-        minio_version = _get_minio_version()
+        minio_version, minio_version_error = _get_minio_version()
         if minio_version is None or minio_version < MINIO_TRAILING_CHECKSUM_MIN_VERSION:
-            raise unittest.SkipTest(f'MinIO version must be >= {MINIO_TRAILING_CHECKSUM_MIN_VERSION} to support trailing checksums.  Current MinIO version is {minio_version}.')
+            raise unittest.SkipTest(f'MinIO version must be >= {MINIO_TRAILING_CHECKSUM_MIN_VERSION} to support trailing checksums.  Current MinIO version is {minio_version}.  Error: {minio_version_error}.')
         super().setUpClass()
 
     def __init__(self, *args, **kwargs):
