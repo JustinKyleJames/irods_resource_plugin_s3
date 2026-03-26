@@ -14,11 +14,6 @@ from ..configuration import IrodsConfig
 IRODS_SUPPORTS_CRC64NVME = IrodsConfig().version_tuple > (5, 0, 2)
 
 MINIO_TRAILING_CHECKSUM_MIN_VERSION = 'RELEASE.2023-01-20T02-05-44Z'
-try:
-    result = subprocess.run( ['ps', '-ef'], capture_output=True, text=True, timeout=5)
-    minio_version_result = f'{result.stdout + result.stderr}'
-except Exception as e:
-    minio_version_result = type(e).__name__
 
 def _get_minio_version():
     """Get the MinIO server version by running the minio binary."""
@@ -34,11 +29,6 @@ def _get_minio_version():
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         pass
     return None
-
-_minio_version = _get_minio_version()
-MINIO_SUPPORTS_TRAILING_CHECKSUM = (
-    _minio_version is not None and _minio_version >= MINIO_TRAILING_CHECKSUM_MIN_VERSION
-)
 
 #class Test_Compound_With_S3_Resource(Test_S3_Cache_Base, unittest.TestCase):
 #    def __init__(self, *args, **kwargs):
@@ -141,13 +131,19 @@ MINIO_SUPPORTS_TRAILING_CHECKSUM = (
 #        self.s3EnableMPU=1
 #        super(Test_S3_NoCache_EU_Central_1, self).__init__(*args, **kwargs)
 
-@unittest.skipUnless(IRODS_SUPPORTS_CRC64NVME, 'iRODS server must support CRC64NVME')
-#@unittest.skipUnless(MINIO_SUPPORTS_TRAILING_CHECKSUM, f'MinIO version must be >= {MINIO_TRAILING_CHECKSUM_MIN_VERSION} to support trailing checksums.  Current MinIO version is {_minio_version}. MinIO version result = {minio_version_result}')
-@unittest.skipUnless(False, f'MinIO version must be >= {MINIO_TRAILING_CHECKSUM_MIN_VERSION} to support trailing checksums.  Current MinIO version is {_minio_version}. MinIO version result = {minio_version_result}')
 class Test_S3_NoCache_Trailing_Checksum(Test_S3_NoCache_Large_File_Tests_Base, unittest.TestCase):
     '''
     Tests S3 uploads with trailing checksums enabled (CRC64/NVME).
     '''
+    @classmethod
+    def setUpClass(cls):
+        if not IRODS_SUPPORTS_CRC64NVME:
+            raise unittest.SkipTest('iRODS server must support CRC64NVME')
+        minio_version = _get_minio_version()
+        if minio_version is None or minio_version < MINIO_TRAILING_CHECKSUM_MIN_VERSION:
+            raise unittest.SkipTest(f'MinIO version must be >= {MINIO_TRAILING_CHECKSUM_MIN_VERSION} to support trailing checksums.  Current MinIO version is {minio_version}.')
+        super().setUpClass()
+
     def __init__(self, *args, **kwargs):
         """Set up the test."""
         self.proto = 'HTTP'
