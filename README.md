@@ -45,6 +45,15 @@ $ make package
 
 This will result in a package (deb/rpm) for your platform suitable for installation.
 
+## Installation Instructions
+
+Install the deb or rpm package generated above or the one provided by the irods package repository on every server within the zone.
+
+Note that the package is required even on servers that do not have an S3 resource attached to it as the following resource operations will execute on the server the client is attached to:
+
+- RESOURCE_OP_RESOLVE_RESC_HIER
+- RESOURCE_OP_NOTIFY
+
 ## Example Cacheless Configuration and Usage
 
 After installation is complete, the new plugin can be configured in cacheless mode, live on an iRODS Server:
@@ -90,6 +99,7 @@ To define S3 provider constraints and control multipart behavior:
 -   `S3_MAX_UPLOAD_SIZE_MB` - This defines the maximum upload size for non-multipart uploads (in MB), maximum part size, as well as the maximum size when using the CopyObject API.  The default is 5120MB (5GB).  This setting is ignored if MPU uploads are disabled.
 -   `S3_MPU_THREADS` is the number of parts to upload in parallel.
 -   `S3_URI_REQUEST_STYLE` - The path request style used.  This is either "path" or "virtualhost".  The default is "path".  See [path vs virtual hosted requests](https://docs.aws.amazon.com/AmazonS3/latest/userguide/VirtualHosting.html).
+-   `S3_STORAGE_CLASS` - Defines the Glacier storage class used to archive objects. Valid values are "Standard", "Glacier", "Deep_Archive", and "Glacier_IR". The default is "Standard", and these values are not case sensitive. See [Storage Class Intro](https://docs.aws.amazon.com/AmazonS3/latest/userguide/storage-class-intro.html).
 -   `S3_RESTORATION_DAYS` - The number of days an object is to be restored when restoring from Glacier.  See [RestoreObject API](https://docs.aws.amazon.com/AmazonS3/latest/API/API_RestoreObject.html).
 -   `S3_RESTORATION_TIER` - The data access tier option when restoring from Glacier.  Valid values are "Expedited", "Standard", and "Bulk".  The default is "Standard".  See [RestoreObject API](https://docs.aws.amazon.com/AmazonS3/latest/API/API_RestoreObject.html).
 -   `S3_ENABLE_COPYOBJECT` - Some providers (such as Fujifilm) do not implement the CopyObject S3 API.  If S3_ENABLE_COPYOBJECT=0, the copy will be performed via a read from source and write to destination rather than calling CopyObject.  (Also see the note about GCS support.)
@@ -132,9 +142,11 @@ An additional flag called `HOST_MODE` is used to enable cacheless mode.  The def
 
 Cacheless mode has a few extra configuration parameters in addition to HOST_MODE.
 
--   `CIRCULAR_BUFFER_SIZE` - The plugin uses a circular buffer to store data while it is being streamed to S3.  The size of the circular buffer is CIRCULAR_BUFFER_SIZE * S3_MPU_CHUNK.  The default value is 4 so if the S3_MPU_CHUNK is the default of 5MB the circular buffer size will be 20MB.  CIRCULAR_BUFFER_SIZE must be at least 2.  If a size is set lower than 2 then it will default to 2.
+-   `CIRCULAR_BUFFER_SIZE` - The plugin uses a circular buffer to store data while it is being streamed to S3.  The size of the circular buffer is CIRCULAR_BUFFER_SIZE * S3_MPU_CHUNK.  The default value is 4 so if the S3_MPU_CHUNK is the default of 5MiB the circular buffer size will be 20MB.  CIRCULAR_BUFFER_SIZE must be at least 2.  If a size is set lower than 2 then it will default to 2.
 -   `CIRCULAR_BUFFER_TIMEOUT_SECONDS` - The number of seconds the plugin will wait when waiting to read or write data from the circular buffer.  The default is 180s.
 -   `S3_CACHE_DIR` - This is the directory where temporary cache files are located in cases where a cache file is required.  (See below.)  The default is `/tmp`.
+
+Note that with the default values for CIRCULAR_BUFFER_SIZE and S3_MPU_CHUNK, due to the 10,000 part limit in AWS, the largest file that can be uploaded is 20MiB * 10,000 or roughly 200GiB.  To upload larger files these defaults need to be updated which will have memory use implications.
 
 The following is an example of how to configure a `cacheless_attached` S3 resource:
 
