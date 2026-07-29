@@ -250,6 +250,8 @@ namespace irods::experimental::io::s3_transport
             , upload_manager_{bucket_context_}
             , last_file_to_close_{false}
             , error_{SUCCESS()}
+            , part_size_{static_cast<std::int64_t>(_config.circular_buffer_size)}
+            , draining_enabled_{false}
         {
 
             upload_manager_.shared_memory_timeout_in_seconds = config_.shared_memory_timeout_in_seconds;
@@ -785,7 +787,8 @@ namespace irods::experimental::io::s3_transport
         static void determine_start_and_end_part_from_offset_and_bytes_this_thread(
                 std::int64_t bytes_this_thread,
                 std::int64_t file_offset,
-                std::int64_t circular_buffer_size,
+                std::int64_t part_size,    // size of one part for this upload == circular_buffer_size
+                                           // unless draining has grown it (see compute_part_size_for_object)
                 unsigned int& start_part_number,
                 unsigned int& end_part_number,
                 std::vector<std::int64_t>& part_sizes)  {
@@ -804,33 +807,76 @@ namespace irods::experimental::io::s3_transport
                 ? bytes_this_thread
                 : file_offset / thread_number;
 
-            // Determine number of parts per thread.  If parts is not divisible by circular buffer
-            // size then we need one additional part. The last thread is treated specially because
+            // Determine number of parts per thread.  If parts is not divisible by part_size
+            // then we need one additional part. The last thread is treated specially because
             // it may have additional bytes.
-            unsigned int parts_per_thread = bytes_all_threads_except_last / circular_buffer_size
-                + ( bytes_all_threads_except_last % circular_buffer_size == 0 ? 0 : 1 );
+            unsigned int parts_per_thread = bytes_all_threads_except_last / part_size
+                + ( bytes_all_threads_except_last % part_size == 0 ? 0 : 1 );
 
             start_part_number = thread_number * parts_per_thread + 1;
             if (bytes_this_thread == bytes_all_threads_except_last) {
                 end_part_number = start_part_number + parts_per_thread - 1;
             } else {
-                unsigned int parts_last_thread = bytes_this_thread / circular_buffer_size
-                    + (bytes_this_thread % circular_buffer_size == 0 ? 0 : 1);
+                unsigned int parts_last_thread = bytes_this_thread / part_size
+                    + (bytes_this_thread % part_size == 0 ? 0 : 1);
                 end_part_number = start_part_number + parts_last_thread - 1;
             }
 
             // put the part sizes on the vector, splitting remaining bytes among first few parts
-            std::int64_t part_size = bytes_this_thread / ( end_part_number - start_part_number + 1 );
+            std::int64_t base_part_size = bytes_this_thread / ( end_part_number - start_part_number + 1 );
             std::int64_t remaining_bytes = bytes_this_thread % ( end_part_number - start_part_number + 1 );
             [[maybe_unused]] std::int64_t total_bytes = 0;
             for (unsigned int part_cntr = 0; part_cntr <= end_part_number - start_part_number; ++part_cntr) {
-                std::int64_t bytes_this_part = part_size +
+                std::int64_t bytes_this_part = base_part_size +
                         ( remaining_bytes > part_cntr ? 1 : 0 );
                 total_bytes += bytes_this_part;
-                assert(bytes_this_part <= circular_buffer_size);
+                assert(bytes_this_part <= part_size);
                 part_sizes.push_back(bytes_this_part);
             }
             assert(total_bytes == bytes_this_thread);
+        }
+
+        // Determine the part size to use for a streaming (non-cache) multipart upload of an
+        // object of the given size.  Defaults to circular_buffer_size (today's behavior).  If
+        // that would require more than (max_number_of_parts - max(1, number_of_client_transfer_threads))
+        // parts -- the thread-count margin absorbs the per-thread rounding-up done by
+        // determine_start_and_end_part_from_offset_and_bytes_this_thread, so the combined part
+        // count across all threads can't creep over max_number_of_parts -- part_size is grown to
+        // ceil(object_size / safe_max_parts) and draining_required is set to true.  Returns false
+        // (object cannot be uploaded via S3 multipart upload under any part size) if the required
+        // part_size would exceed max_part_size.
+        static bool compute_part_size_for_object(
+                std::int64_t object_size,
+                std::uint64_t circular_buffer_size,
+                int number_of_client_transfer_threads,
+                std::int64_t max_number_of_parts,
+                std::int64_t max_part_size,
+                std::int64_t& part_size,
+                bool& draining_required)
+        {
+            part_size = static_cast<std::int64_t>(circular_buffer_size);
+            draining_required = false;
+
+            if (object_size <= 0) {
+                // unknown or zero size - nothing to validate yet
+                return true;
+            }
+
+            // In determine_start_and_end_part_from_offset_and_bytes_this_thread
+            // there is a rounding up of number of parts.  Calculate safe_max_parts which
+            // will be max_number_of_parts (usually 10,000)  minus the number of threads.
+            std::int64_t safe_max_parts = max_number_of_parts -
+                std::max(1, number_of_client_transfer_threads);
+
+            std::int64_t parts_at_current_size =
+                (object_size + part_size - 1) / part_size;
+
+            if (parts_at_current_size > safe_max_parts) {
+                part_size = (object_size + safe_max_parts - 1) / safe_max_parts;
+                draining_required = true;
+            }
+
+            return part_size <= max_part_size;
         }
 
         std::int64_t get_existing_object_size() {
@@ -1094,9 +1140,24 @@ namespace irods::experimental::io::s3_transport
                 ? config_.number_of_cache_transfer_threads
                 : cache_file_size / minimum_part_size == 0 ? 1 : cache_file_size / minimum_part_size;
 
-            // Preferred part size is the largest part size that will be attempted. At 1 GiB, that still allows the largest possible
-            // file size (1 TiB) to be uploaded within the 10,000 part limit imposed by AWS.
-            int64_t preferred_part_size = 1LL*1024*1024*1024;
+            // Preferred part size is the largest part size that will be attempted, starting at 1 GiB.
+            // For cache files so large that 1 GiB parts would exceed the 10,000 part limit imposed by
+            // AWS, start instead from the smallest part size that keeps the whole file within that
+            // limit (issue #2185), so we don't immediately hit the number_of_parts > 10000 bail-out
+            // below on the very first iteration.
+            int64_t preferred_part_size = std::max(
+                    static_cast<std::int64_t>(1LL*1024*1024*1024),
+                    static_cast<std::int64_t>(
+                        (cache_file_size + constants::MAXIMUM_NUMBER_ETAGS_PER_UPLOAD - 1) / constants::MAXIMUM_NUMBER_ETAGS_PER_UPLOAD));
+
+            if (preferred_part_size > config_.max_single_part_upload_size) {
+                logger::error("{}:{} ({}) [[{}]] Cache file of size {} cannot be uploaded via S3 multipart "
+                        "upload:  the required part size of {} exceeds the configured maximum part size "
+                        "(S3_MAX_UPLOAD_SIZE_MB) of {}.",
+                        __FILE__, __LINE__, __func__, this->get_thread_identifier(), cache_file_size,
+                        preferred_part_size, config_.max_single_part_upload_size);
+                return error_codes::UPLOAD_FILE_ERROR;
+            }
 
             // Try the part uploads with the current preferred_part_size.  If we get timeouts uploading a part
             // (Amazon has a 2 minute limit) loop again with a part size half the previous one.  Continue doing
@@ -1292,6 +1353,51 @@ namespace irods::experimental::io::s3_transport
 
         }  // end populate_open_mode_flags
 
+        // Computes part_size_ and draining_enabled_ for the streaming (non-cache) multipart
+        // upload path.  Must be called only after populate_open_mode_flags() (use_cache_ must
+        // be known) and only when !use_cache_ && config_.multipart_enabled.  Returns false (and
+        // sets an error) if the object cannot be represented by S3 multipart upload under any
+        // part size.
+        bool validate_and_compute_part_size()
+        {
+            std::int64_t computed_part_size;
+            bool draining_required;
+
+            bool ok = compute_part_size_for_object(
+                    config_.object_size,
+                    config_.circular_buffer_size,
+                    config_.number_of_client_transfer_threads,
+                    constants::MAXIMUM_NUMBER_ETAGS_PER_UPLOAD,
+                    config_.max_single_part_upload_size,
+                    computed_part_size,
+                    draining_required);
+
+            if (!ok) {
+                this->set_error(ERROR(S3_PUT_ERROR, fmt::format(
+                        "Object of size {} bytes cannot be uploaded via S3 multipart upload:  "
+                        "a part size of {} bytes would be required to stay within the {} part "
+                        "limit, which exceeds the configured maximum part size (S3_MAX_UPLOAD_SIZE_MB) "
+                        "of {} bytes.",
+                        config_.object_size, computed_part_size,
+                        constants::MAXIMUM_NUMBER_ETAGS_PER_UPLOAD, config_.max_single_part_upload_size)));
+                return false;
+            }
+
+            part_size_ = computed_part_size;
+            draining_enabled_ = draining_required;
+
+            if (draining_enabled_) {
+                logger::warn("{}:{} ({}) [[{}]] Object size {} would require more than {} parts at "
+                        "the configured circular buffer size of {} bytes.  Increasing part size to "
+                        "{} bytes and streaming with buffer draining enabled.  Failed parts will not "
+                        "be retried in this mode.",
+                        __FILE__, __LINE__, __func__, get_thread_identifier(), config_.object_size,
+                        constants::MAXIMUM_NUMBER_ETAGS_PER_UPLOAD, config_.circular_buffer_size, part_size_);
+            }
+
+            return true;
+        }
+
         bool seek_to_end_if_required(std::ios_base::openmode _mode)
         {
             if (std::ios_base::ate & _mode) {
@@ -1365,6 +1471,12 @@ namespace irods::experimental::io::s3_transport
                 return false;
             }
 
+            // determine the part size to use for the streaming (non-cache) multipart upload
+            // path, growing it beyond circular_buffer_size if needed to stay within S3's
+            // 10,000 part limit (see compute_part_size_for_object)
+            if (!use_cache_ && config_.multipart_enabled && !validate_and_compute_part_size()) {
+                return false;
+            }
 
             // each process must intitialize S3
             {
@@ -2139,11 +2251,14 @@ namespace irods::experimental::io::s3_transport
                         s3_multipart_upload::callback_for_write_from_buffer_to_s3<CharT>(
                             bucket_context_, upload_manager_, circular_buffer_));
 
-                // determine the part number from the offset, file size, and buffer size
+                static_cast<s3_multipart_upload::callback_for_write_from_buffer_to_s3<CharT>*>
+                    (write_callback.get())->draining_enabled = draining_enabled_;
+
+                // determine the part number from the offset, file size, and part size
                 // the last page might be larger so doing a little trick to handle that case (second term)
                 //  Note:  We bailed early if bytes_this_thread == 0
                 determine_start_and_end_part_from_offset_and_bytes_this_thread(bytes_this_thread, file_offset_,
-                        config_.circular_buffer_size, start_part_number, end_part_number, part_sizes);
+                        part_size_, start_part_number, end_part_number, part_sizes);
 
             }
 
@@ -2270,7 +2385,7 @@ logger::debug( "{}:{} ({}) [[{}]] write_callback->content_length is set to {} ",
                             msg.c_str() );
 
                     retry_cnt += 1;
-                    if (write_callback->status != libs3_types::status_ok && retry_cnt <= config_.retry_count_limit) {
+                    if (!draining_enabled_ && write_callback->status != libs3_types::status_ok && retry_cnt <= config_.retry_count_limit) {
 
                         // Check for a timeout reading from circular buffer.  If we got one then bypass retries.
                         circular_buffer_read_timeout =  shm_obj.atomic_exec([](auto& data) {
@@ -2303,9 +2418,17 @@ logger::debug( "{}:{} ({}) [[{}]] write_callback->content_length is set to {} ",
                             }
 #endif // IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
                         }
+                    } else if (draining_enabled_ && write_callback->status != libs3_types::status_ok) {
+                        logger::error(
+                                "{}:{} ({}) [[{}]] S3_upload_part returned error [status={}] and cannot be "
+                                "retried because buffer draining is enabled for this large-object upload "
+                                "(part_size={} > circular_buffer_size={}).",
+                                __FILE__, __LINE__, __func__, get_thread_identifier(),
+                                S3_get_status_name(write_callback->status), part_size_, config_.circular_buffer_size);
                     }
 
-                } while ((write_callback->status != libs3_types::status_ok)
+                } while (!draining_enabled_
+                        && (write_callback->status != libs3_types::status_ok)
                         && irods::experimental::io::s3_transport::S3_status_is_retryable(write_callback->status)
                         && (retry_cnt <= config_.retry_count_limit));
 
@@ -2646,6 +2769,18 @@ logger::debug( "{}:{} ({}) [[{}]] write_callback->content_length is set to {} ",
         // when an error occurs this is set to something other than SUCCESS()
         inline static std::mutex     error_mutex_;
         irods::error                 error_;
+
+        // Part size actually used for the streaming (non-cache) multipart upload path.
+        // Defaults to config_.circular_buffer_size, but may be grown by
+        // validate_and_compute_part_size() (called from open_impl()) to keep the total
+        // part count within constants::MAXIMUM_NUMBER_ETAGS_PER_UPLOAD for very large objects.
+        std::int64_t                 part_size_;
+
+        // Set to true by validate_and_compute_part_size() when part_size_ has been grown
+        // beyond config_.circular_buffer_size.  When true, the circular buffer is drained
+        // as bytes are streamed to S3 rather than only after a whole part succeeds, and
+        // failed parts are not retried (see s3_upload_part_worker_routine).
+        bool                         draining_enabled_;
 
 
     }; // s3_transport

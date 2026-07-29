@@ -49,7 +49,8 @@ namespace irods::experimental::io::s3_transport
     struct constants
     {
 
-        static const std::int64_t            MAXIMUM_NUMBER_ETAGS_PER_UPLOAD{10000};
+        static constexpr std::int64_t        MAXIMUM_NUMBER_ETAGS_PER_UPLOAD{10000};
+
         static const std::int64_t            BYTES_PER_ETAG{112};  // 80 bytes for every string added, 32 bytes for the vector size,
                                                               // determined by testing
         static const std::int64_t            UPLOAD_ID_SIZE{128};
