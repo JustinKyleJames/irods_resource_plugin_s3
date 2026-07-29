@@ -812,6 +812,7 @@ namespace irods::experimental::io::s3_transport
                                                      circular_char_type& _circular_buffer)
                     : callback_for_write_to_s3_base<CharT>{_saved_bucket_context, _manager}
                     , circular_buffer{_circular_buffer}
+                    , draining_enabled{false}
                 {}
 
                 int callback_implementation(int libs3_buffer_size,
@@ -841,7 +842,15 @@ namespace irods::experimental::io::s3_transport
                         : this->content_length - this->bytes_written;
 
                     try {
-                        circular_buffer.peek(this->bytes_written, bytes_to_return, libs3_buffer);
+                        // When draining_enabled, the buffer is drained (destructively read) as we
+                        // stream so that part_size can exceed circular_buffer_size (issue #2185).
+                        // Bytes consumed this way cannot be re-read, so a failed part cannot be
+                        // retried in this mode (see s3_upload_part_worker_routine).
+                        if (draining_enabled) {
+                            circular_buffer.pop_front(bytes_to_return, libs3_buffer);
+                        } else {
+                            circular_buffer.peek(this->bytes_written, bytes_to_return, libs3_buffer);
+                        }
                     } catch(const std::system_error& se)  {
                         logger::error("{}:{} ({}) [[{}]] "
                                 "System error when peaking into circular buffer.  {}",
@@ -884,6 +893,12 @@ namespace irods::experimental::io::s3_transport
                 }
 
                 void post_success_cleanup() {
+                    // If draining_enabled, bytes were already removed from the buffer as they
+                    // were consumed in callback_implementation -- nothing left to clean up.
+                    if (draining_enabled) {
+                        return;
+                    }
+
                     // had a success, remove all processed bytes from buffer
                     try {
 
@@ -899,6 +914,7 @@ namespace irods::experimental::io::s3_transport
                 ~callback_for_write_from_buffer_to_s3() {};
 
                 irods::experimental::circular_buffer<libs3_types::char_type>& circular_buffer;
+                bool draining_enabled;
 
         };
 

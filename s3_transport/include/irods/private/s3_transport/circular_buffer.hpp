@@ -46,6 +46,19 @@ namespace experimental {
                         [this, n] { cb_.erase_begin(n); } );
             }
 
+            // Remove n items from the front of the buffer into array, blocking until n items
+            // are available.  Unlike peek(), the copied bytes are removed from the buffer as
+            // part of the same atomic operation, so they cannot be re-read (no retry possible).
+            void pop_front(std::size_t n, T array[])
+            {
+                (*lws_)([this, n] { return n <= cb_.size(); },
+                        [this, n, &array] {
+                            auto begin = cb_.begin();
+                            std::copy(begin, begin + n, array);
+                            cb_.erase_begin(n);
+                        } );
+            }
+
             // peek item at offset from beginning without removing from queue
             void peek(std::size_t offset, T& entry)
             {

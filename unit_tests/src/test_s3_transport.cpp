@@ -1199,3 +1199,185 @@ TEST_CASE("test_part_splits", "[part_splits]")
     }
 }
 
+// Issue #2185 - verify that compute_part_size_for_object grows the part size (and flags
+// draining_required) only when needed to stay within the multipart part-count limit, and
+// that it reports failure when no valid part size exists.  Small, test-supplied limits are
+// used so the boundary conditions can be exercised without needing real huge files.
+TEST_CASE("test_compute_part_size_for_object", "[part_splits][compute_part_size]")
+{
+    using s3_transport = irods::experimental::io::s3_transport::s3_transport<char>;
+
+    SECTION("object fits within the part limit at the configured buffer size - unchanged")
+    {
+        std::int64_t part_size = -1;
+        bool draining_required = true;
+
+        bool ok = s3_transport::compute_part_size_for_object(
+                /* object_size */                     50*1024*1024,
+                /* circular_buffer_size */              10*1024*1024,
+                /* number_of_client_transfer_threads */ 4,
+                /* max_number_of_parts */               10,
+                /* max_part_size */                     1024*1024*1024,
+                part_size,
+                draining_required);
+
+        REQUIRE(ok);
+        REQUIRE(part_size == 10*1024*1024);
+        REQUIRE_FALSE(draining_required);
+    }
+
+    SECTION("object requires more parts than the limit allows - part size grows")
+    {
+        std::int64_t part_size = -1;
+        bool draining_required = false;
+
+        std::int64_t object_size = 1000;
+        std::int64_t circular_buffer_size = 10;
+        int number_of_client_transfer_threads = 2;
+        std::int64_t max_number_of_parts = 10;
+
+        bool ok = s3_transport::compute_part_size_for_object(
+                object_size,
+                circular_buffer_size,
+                number_of_client_transfer_threads,
+                max_number_of_parts,
+                /* max_part_size */ 1024*1024*1024,
+                part_size,
+                draining_required);
+
+        REQUIRE(ok);
+        REQUIRE(draining_required);
+        REQUIRE(part_size > static_cast<std::int64_t>(circular_buffer_size));
+
+        // total parts, even with per-thread rounding, must stay within max_number_of_parts
+        std::int64_t worst_case_parts = number_of_client_transfer_threads +
+                (object_size + part_size - 1) / part_size;
+        REQUIRE(worst_case_parts <= max_number_of_parts + number_of_client_transfer_threads);
+        REQUIRE((object_size + part_size - 1) / part_size <= max_number_of_parts);
+    }
+
+    SECTION("object is too large for S3 multipart upload under any part size - fails")
+    {
+        std::int64_t part_size = -1;
+        bool draining_required = false;
+
+        bool ok = s3_transport::compute_part_size_for_object(
+                /* object_size */                      1000000,
+                /* circular_buffer_size */              10,
+                /* number_of_client_transfer_threads */ 1,
+                /* max_number_of_parts */               10,
+                /* max_part_size */                     1000,
+                part_size,
+                draining_required);
+
+        REQUIRE_FALSE(ok);
+        REQUIRE(draining_required);
+        REQUIRE(part_size > 1000);
+    }
+
+    SECTION("unknown object size is left unchanged")
+    {
+        std::int64_t part_size = -1;
+        bool draining_required = true;
+
+        bool ok = s3_transport::compute_part_size_for_object(
+                /* object_size */                      s3_transport_config::UNKNOWN_OBJECT_SIZE,
+                /* circular_buffer_size */              10*1024*1024,
+                /* number_of_client_transfer_threads */ 4,
+                /* max_number_of_parts */               10000,
+                /* max_part_size */                     5LL*1024*1024*1024,
+                part_size,
+                draining_required);
+
+        REQUIRE(ok);
+        REQUIRE(part_size == 10*1024*1024);
+        REQUIRE_FALSE(draining_required);
+    }
+}
+
+// Issue #2185 - verify the destructive circular_buffer::pop_front(n, array) primitive used
+// for buffer draining: it must copy the correct bytes out and actually remove them.
+TEST_CASE("test_circular_buffer_pop_front_n_array", "[circular_buffer]")
+{
+    irods::experimental::circular_buffer<char> cb{20};
+
+    std::string data = "0123456789";
+    cb.push_back(data.begin(), data.end());
+
+    char out[4] = {};
+    cb.pop_front(4, out);
+    REQUIRE(std::string(out, 4) == "0123");
+
+    char out2[6] = {};
+    cb.pop_front(6, out2);
+    REQUIRE(std::string(out2, 6) == "456789");
+
+    // buffer should now be empty - pushing capacity() worth of new data should all fit
+    std::string more_data(20, 'x');
+    auto inserted = cb.push_back(more_data.begin(), more_data.end());
+    REQUIRE(inserted == 20);
+}
+
+// Issue #2185 - exercise callback_for_write_from_buffer_to_s3 with draining_enabled = true
+// against a real (in-process) producer/consumer over circular_buffer, with a part
+// (content_length) deliberately larger than the circular buffer's capacity.  Without
+// draining this would deadlock: peek() would need all content_length bytes simultaneously
+// resident, but the buffer can never hold more than its (smaller) capacity.  This is a
+// network-free, exact-scale reproduction of the real S3 callback logic used when a huge
+// object forces part_size above circular_buffer_size -- a genuine end-to-end network test
+// of that scenario would require an object near S3's ~48 GiB (10,000 parts x 5 MiB minimum
+// part size) threshold, which isn't practical to run as a routine test.
+TEST_CASE("test_callback_for_write_from_buffer_to_s3_draining", "[circular_buffer][draining]")
+{
+    using namespace irods::experimental::io::s3_transport;
+
+    libs3_types::bucket_context bucket_context{};
+    upload_manager manager{bucket_context};
+
+    // capacity much smaller than content_length below
+    irods::experimental::circular_buffer<char> cb{16};
+
+    s3_multipart_upload::callback_for_write_from_buffer_to_s3<char> cb_writer{bucket_context, manager, cb};
+    cb_writer.draining_enabled = true;
+
+    constexpr int content_length = 200;
+    cb_writer.content_length = content_length;
+    cb_writer.bytes_written = 0;
+    cb_writer.calculate_crc64_nvme = false;
+
+    std::string source(content_length, '\0');
+    for (int i = 0; i < content_length; ++i) {
+        source[static_cast<std::size_t>(i)] = static_cast<char>('a' + (i % 26));
+    }
+
+    // Producer: pushes the whole source into the (much smaller) circular buffer.  This
+    // will block/partially-fill until the consumer below drains it -- proving the buffer
+    // never needs to hold more than its own capacity at once.
+    std::thread producer([&cb, &source] {
+        std::size_t offset = 0;
+        while (offset < source.size()) {
+            offset += static_cast<std::size_t>(
+                    cb.push_back(source.begin() + static_cast<std::ptrdiff_t>(offset), source.end()));
+        }
+    });
+
+    // Consumer: repeatedly invoke callback_implementation exactly as libcurl would,
+    // pulling in chunks smaller than both content_length and the buffer's capacity.
+    std::string result;
+    result.reserve(content_length);
+    char chunk[7];
+    while (cb_writer.bytes_written < content_length) {
+        int n = cb_writer.callback_implementation(sizeof(chunk), chunk);
+        REQUIRE(n >= 0);
+        result.append(chunk, static_cast<std::size_t>(n));
+    }
+
+    producer.join();
+
+    REQUIRE(result == source);
+
+    // post_success_cleanup() must be a no-op when draining_enabled -- bytes were already
+    // removed as they were consumed, so this must not throw or double-remove.
+    cb_writer.post_success_cleanup();
+}
+
