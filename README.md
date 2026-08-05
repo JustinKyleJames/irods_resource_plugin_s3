@@ -47,12 +47,16 @@ This will result in a package (deb/rpm) for your platform suitable for installat
 
 ## Installation Instructions
 
-Install the deb or rpm package generated above or the one provided by the iRODS package repository on every server within the zone.
+Install the deb or rpm package generated above or the one provided by the iRODS package repository.
 
-Note that the package is required even on servers that do not have an S3 resource attached to it as the following resource operations will execute on the server the client is attached to:
+Notes:
 
-- RESOURCE_OP_RESOLVE_RESC_HIER
-- RESOURCE_OP_NOTIFY
+- If an S3 resource is configured for streaming mode, the package should be installed on every server in the zone which has client connections. This is required because the following S3 plugin operations will run on the server the client is connected to:
+  - RESOURCE_OP_RESOLVE_RESC_HIER
+  - RESOURCE_OP_NOTIFY
+- If all S3 resources are in archive mode, then the plugin only needs to be installed on the server(s) that have an S3 resource attached to it.
+
+See [Note on S3 resource plugin installation requirement](https://github.com/irods/irods_resource_plugin_s3/issues/2166#issuecomment-5194474476). 
 
 ## Example Cacheless Configuration and Usage
 
@@ -146,7 +150,7 @@ Cacheless mode has a few extra configuration parameters in addition to HOST_MODE
 -   `CIRCULAR_BUFFER_TIMEOUT_SECONDS` - The number of seconds the plugin will wait when waiting to read or write data from the circular buffer.  The default is 180s.
 -   `S3_CACHE_DIR` - This is the directory where temporary cache files are located in cases where a cache file is required.  (See below.)  The default is `/tmp`.
 
-Note that with the default values for CIRCULAR_BUFFER_SIZE and S3_MPU_CHUNK, due to the 10,000 part limit in AWS, the largest file that can be uploaded is 20 MiB * 10,000 or roughly 200GiB.  To upload larger files these defaults need to be updated which will have memory use implications.
+Note that with the default values for CIRCULAR_BUFFER_SIZE and S3_MPU_CHUNK, due to the 10,000 part limit in AWS, the largest file that can be uploaded is 20 MiB * 10,000 or roughly 200 GiB.  To upload larger files these defaults need to be updated which will have memory use implications.
 
 The following is an example of how to configure a `cacheless_attached` S3 resource:
 
