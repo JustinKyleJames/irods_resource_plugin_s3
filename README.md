@@ -47,16 +47,14 @@ This will result in a package (deb/rpm) for your platform suitable for installat
 
 ## Installation Instructions
 
-Install the deb or rpm package generated above or the one provided by the iRODS package repository.
+To ease deployment, it is recommended that the package be installed on all iRODS servers. If you prefer to install the package on the servers that only require it, then follow these guidelines:
 
-Notes:
-
-- If an S3 resource is configured for streaming mode, the package should be installed on every server in the zone which has client connections. This is required because the following S3 plugin operations will run on the server the client is connected to:
+- If an S3 resource is configured for streaming mode, the package must be installed on every server in the zone which may have client connections. This is required because the following S3 plugin operations will run on the server the client is connected to:
   - RESOURCE_OP_RESOLVE_RESC_HIER
   - RESOURCE_OP_NOTIFY
 - If all S3 resources are in archive mode, then the plugin only needs to be installed on the server(s) that have an S3 resource attached to it.
 
-See [Note on S3 resource plugin installation requirement](https://github.com/irods/irods_resource_plugin_s3/issues/2166#issuecomment-5194474476). 
+See [note on S3 resource plugin installation requirement](https://github.com/irods/irods_resource_plugin_s3/issues/2166#issuecomment-5194474476) for more information.
 
 ## Example Cacheless Configuration and Usage
 
