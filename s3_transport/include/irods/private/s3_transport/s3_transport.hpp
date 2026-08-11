@@ -798,8 +798,7 @@ namespace irods::experimental::io::s3_transport
 
             // determine thread number, if this is the last thread, the bytes_this_thread
             // may be larger so the thread number must be adjusted
-            unsigned int thread_number = (file_offset / bytes_this_thread) +
-                (file_offset % bytes_this_thread == 0 ? 0 : 1);
+            unsigned int thread_number = (file_offset + bytes_this_thread - 1) / bytes_this_thread;
 
             // Determine the number of bytes for all threads used to determine out start part number.
             // At this point we don't care about the size of the last thread.
@@ -811,15 +810,13 @@ namespace irods::experimental::io::s3_transport
             // Determine number of parts per thread.  If parts is not divisible by part_size
             // then we need one additional part. The last thread is treated specially because
             // it may have additional bytes.
-            unsigned int parts_per_thread = bytes_all_threads_except_last / part_size
-                + ( bytes_all_threads_except_last % part_size == 0 ? 0 : 1 );
+            unsigned int parts_per_thread = (bytes_all_threads_except_last + part_size - 1) / part_size;
 
             start_part_number = thread_number * parts_per_thread + 1;
             if (bytes_this_thread == bytes_all_threads_except_last) {
                 end_part_number = start_part_number + parts_per_thread - 1;
             } else {
-                unsigned int parts_last_thread = bytes_this_thread / part_size
-                    + (bytes_this_thread % part_size == 0 ? 0 : 1);
+                unsigned int parts_last_thread = (bytes_this_thread + part_size - 1) / part_size;
                 end_part_number = start_part_number + parts_last_thread - 1;
             }
 
@@ -856,31 +853,29 @@ namespace irods::experimental::io::s3_transport
         //
         // Return values:
         //
-        //   - true if the calculated part_size is less than max_part_size (defined as
-        //     5 GiB in S3 standards).
+        //   - SUCCESS() if the calculated part_size is less than or equal to max_part_size
+        //     (defined as 5 GiB in S3 standards).
         //
-        //   - false if the calculated part_size is greater than max_part_size.
+        //   - an error if the calculated part_size is greater than max_part_size.
         //
         //     This can happen due to the following scenarios:
         //     - file_size > max_part_size * safe_max_parts - With the default values
         //       this is 50 TiB which is the largest object possible in S3.
         //     - circular_buffer_size > max_part_size.  This is a misconfiguration and is unlikely
         //       as it means each buffer is greater than 5 GiB.
-        static bool compute_part_size_for_object(
+        static irods::error compute_part_size_for_object(
                 std::int64_t object_size,
                 std::uint64_t circular_buffer_size,
                 int number_of_client_transfer_threads,
                 std::int64_t max_number_of_parts,
                 std::int64_t max_part_size,
-                std::int64_t& part_size,
-                bool& draining_required)
+                std::int64_t& part_size)
         {
             part_size = static_cast<std::int64_t>(circular_buffer_size);
-            draining_required = false;
 
             if (object_size <= 0) {
                 // unknown or zero size - nothing to validate yet
-                return true;
+                return SUCCESS();
             }
 
             // In determine_start_and_end_part_from_offset_and_bytes_this_thread
@@ -897,10 +892,18 @@ namespace irods::experimental::io::s3_transport
             // then part_size = object_size / safe_max_parts rounded up
             if (parts_at_current_size > safe_max_parts) {
                 part_size = (object_size + safe_max_parts - 1) / safe_max_parts;
-                draining_required = true;
             }
 
-            return part_size <= max_part_size;
+            if (part_size > max_part_size) {
+                return ERROR(S3_PUT_ERROR, fmt::format(
+                        "Object of size {} bytes cannot be uploaded via S3 multipart upload:  "
+                        "a part size of {} bytes would be required to stay within the {} part "
+                        "limit, which exceeds the configured maximum part size (S3_MAX_UPLOAD_SIZE_MB) "
+                        "of {} bytes.",
+                        object_size, part_size, max_number_of_parts, max_part_size));
+            }
+
+            return SUCCESS();
         }
 
         std::int64_t get_existing_object_size() {
@@ -1380,35 +1383,26 @@ namespace irods::experimental::io::s3_transport
         // Computes part_size_ and draining_enabled_ for the streaming (non-cache) multipart
         // upload path.  Must be called only after populate_open_mode_flags() (use_cache_ must
         // be known) and only when !use_cache_ && config_.multipart_enabled.  Returns false (and
-        // sets an error) if the object cannot be represented by S3 multipart upload under any
-        // part size.
-        bool validate_and_compute_part_size()
+        // sets an error) if the object cannot be uploaded under any part size.
+        bool validate_and_compute_part_size_and_set_buffer_draining_flag()
         {
             std::int64_t computed_part_size;
-            bool draining_required;
 
-            bool ok = compute_part_size_for_object(
+            irods::error ret = compute_part_size_for_object(
                     config_.object_size,
                     config_.circular_buffer_size,
                     config_.number_of_client_transfer_threads,
                     constants::MAXIMUM_NUMBER_ETAGS_PER_UPLOAD,
                     config_.max_single_part_upload_size,
-                    computed_part_size,
-                    draining_required);
+                    computed_part_size);
 
-            if (!ok) {
-                this->set_error(ERROR(S3_PUT_ERROR, fmt::format(
-                        "Object of size {} bytes cannot be uploaded via S3 multipart upload:  "
-                        "a part size of {} bytes would be required to stay within the {} part "
-                        "limit, which exceeds the configured maximum part size (S3_MAX_UPLOAD_SIZE_MB) "
-                        "of {} bytes.",
-                        config_.object_size, computed_part_size,
-                        constants::MAXIMUM_NUMBER_ETAGS_PER_UPLOAD, config_.max_single_part_upload_size)));
+            if (!ret.ok()) {
+                this->set_error(ret);
                 return false;
             }
 
             part_size_ = computed_part_size;
-            draining_enabled_ = draining_required;
+            draining_enabled_ = part_size_ > static_cast<std::int64_t>(config_.circular_buffer_size);
 
             if (draining_enabled_) {
                 logger::warn("{}:{} ({}) [[{}]] Object size {} would require more than {} parts at "
@@ -1498,7 +1492,7 @@ namespace irods::experimental::io::s3_transport
             // determine the part size to use for the streaming (non-cache) multipart upload
             // path, growing it beyond circular_buffer_size if needed to stay within S3's
             // 10,000 part limit (see compute_part_size_for_object)
-            if (!use_cache_ && config_.multipart_enabled && !validate_and_compute_part_size()) {
+            if (!use_cache_ && config_.multipart_enabled && !validate_and_compute_part_size_and_set_buffer_draining_flag()) {
                 return false;
             }
 
@@ -2796,11 +2790,11 @@ logger::debug( "{}:{} ({}) [[{}]] write_callback->content_length is set to {} ",
 
         // Part size actually used for the streaming (non-cache) multipart upload path.
         // Defaults to config_.circular_buffer_size, but may be grown by
-        // validate_and_compute_part_size() (called from open_impl()) to keep the total
+        // validate_and_compute_part_size_and_set_buffer_draining_flag() (called from open_impl()) to keep the total
         // part count within constants::MAXIMUM_NUMBER_ETAGS_PER_UPLOAD for very large objects.
         std::int64_t                 part_size_;
 
-        // Set to true by validate_and_compute_part_size() when part_size_ has been grown
+        // Set to true by validate_and_compute_part_size_and_set_buffer_draining_flag() when part_size_ has been grown
         // beyond config_.circular_buffer_size.  When true, the circular buffer is drained
         // as bytes are streamed to S3 rather than only after a whole part succeeds, and
         // failed parts are not retried (see s3_upload_part_worker_routine).

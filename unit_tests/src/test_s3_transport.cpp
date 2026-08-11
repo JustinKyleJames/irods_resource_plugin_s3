@@ -1199,10 +1199,12 @@ TEST_CASE("test_part_splits", "[part_splits]")
     }
 }
 
-// Issue #2185 - verify that compute_part_size_for_object grows the part size (and flags
-// draining_required) only when needed to stay within the multipart part-count limit, and
-// that it reports failure when no valid part size exists.  Small, test-supplied limits are
-// used so the boundary conditions can be exercised without needing real huge files.
+// Issue #2185 - verify that compute_part_size_for_object grows the part size only when
+// needed to stay within the multipart part-count limit, and that it reports failure when
+// no valid part size exists.  Small, test-supplied limits are used so the boundary
+// conditions can be exercised without needing real huge files.  Whether draining is
+// required is inferred by the caller (part_size > circular_buffer_size), so it is not
+// returned directly here.
 TEST_CASE("test_compute_part_size_for_object", "[part_splits][compute_part_size]")
 {
     using s3_transport = irods::experimental::io::s3_transport::s3_transport<char>;
@@ -1210,44 +1212,38 @@ TEST_CASE("test_compute_part_size_for_object", "[part_splits][compute_part_size]
     SECTION("object fits within the part limit at the configured buffer size - unchanged")
     {
         std::int64_t part_size = -1;
-        bool draining_required = true;
 
-        bool ok = s3_transport::compute_part_size_for_object(
+        irods::error ret = s3_transport::compute_part_size_for_object(
                 50*1024*1024,        // object_size
                 10*1024*1024,        // circular_buffer_size
                 4,                   // number_of_client_transfer_threads
                 10,                  // max_number_of_parts
                 1024*1024*1024,      // max_part_size
-                part_size,
-                draining_required);
+                part_size);
 
-        REQUIRE(ok);
-        REQUIRE(part_size == 10*1024*1024);
-        REQUIRE_FALSE(draining_required);
+        REQUIRE(ret.ok());
+        REQUIRE(part_size == 10*1024*1024);  // unchanged - no draining required
     }
 
     SECTION("object requires more parts than the limit allows - part size grows")
     {
         std::int64_t part_size = -1;
-        bool draining_required = false;
 
         std::int64_t object_size = 1000;
         std::int64_t circular_buffer_size = 10;
         int number_of_client_transfer_threads = 2;
         std::int64_t max_number_of_parts = 10;
 
-        bool ok = s3_transport::compute_part_size_for_object(
+        irods::error ret = s3_transport::compute_part_size_for_object(
                 object_size,
                 circular_buffer_size,
                 number_of_client_transfer_threads,
                 max_number_of_parts,
                 1024*1024*1024,      // max_part_size
-                part_size,
-                draining_required);
+                part_size);
 
-        REQUIRE(ok);
-        REQUIRE(draining_required);
-        REQUIRE(part_size > static_cast<std::int64_t>(circular_buffer_size));
+        REQUIRE(ret.ok());
+        REQUIRE(part_size > static_cast<std::int64_t>(circular_buffer_size));  // grown - draining required
 
         // total parts, even with per-thread rounding, must stay within max_number_of_parts
         std::int64_t worst_case_parts = number_of_client_transfer_threads +
@@ -1259,39 +1255,33 @@ TEST_CASE("test_compute_part_size_for_object", "[part_splits][compute_part_size]
     SECTION("object is too large for S3 multipart upload under any part size - fails")
     {
         std::int64_t part_size = -1;
-        bool draining_required = false;
 
-        bool ok = s3_transport::compute_part_size_for_object(
+        irods::error ret = s3_transport::compute_part_size_for_object(
                 1000000,             // object_size
                 10,                  // circular_buffer_size
                 1,                   // number_of_client_transfer_threads
                 10,                  // max_number_of_parts
                 1000,                // max_part_size
-                part_size,
-                draining_required);
+                part_size);
 
-        REQUIRE_FALSE(ok);
-        REQUIRE(draining_required);
+        REQUIRE_FALSE(ret.ok());
         REQUIRE(part_size > 1000);
     }
 
     SECTION("unknown object size is left unchanged")
     {
         std::int64_t part_size = -1;
-        bool draining_required = true;
 
-        bool ok = s3_transport::compute_part_size_for_object(
+        irods::error ret = s3_transport::compute_part_size_for_object(
                 s3_transport_config::UNKNOWN_OBJECT_SIZE, // object_size
                 10*1024*1024,                             // circular_buffer_size
                 4,                                        // number_of_client_transfer_threads
                 10000,                                    // max_number_of_parts
                 5LL*1024*1024*1024,                       // max_part_size
-                part_size,
-                draining_required);
+                part_size);
 
-        REQUIRE(ok);
-        REQUIRE(part_size == 10*1024*1024);
-        REQUIRE_FALSE(draining_required);
+        REQUIRE(ret.ok());
+        REQUIRE(part_size == 10*1024*1024);  // unchanged - no draining required
     }
 }
 
