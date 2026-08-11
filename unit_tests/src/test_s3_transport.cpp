@@ -1213,11 +1213,11 @@ TEST_CASE("test_compute_part_size_for_object", "[part_splits][compute_part_size]
         bool draining_required = true;
 
         bool ok = s3_transport::compute_part_size_for_object(
-                /* object_size */                     50*1024*1024,
-                /* circular_buffer_size */              10*1024*1024,
-                /* number_of_client_transfer_threads */ 4,
-                /* max_number_of_parts */               10,
-                /* max_part_size */                     1024*1024*1024,
+                50*1024*1024,        // object_size
+                10*1024*1024,        // circular_buffer_size
+                4,                   // number_of_client_transfer_threads
+                10,                  // max_number_of_parts
+                1024*1024*1024,      // max_part_size
                 part_size,
                 draining_required);
 
@@ -1241,7 +1241,7 @@ TEST_CASE("test_compute_part_size_for_object", "[part_splits][compute_part_size]
                 circular_buffer_size,
                 number_of_client_transfer_threads,
                 max_number_of_parts,
-                /* max_part_size */ 1024*1024*1024,
+                1024*1024*1024,      // max_part_size
                 part_size,
                 draining_required);
 
@@ -1262,11 +1262,11 @@ TEST_CASE("test_compute_part_size_for_object", "[part_splits][compute_part_size]
         bool draining_required = false;
 
         bool ok = s3_transport::compute_part_size_for_object(
-                /* object_size */                      1000000,
-                /* circular_buffer_size */              10,
-                /* number_of_client_transfer_threads */ 1,
-                /* max_number_of_parts */               10,
-                /* max_part_size */                     1000,
+                1000000,             // object_size
+                10,                  // circular_buffer_size
+                1,                   // number_of_client_transfer_threads
+                10,                  // max_number_of_parts
+                1000,                // max_part_size
                 part_size,
                 draining_required);
 
@@ -1281,11 +1281,11 @@ TEST_CASE("test_compute_part_size_for_object", "[part_splits][compute_part_size]
         bool draining_required = true;
 
         bool ok = s3_transport::compute_part_size_for_object(
-                /* object_size */                      s3_transport_config::UNKNOWN_OBJECT_SIZE,
-                /* circular_buffer_size */              10*1024*1024,
-                /* number_of_client_transfer_threads */ 4,
-                /* max_number_of_parts */               10000,
-                /* max_part_size */                     5LL*1024*1024*1024,
+                s3_transport_config::UNKNOWN_OBJECT_SIZE, // object_size
+                10*1024*1024,                             // circular_buffer_size
+                4,                                        // number_of_client_transfer_threads
+                10000,                                    // max_number_of_parts
+                5LL*1024*1024*1024,                       // max_part_size
                 part_size,
                 draining_required);
 
