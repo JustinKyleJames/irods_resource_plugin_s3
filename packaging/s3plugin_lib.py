@@ -1,9 +1,20 @@
+import hashlib
 import os
 import random
 
 def remove_if_exists(localfile):
     if os.path.exists(localfile):
         os.unlink(localfile)
+
+def sha256sum(f_name, buffer_size=64*1024*1024):
+    h = hashlib.sha256()
+    with open(f_name, 'rb') as f:
+        while True:
+            chunk = f.read(buffer_size)
+            if not chunk:
+                break
+            h.update(chunk)
+    return h.hexdigest()
 
 def make_arbitrary_file(f_name, f_size, buffer_size=32*1024*1024):
     # do not care about true randomness

@@ -3437,3 +3437,149 @@ class Test_S3_NoCache_Decoupled_Base(Test_S3_NoCache_Base):
             s3plugin_lib.remove_if_exists(file1)
             s3plugin_lib.remove_if_exists(file2)
             s3plugin_lib.remove_if_exists(retrieved_file)
+
+
+class Test_S3_NoCache_Draining_Base(session.make_sessions_mixin([('otherrods', 'rods')], [('alice', 'apass'), ('bobby', 'bpass')])):
+    """Base class for a real, ~100GB+ multipart upload that forces the circular-buffer
+    draining code path from issue #2185 to actually engage against a real S3 endpoint.
+
+    This is deliberately NOT part of Test_S3_NoCache_Base -- draining can only be forced
+    through real (non-test-only) configuration once the object is larger than roughly
+    (10000 - number_of_client_transfer_threads) * circular_buffer_size, which even at the
+    smallest legal circular_buffer_size (CIRCULAR_BUFFER_SIZE=2 * S3_MPU_CHUNK=5MB = 10MB)
+    is on the order of 100GB.  Running this test requires:
+      - roughly 100GB of free local disk (to create the source file)
+      - a long time to create/upload/download that much data
+      - a small real cost against a real S3 endpoint (see issue #2185 discussion: a
+        handful of cents for the multipart PUT requests, more if the account is outside
+        any free tier for the GET/data-transfer-out used to verify the round trip)
+
+    It is not wired into the normal test suite for exactly those reasons.  See
+    Test_S3_NoCache_Draining in test_irods_resource_plugin_s3.py, which is skipped by
+    default and must be explicitly re-enabled to run this.
+    """
+
+    def __init__(self, *args, **kwargs):
+        """Set up the test."""
+        if not hasattr(self, 'proto'):
+            self.proto = 'HTTPS'
+
+        super(Test_S3_NoCache_Draining_Base, self).__init__(*args, **kwargs)
+
+    def setUp(self):
+
+        super(Test_S3_NoCache_Draining_Base, self).setUp()
+        self.admin = self.admin_sessions[0]
+        self.user0 = self.user_sessions[0]
+
+        hostname = lib.get_hostname()
+
+        # read aws keys
+        self.read_aws_keys()
+
+        # set up s3 bucket
+        s3_client = Minio(self.s3endPoint,
+                access_key=self.aws_access_key_id,
+                secret_key=self.aws_secret_access_key,
+                region=self.s3region,
+                secure=(self.proto == 'HTTPS'))
+
+        if hasattr(self, 'static_bucket_name'):
+            self.s3bucketname = self.static_bucket_name
+        else:
+            distro_str = '{}-{}'.format(distro.id(), distro.version()).replace(' ', '').replace('.', '')
+            self.s3bucketname = 'irods-ci-drain-' + distro_str + datetime.datetime.utcnow().strftime('-%Y-%m-%d%H-%M-%S-%f-')
+            self.s3bucketname += ''.join(random.choice(string.ascii_letters) for i in range(10))
+            self.s3bucketname = self.s3bucketname[:63].lower()  # bucket names can be no more than 63 characters long
+            s3_client.make_bucket(self.s3bucketname, location=self.s3region)
+
+        self.testresc = "DrainingTestResc"
+        self.testvault = "/" + self.testresc
+
+        # smallest legal CIRCULAR_BUFFER_SIZE/S3_MPU_CHUNK combination (10MB circular
+        # buffer) so the ~10,000-part draining threshold is reachable at the smallest
+        # possible object size
+        self.s3_context = 'S3_DEFAULT_HOSTNAME=' + self.s3endPoint
+        self.s3_context += ';S3_AUTH_FILE=' + self.keypairfile
+        self.s3_context += ';S3_REGIONNAME=' + self.s3region
+        self.s3_context += ';S3_RETRY_COUNT=2'
+        self.s3_context += ';S3_WAIT_TIME_SECONDS=3'
+        self.s3_context += ';S3_PROTO=' + self.proto
+        self.s3_context += ';HOST_MODE=cacheless_attached'
+        self.s3_context += ';S3_ENABLE_MPU=1'
+        self.s3_context += ';S3_MPU_CHUNK=5'
+        self.s3_context += ';CIRCULAR_BUFFER_SIZE=2'
+        self.s3_context += ';S3_CACHE_DIR=/var/lib/irods'
+
+        self.admin.assert_icommand(
+            ['iadmin', 'mkresc', self.testresc, 's3', hostname + ":/" + self.s3bucketname + self.testvault, self.s3_context],
+            'STDOUT_SINGLELINE', 's3')
+
+    def tearDown(self):
+
+        self.admin.run_icommand(['iadmin', 'rmresc', self.testresc])
+
+        super(Test_S3_NoCache_Draining_Base, self).tearDown()
+
+        # delete s3 bucket
+        s3_client = Minio(self.s3endPoint,
+                access_key=self.aws_access_key_id,
+                secret_key=self.aws_secret_access_key,
+                region=self.s3region,
+                secure=(self.proto == 'HTTPS'))
+
+        if hasattr(self, 'static_bucket_name'):
+            self.s3bucketname = self.static_bucket_name
+        else:
+            objects = s3_client.list_objects(self.s3bucketname, recursive=True)
+            for obj in objects:
+                s3_client.remove_object(self.s3bucketname, obj.object_name)
+            s3_client.remove_bucket(self.s3bucketname)
+
+    def read_aws_keys(self):
+        # read access keys from keypair file
+        with open(self.keypairfile) as f:
+            self.aws_access_key_id = f.readline().rstrip()
+            self.aws_secret_access_key = f.readline().rstrip()
+
+    def test_upload_download_object_that_requires_circular_buffer_draining__issue_2185(self):
+        """Uploads a real object large enough to force part_size beyond the configured
+        circular_buffer_size (10MB here), engaging draining_enabled_ in the actual
+        plugin -- not just in the C++ unit tests, which bypass real configuration
+        validation and so can't reach this threshold with a small file.  See issue
+        #2185 and s3_transport::compute_part_size_for_object.
+
+        Threshold is roughly (10000 - number_of_client_transfer_threads) * 10MB, i.e.
+        just under 98GB.  100GB is used for a comfortable margin above that.
+        """
+
+        file_size = 100 * 1024 * 1024 * 1024  # 100 GiB
+
+        file1 = f'{inspect.currentframe().f_code.co_name}_f1'
+        file2 = f'{inspect.currentframe().f_code.co_name}_f2'
+
+        try:
+            # create the source file and hash it up front -- file1 is deleted after the
+            # upload (before downloading file2) so peak local disk usage stays at
+            # roughly one file_size instead of two
+            s3plugin_lib.make_arbitrary_file(file1, file_size)
+            file1_hash = s3plugin_lib.sha256sum(file1)
+
+            self.user0.assert_icommand("iput -R {self.testresc} {file1}".format(**locals()))
+
+            self.user0.assert_icommand("ils -L %s" % file1, 'STDOUT_SINGLELINE', str(file_size))
+
+            s3plugin_lib.remove_if_exists(file1)
+
+            self.user0.assert_icommand("iget -f %s %s" % (file1, file2))
+
+            file2_hash = s3plugin_lib.sha256sum(file2)
+            self.assertEqual(file1_hash, file2_hash)
+
+            self.user0.assert_icommand("irm -f %s" % file1, 'EMPTY')
+
+        finally:
+
+            # cleanup
+            s3plugin_lib.remove_if_exists(file1)
+            s3plugin_lib.remove_if_exists(file2)
