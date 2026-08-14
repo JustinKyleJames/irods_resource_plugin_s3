@@ -179,8 +179,9 @@ class Test_S3_Cache_Glacier(Test_S3_Cache_Glacier_Base, unittest.TestCase):
         self.s3stsdate=''
         super(Test_S3_Cache_Glacier, self).__init__(*args, **kwargs)
 
-@unittest.skip('issue #2185 draining test requires ~100GB free disk, a long run time, and incurs '
-                'a small real cost against AWS -- remove this skip to run it manually')
+@unittest.skipIf(True or psutil.disk_usage('/').free < 2 * 100 * (1024*1024*1024),
+                'draining test requires ~100 GiB free disk, a long run time, and incurs '
+                'a small real cost against AWS')
 class Test_S3_NoCache_Draining(Test_S3_NoCache_Draining_Base, unittest.TestCase):
 
     def __init__(self, *args, **kwargs):

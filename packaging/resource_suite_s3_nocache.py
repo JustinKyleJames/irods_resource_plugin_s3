@@ -3467,14 +3467,12 @@ class Test_S3_NoCache_Draining_Base(session.make_sessions_mixin([('otherrods', '
         super(Test_S3_NoCache_Draining_Base, self).__init__(*args, **kwargs)
 
     def setUp(self):
-
         super(Test_S3_NoCache_Draining_Base, self).setUp()
         self.admin = self.admin_sessions[0]
         self.user0 = self.user_sessions[0]
 
         hostname = lib.get_hostname()
 
-        # read aws keys
         self.read_aws_keys()
 
         # set up s3 bucket
@@ -3516,7 +3514,6 @@ class Test_S3_NoCache_Draining_Base(session.make_sessions_mixin([('otherrods', '
             'STDOUT_SINGLELINE', 's3')
 
     def tearDown(self):
-
         self.admin.run_icommand(['iadmin', 'rmresc', self.testresc])
 
         super(Test_S3_NoCache_Draining_Base, self).tearDown()
@@ -3543,17 +3540,14 @@ class Test_S3_NoCache_Draining_Base(session.make_sessions_mixin([('otherrods', '
             self.aws_secret_access_key = f.readline().rstrip()
 
     def test_upload_download_object_that_requires_circular_buffer_draining__issue_2185(self):
-        """Uploads a real object large enough to force part_size beyond the configured
-        circular_buffer_size (10MB here), engaging draining_enabled_ in the actual
-        plugin -- not just in the C++ unit tests, which bypass real configuration
-        validation and so can't reach this threshold with a small file.  See issue
-        #2185 and s3_transport::compute_part_size_for_object.
+        """Uploads a real object large enough to force the part size beyond the configured
+        circular buffer size (10MB here), forcing the buffer to drain upon initial read.
 
-        Threshold is roughly (10000 - number_of_client_transfer_threads) * 10MB, i.e.
-        just under 98GB.  100GB is used for a comfortable margin above that.
+        Threshold is roughly (10000 - number of client transfer threads) * 10MB, i.e.
+        just under 98GB.  101GB is used for a comfortable margin above that.
         """
 
-        file_size = 100 * 1024 * 1024 * 1024  # 100 GiB
+        file_size = 101 * 1024 * 1024 * 1024  # 101 GiB
 
         file1 = f'{inspect.currentframe().f_code.co_name}_f1'
         file2 = f'{inspect.currentframe().f_code.co_name}_f2'
@@ -3565,21 +3559,20 @@ class Test_S3_NoCache_Draining_Base(session.make_sessions_mixin([('otherrods', '
             s3plugin_lib.make_arbitrary_file(file1, file_size)
             file1_hash = s3plugin_lib.sha256sum(file1)
 
-            self.user0.assert_icommand("iput -R {self.testresc} {file1}".format(**locals()))
+            self.user0.assert_icommand(f'iput -R {self.testresc} {file1}')
 
-            self.user0.assert_icommand("ils -L %s" % file1, 'STDOUT_SINGLELINE', str(file_size))
+            self.user0.assert_icommand(f'ils -L {file1}', 'STDOUT_SINGLELINE', str(file_size))
 
             s3plugin_lib.remove_if_exists(file1)
 
-            self.user0.assert_icommand("iget -f %s %s" % (file1, file2))
+            self.user0.assert_icommand(f'iget -f {file1} {file2}')
 
             file2_hash = s3plugin_lib.sha256sum(file2)
             self.assertEqual(file1_hash, file2_hash)
 
-            self.user0.assert_icommand("irm -f %s" % file1, 'EMPTY')
+            self.user0.assert_icommand(f'irm -f {file1}', 'EMPTY')
 
         finally:
-
             # cleanup
             s3plugin_lib.remove_if_exists(file1)
             s3plugin_lib.remove_if_exists(file2)

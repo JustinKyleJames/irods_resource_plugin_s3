@@ -17,6 +17,7 @@
 #include <chrono>
 #include <sys/wait.h>
 #include <stdexcept>
+#include <array>
 #include <cstdio>
 #include <chrono>
 #include <string>
@@ -1208,10 +1209,10 @@ TEST_CASE("test_part_splits", "[part_splits]")
 TEST_CASE("test_compute_part_size_for_object", "[part_splits][compute_part_size]")
 {
     using s3_transport = irods::experimental::io::s3_transport::s3_transport<char>;
+    std::int64_t part_size = -1;
 
     SECTION("object fits within the part limit at the configured buffer size - unchanged")
     {
-        std::int64_t part_size = -1;
 
         irods::error ret = s3_transport::compute_part_size_for_object(
                 50*1024*1024,        // object_size
@@ -1227,8 +1228,6 @@ TEST_CASE("test_compute_part_size_for_object", "[part_splits][compute_part_size]
 
     SECTION("object requires more parts than the limit allows - part size grows")
     {
-        std::int64_t part_size = -1;
-
         std::int64_t object_size = 1000;
         std::int64_t circular_buffer_size = 10;
         int number_of_client_transfer_threads = 2;
@@ -1254,8 +1253,6 @@ TEST_CASE("test_compute_part_size_for_object", "[part_splits][compute_part_size]
 
     SECTION("object is too large for S3 multipart upload under any part size - fails")
     {
-        std::int64_t part_size = -1;
-
         irods::error ret = s3_transport::compute_part_size_for_object(
                 1000000,             // object_size
                 10,                  // circular_buffer_size
@@ -1270,8 +1267,6 @@ TEST_CASE("test_compute_part_size_for_object", "[part_splits][compute_part_size]
 
     SECTION("unknown object size is left unchanged")
     {
-        std::int64_t part_size = -1;
-
         irods::error ret = s3_transport::compute_part_size_for_object(
                 s3_transport_config::UNKNOWN_OBJECT_SIZE, // object_size
                 10*1024*1024,                             // circular_buffer_size
@@ -1294,18 +1289,18 @@ TEST_CASE("test_circular_buffer_pop_front_n_array", "[circular_buffer]")
     std::string data = "0123456789";
     cb.push_back(data.begin(), data.end());
 
-    char out[4] = {};
-    cb.pop_front(4, out);
-    REQUIRE(std::string(out, 4) == "0123");
+    std::array<char, 4> out{};
+    cb.pop_front(out.size(), out.data());
+    REQUIRE(std::string(out.data(), out.size()) == "0123");
 
-    char out2[6] = {};
-    cb.pop_front(6, out2);
-    REQUIRE(std::string(out2, 6) == "456789");
+    std::array<char, 6> out2{};
+    cb.pop_front(out2.size(), out2.data());
+    REQUIRE(std::string(out2.data(), out2.size()) == "456789");
 
     // buffer should now be empty - pushing capacity() worth of new data should all fit
     std::string more_data(20, 'x');
     auto inserted = cb.push_back(more_data.begin(), more_data.end());
-    REQUIRE(inserted == 20);
+    REQUIRE(static_cast<std::size_t>(inserted) == more_data.size());
 }
 
 // Issue #2185 - exercise callback_for_write_from_buffer_to_s3 with draining_enabled = true
@@ -1366,7 +1361,7 @@ TEST_CASE("test_callback_for_write_from_buffer_to_s3_draining", "[circular_buffe
 
     REQUIRE(result == source);
 
-    // post_success_cleanup() must be a no-op when draining_enabled -- bytes were already
+    // post_success_cleanup() must be a no-op when draining_enabled is true -- bytes were already
     // removed as they were consumed, so this must not throw or double-remove.
     cb_writer.post_success_cleanup();
 }

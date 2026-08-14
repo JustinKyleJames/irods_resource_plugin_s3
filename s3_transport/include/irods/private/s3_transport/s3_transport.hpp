@@ -896,10 +896,10 @@ namespace irods::experimental::io::s3_transport
 
             if (part_size > max_part_size) {
                 return ERROR(S3_PUT_ERROR, fmt::format(
-                        "Object of size {} bytes cannot be uploaded via S3 multipart upload:  "
-                        "a part size of {} bytes would be required to stay within the {} part "
+                        "Object of size [{}] bytes cannot be uploaded via S3 multipart upload:  "
+                        "a part size of [{}] bytes would be required to stay within the [{}] part "
                         "limit, which exceeds the configured maximum part size (S3_MAX_UPLOAD_SIZE_MB) "
-                        "of {} bytes.",
+                        "of [{}] bytes.",
                         object_size, part_size, max_number_of_parts, max_part_size));
             }
 
@@ -1178,9 +1178,9 @@ namespace irods::experimental::io::s3_transport
                         (cache_file_size + constants::MAXIMUM_NUMBER_ETAGS_PER_UPLOAD - 1) / constants::MAXIMUM_NUMBER_ETAGS_PER_UPLOAD));
 
             if (preferred_part_size > config_.max_single_part_upload_size) {
-                logger::error("{}:{} ({}) [[{}]] Cache file of size {} cannot be uploaded via S3 multipart "
-                        "upload:  the required part size of {} exceeds the configured maximum part size "
-                        "(S3_MAX_UPLOAD_SIZE_MB) of {}.",
+                logger::error("{}:{} ({}) [[{}]] Cache file of size [{}] cannot be uploaded via S3 multipart "
+                        "upload:  the required part size of [{}] exceeds the configured maximum part size "
+                        "(S3_MAX_UPLOAD_SIZE_MB) of [{}].",
                         __FILE__, __LINE__, __func__, this->get_thread_identifier(), cache_file_size,
                         preferred_part_size, config_.max_single_part_upload_size);
                 return error_codes::UPLOAD_FILE_ERROR;
@@ -1382,13 +1382,13 @@ namespace irods::experimental::io::s3_transport
 
         // Computes part_size_ and draining_enabled_ for the streaming (non-cache) multipart
         // upload path.  Must be called only after populate_open_mode_flags() (use_cache_ must
-        // be known) and only when !use_cache_ && config_.multipart_enabled.  Returns false (and
+        // be known) and only when (!use_cache_ && config_.multipart_enabled) is true.  Returns false (and
         // sets an error) if the object cannot be uploaded under any part size.
         bool validate_and_compute_part_size_and_set_buffer_draining_flag()
         {
             std::int64_t computed_part_size;
 
-            irods::error ret = compute_part_size_for_object(
+            const irods::error ret = compute_part_size_for_object(
                     config_.object_size,
                     config_.circular_buffer_size,
                     config_.number_of_client_transfer_threads,
@@ -1405,9 +1405,9 @@ namespace irods::experimental::io::s3_transport
             draining_enabled_ = part_size_ > static_cast<std::int64_t>(config_.circular_buffer_size);
 
             if (draining_enabled_) {
-                logger::warn("{}:{} ({}) [[{}]] Object size {} would require more than {} parts at "
+                logger::warn("{}:{} ({}) [[{}]] Object size [{}] would require more than [{}] parts at "
                         "the configured circular buffer size of {} bytes.  Increasing part size to "
-                        "{} bytes and streaming with buffer draining enabled.  Failed parts will not "
+                        "[{}] bytes and streaming with buffer draining enabled.  Failed parts will not "
                         "be retried in this mode.",
                         __FILE__, __LINE__, __func__, get_thread_identifier(), config_.object_size,
                         constants::MAXIMUM_NUMBER_ETAGS_PER_UPLOAD, config_.circular_buffer_size, part_size_);

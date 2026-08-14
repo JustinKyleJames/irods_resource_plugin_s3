@@ -140,9 +140,9 @@ class Test_S3_NoCache_EU_Central_1(Test_S3_NoCache_Base, unittest.TestCase):
         self.s3EnableMPU=1
         super(Test_S3_NoCache_EU_Central_1, self).__init__(*args, **kwargs)
 
-@unittest.skip('issue #2185 draining test requires ~100GB free disk on the client side plus '
-                '~100GB more for the local MinIO backing store (same host in this test setup), '
-                'and a long run time -- remove this skip to run it manually')
+@unittest.skipIf(psutil.disk_usage('/').free < 2 * 100 * (1024*1024*1024),
+                'draining test requires ~100 GiB free disk on the client side plus '
+                '~100 GiB more for the local MinIO backing store (same host in this test setup)')
 class Test_S3_NoCache_Draining(Test_S3_NoCache_Draining_Base, unittest.TestCase):
 
     def __init__(self, *args, **kwargs):

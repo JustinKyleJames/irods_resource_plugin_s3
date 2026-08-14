@@ -842,7 +842,7 @@ namespace irods::experimental::io::s3_transport
                         : this->content_length - this->bytes_written;
 
                     try {
-                        // When draining_enabled, the buffer is drained (destructively read) as we
+                        // When draining_enabled is true, the buffer is drained (destructively read) as we
                         // stream so that part_size can exceed circular_buffer_size (issue #2185).
                         // Bytes consumed this way cannot be re-read, so a failed part cannot be
                         // retried in this mode (see s3_upload_part_worker_routine).
@@ -893,7 +893,7 @@ namespace irods::experimental::io::s3_transport
                 }
 
                 void post_success_cleanup() {
-                    // If draining_enabled, bytes were already removed from the buffer as they
+                    // If draining_enabled is true, bytes were already removed from the buffer as they
                     // were consumed in callback_implementation -- nothing left to clean up.
                     if (draining_enabled) {
                         return;
