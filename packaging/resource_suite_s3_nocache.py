@@ -3439,7 +3439,7 @@ class Test_S3_NoCache_Decoupled_Base(Test_S3_NoCache_Base):
             s3plugin_lib.remove_if_exists(retrieved_file)
 
 
-class Test_S3_NoCache_Draining_Base(session.make_sessions_mixin([('otherrods', 'rods')], [('alice', 'apass'), ('bobby', 'bpass')])):
+class Test_S3_NoCache_Draining_Base(session.make_sessions_mixin([('otherrods', 'rods')], [('alice', 'apass')])):
     """Base class for a real, ~100GB+ multipart upload that forces the circular-buffer
     draining code path from issue #2185 to actually engage against a real S3 endpoint.
 
