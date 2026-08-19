@@ -18,6 +18,8 @@
 #include <sys/wait.h>
 #include <stdexcept>
 #include <array>
+#include <limits>
+#include <algorithm>
 #include <cstdio>
 #include <chrono>
 #include <string>
@@ -1200,6 +1202,65 @@ TEST_CASE("test_part_splits", "[part_splits]")
     }
 }
 
+// Issue #2185 - AWS requires every non-final multipart-upload part to be at least 5MiB.
+// determine_start_and_end_part_from_offset_and_bytes_this_thread spreads a thread's
+// remainder bytes across only its first few parts, so a thread's LAST part can be smaller
+// than part_size -- as small as ceil(part_size/2) in the worst case (a thread needing
+// exactly 2 parts).  Since part_size is always >= circular_buffer_size (proven in
+// compute_part_size_for_object's tests), and circular_buffer_size is floored at 10MiB by
+// real config validation (CIRCULAR_BUFFER_SIZE >= 2 * S3_MPU_CHUNK >= 5MB), this worst case
+// resolves to exactly 5MiB -- meeting AWS's minimum, but with zero margin to spare.
+TEST_CASE("test_part_sizes_never_violate_aws_minimum_part_size", "[part_splits]")
+{
+    using s3_transport = irods::experimental::io::s3_transport::s3_transport<char>;
+
+    SECTION("worst case (a 2-part thread) exactly touches the 5MiB AWS minimum at the real "
+            "circular_buffer_size floor")
+    {
+        std::int64_t part_size = 10*1024*1024;         // real minimum circular_buffer_size
+                                                          // (CIRCULAR_BUFFER_SIZE=2 * S3_MPU_CHUNK=5MB)
+        std::int64_t bytes_this_thread = part_size + 1; // smallest byte count needing 2 parts
+
+        std::vector<std::int64_t> part_sizes;
+        std::int64_t file_offset = 0;
+        unsigned int start_part_number, end_part_number;
+        s3_transport::determine_start_and_end_part_from_offset_and_bytes_this_thread(
+                bytes_this_thread, file_offset, part_size, start_part_number, end_part_number, part_sizes);
+
+        REQUIRE(part_sizes.size() == 2);
+        REQUIRE(*std::min_element(part_sizes.begin(), part_sizes.end()) == 5*1024*1024);
+    }
+
+    SECTION("sweep: every part stays at or above the AWS minimum across many thread byte counts")
+    {
+        std::int64_t part_size = 10*1024*1024;   // real minimum circular_buffer_size
+        std::int64_t aws_minimum = 5LL*1024*1024;
+
+        // Sweeping from aws_minimum, not from 1: bytes_this_thread this small is not
+        // reachable for a non-last thread in the real system.  populate_open_mode_flags()
+        // forces cache mode (bypassing this whole code path) whenever object_size <
+        // number_of_client_transfer_threads * minimum_part_size (5MB), so whenever more than
+        // one thread is used, every non-last thread's byte count (floor(object_size/threads))
+        // is guaranteed to be >= 5MiB.  (A single, lone thread's true final part has no
+        // minimum at all, so testing it against aws_minimum here is a stricter check than
+        // required -- but it still holds given the bound below, so there's no need to special
+        // case it.)
+        //
+        // odd stride so remainders vary rather than always landing on the same pattern
+        for (std::int64_t bytes_this_thread = aws_minimum; bytes_this_thread <= 50*part_size;
+                bytes_this_thread += 1 + part_size/97) {
+
+            std::vector<std::int64_t> part_sizes;
+            std::int64_t file_offset = 0;
+            unsigned int start_part_number, end_part_number;
+            s3_transport::determine_start_and_end_part_from_offset_and_bytes_this_thread(
+                    bytes_this_thread, file_offset, part_size, start_part_number, end_part_number, part_sizes);
+
+            REQUIRE(*std::min_element(part_sizes.begin(), part_sizes.end()) >= aws_minimum);
+        }
+    }
+}
+
 // Issue #2185 - verify that compute_part_size_for_object grows the part size only when
 // needed to stay within the multipart part-count limit, and that it reports failure when
 // no valid part size exists.  Small, test-supplied limits are used so the boundary
@@ -1244,11 +1305,12 @@ TEST_CASE("test_compute_part_size_for_object", "[part_splits][compute_part_size]
         REQUIRE(ret.ok());
         REQUIRE(part_size > static_cast<std::int64_t>(circular_buffer_size));  // grown - draining required
 
-        // total parts, even with per-thread rounding, must stay within max_number_of_parts
-        std::int64_t worst_case_parts = number_of_client_transfer_threads +
-                (object_size + part_size - 1) / part_size;
-        REQUIRE(worst_case_parts <= max_number_of_parts + number_of_client_transfer_threads);
-        REQUIRE((object_size + part_size - 1) / part_size <= max_number_of_parts);
+        // exact total parts (mirroring the real per-thread split), using the resulting
+        // part_size, must fit within max_number_of_parts -- part_size is not guaranteed to
+        // be the smallest value that works (see the "not necessarily minimal" section below),
+        // just a safe one
+        REQUIRE(s3_transport::total_number_of_parts_for_object(
+                object_size, number_of_client_transfer_threads, part_size) <= max_number_of_parts);
     }
 
     SECTION("object is too large for S3 multipart upload under any part size - fails")
@@ -1265,6 +1327,231 @@ TEST_CASE("test_compute_part_size_for_object", "[part_splits][compute_part_size]
         REQUIRE(part_size > 1000);
     }
 
+    SECTION("single-threaded upload: largest possible object uses exactly max_number_of_parts parts")
+    {
+        // With one thread, parts_per_thread_budget == max_number_of_parts exactly (no floor
+        // waste), so the boundary is tight: the largest object that still fits is exactly
+        // max_number_of_parts * max_part_size, using exactly max_number_of_parts parts.
+        std::int64_t max_number_of_parts = 10000;
+        std::int64_t max_part_size = 5LL*1024*1024*1024;
+        std::int64_t largest_object_size = max_number_of_parts * max_part_size;
+
+        irods::error ret = s3_transport::compute_part_size_for_object(
+                largest_object_size,
+                1,                   // circular_buffer_size - tiny, forces the growth path
+                1,                   // number_of_client_transfer_threads
+                max_number_of_parts,
+                max_part_size,
+                part_size);
+
+        REQUIRE(ret.ok());
+        REQUIRE(part_size == max_part_size);
+        REQUIRE(s3_transport::total_number_of_parts_for_object(
+                largest_object_size, 1, part_size) == max_number_of_parts);
+
+        // one more byte cannot be accommodated at any part size <= max_part_size
+        irods::error ret_too_big = s3_transport::compute_part_size_for_object(
+                largest_object_size + 1,
+                1,
+                1,
+                max_number_of_parts,
+                max_part_size,
+                part_size);
+
+        REQUIRE_FALSE(ret_too_big.ok());
+    }
+
+    SECTION("multi-threaded upload: largest possible object can use fewer than max_number_of_parts parts")
+    {
+        // With 3 threads, parts_per_thread_budget = floor(10000/3) = 3333, so only
+        // 3*3333 = 9999 of the 10000-part budget is ever reachable -- proving the "largest
+        // file uses exactly max_number_of_parts parts" property does NOT hold in general,
+        // only when the thread count evenly divides max_number_of_parts (as in the
+        // single-threaded case above).
+        std::int64_t max_number_of_parts = 10000;
+        std::int64_t max_part_size = 5LL*1024*1024*1024;
+        int number_of_client_transfer_threads = 3;
+        std::int64_t parts_per_thread_budget = max_number_of_parts / number_of_client_transfer_threads;
+        std::int64_t largest_object_size =
+                number_of_client_transfer_threads * parts_per_thread_budget * max_part_size;
+
+        irods::error ret = s3_transport::compute_part_size_for_object(
+                largest_object_size,
+                1,                   // circular_buffer_size - tiny, forces the growth path
+                number_of_client_transfer_threads,
+                max_number_of_parts,
+                max_part_size,
+                part_size);
+
+        REQUIRE(ret.ok());
+        REQUIRE(part_size == max_part_size);
+
+        std::int64_t actual_parts = s3_transport::total_number_of_parts_for_object(
+                largest_object_size, number_of_client_transfer_threads, part_size);
+        REQUIRE(actual_parts == number_of_client_transfer_threads * parts_per_thread_budget);
+        REQUIRE(actual_parts < max_number_of_parts);  // 9999, not 10000
+    }
+
+    SECTION("boundary object just past the uniform-budget split still succeeds via the max_part_size fallback")
+    {
+        // T=3, M=10000: budget=3333.  object_size = 9999*max_part_size + 1 splits as
+        // A=3333*max_part_size (non-last threads), B=3333*max_part_size+1 (last thread).
+        // Sizing part_size off B alone gives ceil(B/3333) = max_part_size+1, one byte over the
+        // limit -- but max_part_size itself actually satisfies max_number_of_parts here
+        // (2*3333 + 3334 = 10000), so this must still succeed via the fallback check.
+        std::int64_t max_number_of_parts = 10000;
+        std::int64_t max_part_size = 5LL*1024*1024*1024;
+        int number_of_client_transfer_threads = 3;
+        std::int64_t object_size = 9999 * max_part_size + 1;
+
+        REQUIRE(s3_transport::total_number_of_parts_for_object(
+                object_size, number_of_client_transfer_threads, max_part_size) == max_number_of_parts);
+
+        irods::error ret = s3_transport::compute_part_size_for_object(
+                object_size,
+                1,                   // circular_buffer_size - tiny, forces the growth path
+                number_of_client_transfer_threads,
+                max_number_of_parts,
+                max_part_size,
+                part_size);
+
+        REQUIRE(ret.ok());
+        REQUIRE(part_size == max_part_size);
+    }
+
+    SECTION("exhaustive: never spuriously fails when max_part_size itself would have worked")
+    {
+        // Small toy limits so brute-force enumeration across many object sizes and thread
+        // counts is feasible.  Ground truth feasibility is computed independently of
+        // compute_part_size_for_object's search/formula logic: since
+        // total_number_of_parts_for_object is monotonically non-increasing in part_size,
+        // max_part_size is always the best possible candidate, so an object is uploadable at
+        // all (with these threads/limits) if and only if max_part_size itself keeps the exact
+        // part count within max_number_of_parts.
+        //
+        // This intentionally only covers threads <= max_number_of_parts.  Above that,
+        // compute_part_size_for_object treats the object as unconditionally infeasible even
+        // though that's not strictly true for the abstract math (a tiny object could still
+        // have every thread but one carrying zero bytes) -- see the comment above the
+        // threads > max_number_of_parts check in compute_part_size_for_object for why that
+        // simplification is safe given real callers: iRODS never assigns more than one
+        // client transfer thread below 32MiB, and populate_open_mode_flags() already forces
+        // cache mode (bypassing this function) whenever object_size is too small relative to
+        // the thread count, so threads is never remotely close to max_number_of_parts in
+        // practice.  The "more threads than max_number_of_parts - fails immediately" section
+        // above covers that documented behavior directly.
+        std::int64_t max_number_of_parts = 7;
+        std::int64_t max_part_size = 5;
+
+        for (int threads : {1, 2, 3, 4, 5, 6, 7}) {
+            for (std::int64_t object_size = 1; object_size <= 3 * max_number_of_parts * max_part_size; ++object_size) {
+
+                bool feasible = s3_transport::total_number_of_parts_for_object(object_size, threads, max_part_size)
+                        <= max_number_of_parts;
+
+                irods::error ret = s3_transport::compute_part_size_for_object(
+                        object_size,
+                        1,           // circular_buffer_size - tiny, forces the growth path every time
+                        threads,
+                        max_number_of_parts,
+                        max_part_size,
+                        part_size);
+
+                REQUIRE(ret.ok() == feasible);
+
+                if (feasible) {
+                    REQUIRE(part_size <= max_part_size);
+                    REQUIRE(s3_transport::total_number_of_parts_for_object(object_size, threads, part_size)
+                            <= max_number_of_parts);
+                }
+            }
+        }
+    }
+
+    SECTION("grown part_size always stays above circular_buffer_size, never dips below it")
+    {
+        // Using a realistic circular_buffer_size (the real minimum reachable through
+        // CIRCULAR_BUFFER_SIZE=2 * S3_MPU_CHUNK=5MB) and a range of thread counts, confirm
+        // the grown part_size is always strictly greater than circular_buffer_size -- i.e.
+        // never small enough to violate S3's real 5MiB per-part minimum, which
+        // circular_buffer_size is always comfortably above.
+        std::int64_t circular_buffer_size = 10*1024*1024;
+        std::int64_t max_number_of_parts = 10000;
+        std::int64_t object_size = 5LL*1024*1024*1024*1024; // 5 TiB - well beyond the threshold
+
+        for (int number_of_client_transfer_threads : {1, 2, 3, 7, 100, 9999, 10000}) {
+
+            irods::error ret = s3_transport::compute_part_size_for_object(
+                    object_size,
+                    circular_buffer_size,
+                    number_of_client_transfer_threads,
+                    max_number_of_parts,
+                    std::numeric_limits<std::int64_t>::max(), // max_part_size - effectively unbounded
+                    part_size);
+
+            REQUIRE(ret.ok());
+            REQUIRE(part_size > circular_buffer_size);
+        }
+    }
+
+    SECTION("more threads than max_number_of_parts - fails immediately regardless of part size")
+    {
+        irods::error ret = s3_transport::compute_part_size_for_object(
+                100000,              // object_size
+                10,                  // circular_buffer_size
+                20000,               // number_of_client_transfer_threads
+                10000,               // max_number_of_parts
+                1024*1024*1024,      // max_part_size
+                part_size);
+
+        REQUIRE_FALSE(ret.ok());
+    }
+
+    SECTION("huge object size is still handled in constant time (no search)")
+    {
+        std::int64_t object_size = 1'000'000'000'000'000LL;
+        std::int64_t max_number_of_parts = 10;
+        int number_of_client_transfer_threads = 4;
+
+        irods::error ret = s3_transport::compute_part_size_for_object(
+                object_size,
+                1,                   // circular_buffer_size - tiny, forces the growth path
+                number_of_client_transfer_threads,
+                max_number_of_parts,
+                std::numeric_limits<std::int64_t>::max(), // max_part_size - effectively unbounded
+                part_size);
+
+        REQUIRE(ret.ok());
+        REQUIRE(s3_transport::total_number_of_parts_for_object(
+                object_size, number_of_client_transfer_threads, part_size) <= max_number_of_parts);
+    }
+
+    SECTION("resulting part_size is safe but not necessarily minimal")
+    {
+        // max_number_of_parts=10 does not divide evenly by 3 threads, so the per-thread part
+        // budget (10/3 = 3, rounded down) wastes one part of the total budget.  This proves
+        // compute_part_size_for_object trades minimality for a simple, non-iterative
+        // computation -- see the discussion in the routine's comments.
+        std::int64_t object_size = 1000;
+        int number_of_client_transfer_threads = 3;
+        std::int64_t max_number_of_parts = 10;
+
+        irods::error ret = s3_transport::compute_part_size_for_object(
+                object_size,
+                1,                   // circular_buffer_size - tiny, forces the growth path
+                number_of_client_transfer_threads,
+                max_number_of_parts,
+                1024*1024*1024,      // max_part_size
+                part_size);
+
+        REQUIRE(ret.ok());
+        REQUIRE(part_size == 112);
+
+        // a smaller part_size (111) also satisfies the limit -- 112 is safe, not minimal
+        REQUIRE(s3_transport::total_number_of_parts_for_object(
+                object_size, number_of_client_transfer_threads, part_size - 1) <= max_number_of_parts);
+    }
+
     SECTION("unknown object size is left unchanged")
     {
         irods::error ret = s3_transport::compute_part_size_for_object(
@@ -1277,6 +1564,50 @@ TEST_CASE("test_compute_part_size_for_object", "[part_splits][compute_part_size]
 
         REQUIRE(ret.ok());
         REQUIRE(part_size == 10*1024*1024);  // unchanged - no draining required
+    }
+}
+
+// Issue #2185 - verify total_number_of_parts_for_object computes the exact combined part
+// count for the same object_size/threads split used at real upload time (see
+// s3_operations.cpp: all but the last thread get floor(total_bytes/threads) bytes, the
+// last thread gets the remainder added on).
+TEST_CASE("test_total_number_of_parts_for_object", "[part_splits][compute_part_size]")
+{
+    using s3_transport = irods::experimental::io::s3_transport::s3_transport<char>;
+
+    SECTION("divides evenly across threads and parts - no rounding waste")
+    {
+        // 4 threads of 25 bytes each, 5 bytes/part -> 5 parts/thread, 20 total
+        REQUIRE(s3_transport::total_number_of_parts_for_object(100, 4, 5) == 20);
+    }
+
+    SECTION("uneven split - independent per-thread rounding adds parts beyond the naive estimate")
+    {
+        // 3 threads: two of 7 bytes (ceil(7/4) = 2 parts each), last of 9 bytes
+        // (7 + 23%3) (ceil(9/4) = 3 parts) -> 2 + 2 + 3 = 7 total
+        REQUIRE(s3_transport::total_number_of_parts_for_object(23, 3, 4) == 7);
+
+        // the naive (thread-unaware) estimate is smaller, demonstrating why the exact
+        // routine is needed instead of a single ceil(object_size / part_size)
+        std::int64_t naive_estimate = (23 + 4 - 1) / 4;
+        REQUIRE(naive_estimate < s3_transport::total_number_of_parts_for_object(23, 3, 4));
+    }
+
+    SECTION("single thread reduces to plain ceiling division")
+    {
+        REQUIRE(s3_transport::total_number_of_parts_for_object(17, 1, 5) == 4);
+    }
+
+    SECTION("non-positive threads are clamped to at least one thread")
+    {
+        REQUIRE(s3_transport::total_number_of_parts_for_object(10, 0, 3) == 4);
+        REQUIRE(s3_transport::total_number_of_parts_for_object(10, -1, 3) == 4);
+    }
+
+    SECTION("non-positive total_bytes requires no parts")
+    {
+        REQUIRE(s3_transport::total_number_of_parts_for_object(0, 4, 5) == 0);
+        REQUIRE(s3_transport::total_number_of_parts_for_object(-100, 4, 5) == 0);
     }
 }
 

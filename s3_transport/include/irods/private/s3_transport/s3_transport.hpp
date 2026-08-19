@@ -781,6 +781,37 @@ namespace irods::experimental::io::s3_transport
         }
 
 
+        // Computes the total number of multipart-upload parts required to send
+        // total_bytes split across number_of_threads threads, each part at most part_size
+        // bytes.  Uses the actual split used by iRODS clients with all but
+        // the last thread get floor(total_bytes / number_of_threads) bytes, the last thread
+        // gets that plus the remainder.  number_of_threads is clamped to at least 1.
+        //
+        // This is the single source of truth for part counts, shared by
+        // determine_start_and_end_part_from_offset_and_bytes_this_thread (which needs the
+        // exact split to number individual parts) and compute_part_size_for_object (which
+        // needs the exact total to decide whether draining is required) so the two can never
+        // disagree about how many parts a given part_size will produce.
+        static std::int64_t total_number_of_parts_for_object(
+                std::int64_t total_bytes,
+                int number_of_threads,
+                std::int64_t part_size)
+        {
+            if (total_bytes <= 0) {
+                return 0;
+            }
+
+            std::int64_t threads = std::max(1, number_of_threads);
+
+            std::int64_t bytes_per_thread = total_bytes / threads;
+            std::int64_t last_thread_bytes = bytes_per_thread + total_bytes % threads;
+
+            std::int64_t parts_per_thread = (bytes_per_thread + part_size - 1) / part_size;
+            std::int64_t parts_last_thread = (last_thread_bytes + part_size - 1) / part_size;
+
+            return (threads - 1) * parts_per_thread + parts_last_thread;
+        }
+
         // this function uses the starting offset provided to the transport
         // and the number of bytes in this thread to determine the start and end
         // part number for this thread
@@ -800,25 +831,16 @@ namespace irods::experimental::io::s3_transport
             // may be larger so the thread number must be adjusted
             unsigned int thread_number = (file_offset + bytes_this_thread - 1) / bytes_this_thread;
 
-            // Determine the number of bytes for all threads used to determine out start part number.
-            // At this point we don't care about the size of the last thread.
-            std::int64_t bytes_all_threads_except_last =
-                thread_number == 0
-                ? bytes_this_thread
-                : file_offset / thread_number;
+            // start_part_number is 1 + however many parts the threads before this one
+            // consumed.  file_offset is exactly the total bytes covered by those
+            // thread_number prior, uniformly-sized threads, so
+            // total_number_of_parts_for_object gives their exact combined part count.
+            start_part_number = 1 + static_cast<unsigned int>(
+                    total_number_of_parts_for_object(file_offset, static_cast<int>(thread_number), part_size));
 
-            // Determine number of parts per thread.  If parts is not divisible by part_size
-            // then we need one additional part. The last thread is treated specially because
-            // it may have additional bytes.
-            unsigned int parts_per_thread = (bytes_all_threads_except_last + part_size - 1) / part_size;
-
-            start_part_number = thread_number * parts_per_thread + 1;
-            if (bytes_this_thread == bytes_all_threads_except_last) {
-                end_part_number = start_part_number + parts_per_thread - 1;
-            } else {
-                unsigned int parts_last_thread = (bytes_this_thread + part_size - 1) / part_size;
-                end_part_number = start_part_number + parts_last_thread - 1;
-            }
+            unsigned int parts_this_thread = static_cast<unsigned int>(
+                    total_number_of_parts_for_object(bytes_this_thread, 1, part_size));
+            end_part_number = start_part_number + parts_this_thread - 1;
 
             // put the part sizes on the vector, splitting remaining bytes among first few parts
             std::int64_t base_part_size = bytes_this_thread / ( end_part_number - start_part_number + 1 );
@@ -840,17 +862,6 @@ namespace irods::experimental::io::s3_transport
         // If that is the case, the part_size must be larger than the circular_buffer_size and bytes must be
         // immediately drained on reading with retries disabled.
         //
-        // Note that in determine_start_and_end_part_from_offset_and_bytes_this_thread,
-        // the number of parts is calculated as bytes_this_thread / part_size rounded up.  Due to
-        // this rounding, the safe_max_parts = max_number_of_parts - number_of_client_transfer_threads + 1.
-        //
-        // Also note that because the file split per thread is deterministic, we could calculate the
-        // exact number of parts needed but this would replicate the math done in
-        // determine_start_and_end_part_from_offset_and_bytes_this_thread but to keep in simple
-        // and avoid code replication, we are just taking the easy approach by using safe_max_parts.
-        // It just means the cutoff to drain the circular buffer is a small percentage
-        // below that actual necessary value so that the code is kept clean.
-        //
         // Return values:
         //
         //   - SUCCESS() if the calculated part_size is less than or equal to max_part_size
@@ -859,8 +870,9 @@ namespace irods::experimental::io::s3_transport
         //   - an error if the calculated part_size is greater than max_part_size.
         //
         //     This can happen due to the following scenarios:
-        //     - file_size > max_part_size * safe_max_parts - With the default values
-        //       this is 50 TiB which is the largest object possible in S3.
+        //     - file_size is too large to fit within max_number_of_parts parts even at
+        //       max_part_size.  With the default values this is 50 TiB which is the
+        //       largest object possible in S3.
         //     - circular_buffer_size > max_part_size.  This is a misconfiguration and is unlikely
         //       as it means each buffer is greater than 5 GiB.
         static irods::error compute_part_size_for_object(
@@ -878,20 +890,62 @@ namespace irods::experimental::io::s3_transport
                 return SUCCESS();
             }
 
-            // In determine_start_and_end_part_from_offset_and_bytes_this_thread
-            // there is a rounding up of number of parts.  Calculate safe_max_parts which
-            // will be max_number_of_parts (usually 10,000) minus the number of threads.
-            std::int64_t safe_max_parts = max_number_of_parts -
-                std::max(1, number_of_client_transfer_threads);
+            if (total_number_of_parts_for_object(object_size, number_of_client_transfer_threads, part_size)
+                    > max_number_of_parts) {
 
-            // parts_at_current_size = object_size / part_size rounded up
-            std::int64_t parts_at_current_size =
-                (object_size + part_size - 1) / part_size;
+                // As part_size grows without bound, every thread eventually needs only a
+                // single part, so total_number_of_parts_for_object approaches
+                // max(1, number_of_client_transfer_threads).  If that floor is already above
+                // max_number_of_parts, no part_size can ever satisfy the limit.
+                //
+                // Treating threads > max_number_of_parts as unconditionally infeasible would
+                // be wrong in the abstract (e.g. a tiny object with far more threads than
+                // max_number_of_parts could still fit, since most threads would carry zero
+                // bytes and need zero parts) -- but it's safe here in practice: iRODS never
+                // assigns more than one client transfer thread below 32MiB, and
+                // populate_open_mode_flags() already forces cache mode (bypassing this
+                // function entirely) whenever object_size < number_of_client_transfer_threads *
+                // minimum_part_size (5MB).  So whenever this function runs with more than one
+                // thread, object_size is guaranteed to be at least threads * 5MB, and threads
+                // itself is never remotely close to max_number_of_parts (10,000).
+                std::int64_t threads = std::max(1, number_of_client_transfer_threads);
 
-            // If we might go over the part size limit then recalculate part_size
-            // then part_size = object_size / safe_max_parts rounded up
-            if (parts_at_current_size > safe_max_parts) {
-                part_size = (object_size + safe_max_parts - 1) / safe_max_parts;
+                if (threads > max_number_of_parts) {
+                    return ERROR(S3_PUT_ERROR, fmt::format(
+                            "Object of size [{}] bytes cannot be uploaded via S3 multipart upload:  "
+                            "[{}] client transfer threads requires at least that many parts, which "
+                            "exceeds the [{}] part limit regardless of part size.",
+                            object_size, number_of_client_transfer_threads, max_number_of_parts));
+                }
+
+                // Give every thread an equal share of the part budget (rounded down -- safe
+                // since threads <= max_number_of_parts, checked above, so the share is always
+                // >= 1), then size part_size so the largest thread -- the last one, which gets
+                // object_size's remainder bytes on top of the even split -- fits within its
+                // share.  Every other thread has no more bytes than the last one, so it needs
+                // no more parts than its own share either.  This guarantees the total stays
+                // within max_number_of_parts in one shot, without searching for the minimal
+                // part_size (it may be slightly larger than strictly necessary, by at most a
+                // few parts' worth of rounding waste in the part budget -- a small, irrelevant
+                // fraction of max_number_of_parts).
+                std::int64_t parts_per_thread_budget = max_number_of_parts / threads;
+                std::int64_t bytes_per_thread = object_size / threads;
+                std::int64_t last_thread_bytes = bytes_per_thread + object_size % threads;
+
+                part_size = (last_thread_bytes + parts_per_thread_budget - 1) / parts_per_thread_budget;
+
+                // The uniform per-thread budget above is sized off the last thread's bytes,
+                // which can overshoot max_part_size by a few bytes' worth of part_size even
+                // when max_part_size itself would actually satisfy max_number_of_parts (the
+                // other, smaller threads don't need as many parts as the budget allows, so
+                // some of the budget goes unused).  Since total_number_of_parts_for_object is
+                // monotonically non-increasing in part_size, max_part_size is always the best
+                // possible candidate; if it doesn't work either, nothing <= max_part_size will.
+                if (part_size > max_part_size &&
+                        total_number_of_parts_for_object(object_size, threads, max_part_size)
+                                <= max_number_of_parts) {
+                    part_size = max_part_size;
+                }
             }
 
             if (part_size > max_part_size) {
