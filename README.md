@@ -148,8 +148,6 @@ Cacheless mode has a few extra configuration parameters in addition to HOST_MODE
 -   `CIRCULAR_BUFFER_TIMEOUT_SECONDS` - The number of seconds the plugin will wait when waiting to read or write data from the circular buffer.  The default is 180s.
 -   `S3_CACHE_DIR` - This is the directory where temporary cache files are located in cases where a cache file is required.  (See below.)  The default is `/tmp`.
 
-Note that with the default values for CIRCULAR_BUFFER_SIZE and S3_MPU_CHUNK, due to the 10,000 part limit in AWS, the largest file that can be uploaded is 20 MiB * 10,000 or roughly 200 GiB.  To upload larger files these defaults need to be updated which will have memory use implications.
-
 The following is an example of how to configure a `cacheless_attached` S3 resource:
 
 ```
@@ -160,6 +158,19 @@ Some configuration settings have special meaning when the resource is in cachele
 -   When S3_ENABLE_MPU = 0, a cache file will be used when the S3 plugin receives parallel uploads from iRODS.
 -   When iRODS is using parallel transfer but each transfer part is less than S3_MPU_CHUNK, a cache file will be used
 -   The S3_MPU_THREADS setting is only used when flushing a cache file to S3.  In streaming mode iRODS controls the number of transfer threads that are used.
+
+#### Handling Very Large Objects
+
+So that part retries can be performed, the part size is limited to the circular buffer size which is CIRCULAR_BUFFER_SIZE * S3_MPU_CHUNK (in MiB). By default this is 4 * 5 MiB = 20 MiB.
+
+The object size must be less than 10,000 times this circular buffer size. Using the defaults that is 20 MiB * 10,000 or roughly 200 GiB. In cases where 10,000 is not evenly divisible by the thread count, the maximum object size will be a little less than this due to the way the bytes are split between parts.
+
+To handle larger objects, the CIRCULAR_BUFFER_SIZE must be increased. Note that the total memory used is the (circular buffer size) * (average number of threads) * (number of simultaneous transfers).
+
+To reduce the amount of memory used:
+
+1. Set up one resource for normal/smaller objects that have a smaller CIRCULAR_BUFFER_SIZE.
+2. Set up another resource for very large objects that have a larger CIRCULAR_BUFFER_SIZE. Scale this to the size needed.
 
 #### Cache Rules When Using Cacheless Mode
 
