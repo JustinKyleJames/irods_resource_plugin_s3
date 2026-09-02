@@ -409,7 +409,7 @@ namespace irods_s3 {
             // The same applies to a read-after-write for a checksum operation. In that case oprType is still PUT_OPR
             // (iRODS does not update it) but open_mode shows this is actually a single read, not the original
             // multi-threaded PUT.
-            bool is_read_after_write_for_checksum = oprType == PUT_OPR && !(open_mode & std::ios_base::out);
+            bool is_read_after_write_for_checksum = (oprType == PUT_OPR) && !(open_mode & std::ios_base::out);
             if (oprType == GET_OPR || is_read_after_write_for_checksum) {
                 data.threads_remaining_to_close = 0;
             }
@@ -1152,7 +1152,7 @@ namespace irods_s3 {
             //
             // The same reasoning applies to a read-after-write for a checksum operation. oprType is still
             // PUT_OPR, but this must be treated like a GET_OPR.
-            bool is_read_after_write_for_checksum = data.oprType == PUT_OPR && !(data.open_mode & std::ios_base::out);
+            bool is_read_after_write_for_checksum = (data.oprType == PUT_OPR) && !(data.open_mode & std::ios_base::out);
             if (data.oprType != GET_OPR && data.oprType != -1 && !is_read_after_write_for_checksum) {
 
                 std::string shmem_key = get_shmem_key(_ctx, file_obj);
