@@ -94,6 +94,11 @@ namespace irods_s3 {
         std::ios_base::openmode open_mode;
         std::shared_ptr<dstream> dstream_ptr;
         std::shared_ptr<s3_transport> s3_transport_ptr;
+
+        // Captured at open time (see make_dstream) instead of reading the shared irods_s3::oprType
+        // global at close time. With multiple parallel PUT threads, another thread finishing last
+        // could reset that global to -1 before this thread's close ran, causing a shmem leak.
+        int oprType{-1};
     }; // end per_thread_data
 
     class fd_to_data_map {
@@ -662,6 +667,10 @@ namespace irods_s3 {
         logger::debug("{}:{} ({}) [[{}]] data_size set to {}", __FILE__, __LINE__, __FUNCTION__, thread_id, data_size);
         logger::debug("{}:{} ({}) [[{}]] number_of_threads={}", __FILE__, __LINE__, __FUNCTION__, thread_id, number_of_threads);
 
+        // Save the oprType in per-thread data. Use this in close() rather than the shared version
+        // which can be prematurely updated to -1 by other threads or processes.
+        data.oprType = oprType;
+
         // read the size of the circular buffer from configuration
         std::string circular_buffer_size_str;
         ret = _ctx.prop_map().get<std::string>(s3_circular_buffer_size, circular_buffer_size_str);
@@ -1174,8 +1183,15 @@ namespace irods_s3 {
             // Not necessary for GET_OPR as the shared memory is not created in that instance.
             // Issue 2319: If oprType is -1 (unknown) do not run this code as it will recreate
             //   shared memory and decrement threads_remaining_to_close to -1.
-            bool is_read_after_write_for_checksum = (oprType == PUT_OPR) && !(data.open_mode & std::ios_base::out);
-            if (oprType != GET_OPR && oprType != -1 && !is_read_after_write_for_checksum) {
+            //
+            // data.oprType (captured per-fd at open, see per_thread_data above) is used here rather than
+            // the irods_s3::oprType global, since the global can already have been reset to -1 by another
+            // thread's close() by the time this one runs.
+            //
+            // The same reasoning applies to a read-after-write for a checksum operation. oprType is still
+            // PUT_OPR, but this must be treated like a GET_OPR.
+            bool is_read_after_write_for_checksum = (data.oprType == PUT_OPR) && !(data.open_mode & std::ios_base::out);
+            if (data.oprType != GET_OPR && data.oprType != -1 && !is_read_after_write_for_checksum) {
 
                 std::string shmem_key = get_shmem_key(_ctx, file_obj);
                 named_shared_memory_object shm_obj{shmem_key,
