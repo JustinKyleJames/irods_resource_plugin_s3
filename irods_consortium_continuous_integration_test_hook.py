@@ -51,6 +51,47 @@ def install_test_prerequisites():
     irods_python_ci_utilities.subprocess_get_output(['python3', '-m', 'pip', 'install', 'python-irodsclient'], check_rc=True)
 
 
+def wait_for_rustfs_servers_or_raise(procs, proc_infos, timeout_seconds=30):
+    import socket
+    import time as time_module
+
+    deadline = time_module.time() + timeout_seconds
+    remaining = list(zip(procs, proc_infos))
+
+    while remaining:
+        still_waiting = []
+        for proc, info in remaining:
+            exit_code = proc.poll()
+            if exit_code is not None:
+                _dump_rustfs_log_and_raise(info, 'exited early with code {0}'.format(exit_code))
+
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                sock.settimeout(1)
+                if sock.connect_ex(('127.0.0.1', int(info['address']))) == 0:
+                    print('RustFS server on port {0} is accepting connections.'.format(info['address']))
+                    continue
+
+            still_waiting.append((proc, info))
+
+        remaining = still_waiting
+        if remaining and time_module.time() >= deadline:
+            for _, info in remaining:
+                _dump_rustfs_log_and_raise(info, 'never became reachable on port {0} within {1}s'.format(info['address'], timeout_seconds))
+        if remaining:
+            time_module.sleep(1)
+
+
+def _dump_rustfs_log_and_raise(info, reason):
+    log_path = info['log_path']
+    print('RustFS server (port {0}) {1}. Log ({2}):'.format(info['address'], reason, log_path))
+    try:
+        with open(log_path) as f:
+            print(f.read())
+    except OSError as e:
+        print('  (could not read log: {0})'.format(e))
+    raise RuntimeError('RustFS server on port {0} {1}'.format(info['address'], reason))
+
+
 def download_and_start_rustfs_server():
     rustfs_version = '1.0.0'
 
@@ -104,10 +145,16 @@ def download_and_start_rustfs_server():
         data_dir = '/data_rustfs_%s' % p[rustfs_region_name_key]
         os.makedirs(data_dir, exist_ok=True)
 
+        log_path = '/tmp/rustfs_%s.log' % p['address']
+        p['log_path'] = log_path
+        log_file = open(log_path, 'wb')
+
         procs.append(subprocess.Popen([path_to_rustfs, 'server',
                                        '--address', ':' + p["address"],
                                        '--console-address', ':' + p["console_address"],
-                                       data_dir]))
+                                       data_dir], stdout=log_file, stderr=subprocess.STDOUT))
+
+    wait_for_rustfs_servers_or_raise(procs, proc_infos)
 
     return procs
 
