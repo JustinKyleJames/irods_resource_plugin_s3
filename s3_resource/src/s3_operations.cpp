@@ -213,7 +213,7 @@ namespace irods_s3 {
 
         // wrapping this in an atomic_exec so only one thread/process for a specific data object is executed at a time
         std::string func(__func__);
-        auto ret_value = shm_obj.atomic_exec([&number_of_threads, &data_size, &oprType, &_ctx, thread_id, file_obj, func, open_mode](auto& data) {
+        auto ret_value = shm_obj.atomic_exec([&number_of_threads, &data_size, &oprType, &_ctx, thread_id, file_obj, func, open_mode, &shmem_key](auto& data) {
 
             oprType = -1;
             int requested_number_of_threads = 0;
@@ -415,6 +415,12 @@ namespace irods_s3 {
             if (oprType == GET_OPR || is_read_after_write_for_checksum) {
                 data.threads_remaining_to_close = 0;
             }
+
+            // TEMPORARY DIAGNOSTIC - remove before committing
+            logger::error("DIAG OPEN-SEED shm=[{}] thread_id={} oprType={} open_mode_out={} number_of_threads={} "
+                    "is_read_after_write_for_checksum={} threads_remaining_to_close={}",
+                    shmem_key, thread_id, oprType, static_cast<bool>(open_mode & std::ios_base::out),
+                    number_of_threads, is_read_after_write_for_checksum, data.threads_remaining_to_close);
 
             return SUCCESS();
         });
@@ -1195,7 +1201,15 @@ namespace irods_s3 {
             // PUT_OPR, but this must be treated like a GET_OPR.
             int effective_oprType = (data.oprType != -1) ? data.oprType : oprType;
             bool is_read_after_write_for_checksum = (effective_oprType == PUT_OPR) && !(data.open_mode & std::ios_base::out);
-            if (effective_oprType != GET_OPR && effective_oprType != -1 && !is_read_after_write_for_checksum) {
+            bool will_decrement = (effective_oprType != GET_OPR && effective_oprType != -1 && !is_read_after_write_for_checksum);
+
+            // TEMPORARY DIAGNOSTIC - remove before committing
+            logger::error("DIAG CLOSE shm=[{}] thread_id={} data.oprType={} global_oprType={} effective_oprType={} "
+                    "open_mode_out={} is_read_after_write_for_checksum={} will_decrement={}",
+                    get_shmem_key(_ctx, file_obj), thread_id, data.oprType, oprType, effective_oprType,
+                    static_cast<bool>(data.open_mode & std::ios_base::out), is_read_after_write_for_checksum, will_decrement);
+
+            if (will_decrement) {
 
                 std::string shmem_key = get_shmem_key(_ctx, file_obj);
                 named_shared_memory_object shm_obj{shmem_key,
@@ -1212,7 +1226,8 @@ namespace irods_s3 {
                     }
                     return std::make_pair(data.threads_remaining_to_close, data.ref_count);
                 });
-                logger::trace("{}:{} ({}) [[{}]] shmem_key={} hashed_string={} open_count={} ref_coun={}", __FILE__, __LINE__, __func__, thread_id, shmem_key, get_resource_name(_ctx.prop_map()) + file_obj->logical_path(), open_count, ref_count);
+                // TEMPORARY DIAGNOSTIC - bumped from trace to error, remove before committing
+                logger::error("DIAG DECREMENT shm=[{}] thread_id={} open_count={} ref_count={}", shmem_key, thread_id, open_count, ref_count);
             }
 
             //  because s3 might not provide immediate consistency for subsequent stats,
@@ -2399,8 +2414,11 @@ namespace irods_s3 {
                 // it is only read as a hint (see get_number_of_threads_data_size_and_opr_type()),
                 // never used to decide when the segment can be deleted; threads_remaining_to_close
                 // is correctly (and only) seeded, with a guard, at actual open time.
-                shm_obj.atomic_exec([number_of_threads](auto& data) {
+                shm_obj.atomic_exec([number_of_threads, &shmem_key, thread_id](auto& data) {
                     data.number_of_threads = number_of_threads;
+                    // TEMPORARY DIAGNOSTIC - remove before committing
+                    logger::error("DIAG RESOLVE_RESC_HIER shm=[{}] thread_id={} number_of_threads={} threads_remaining_to_close={}",
+                            shmem_key, thread_id, number_of_threads, data.threads_remaining_to_close);
                 });
 
             } catch (const boost::bad_lexical_cast &) {
