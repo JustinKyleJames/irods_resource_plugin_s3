@@ -1184,14 +1184,18 @@ namespace irods_s3 {
             // Issue 2319: If oprType is -1 (unknown) do not run this code as it will recreate
             //   shared memory and decrement threads_remaining_to_close to -1.
             //
-            // data.oprType (captured per-fd at open, see per_thread_data above) is used here rather than
-            // the irods_s3::oprType global, since the global can already have been reset to -1 by another
-            // thread's close() by the time this one runs.
+            // Prefer data.oprType (captured per-fd at open, see per_thread_data above) over the
+            // irods_s3::oprType global, since the global can already have been reset to -1 by
+            // another thread's close() by the time this one runs. But on a replication source,
+            // there is no read step, so make_dstream (and its capture) never runs for that fd and
+            // data.oprType stays at its default -1 forever - in that case fall back to the fresh
+            // global rather than skipping the decrement and leaking the segment permanently.
             //
             // The same reasoning applies to a read-after-write for a checksum operation. oprType is still
             // PUT_OPR, but this must be treated like a GET_OPR.
-            bool is_read_after_write_for_checksum = (data.oprType == PUT_OPR) && !(data.open_mode & std::ios_base::out);
-            if (data.oprType != GET_OPR && data.oprType != -1 && !is_read_after_write_for_checksum) {
+            int effective_oprType = (data.oprType != -1) ? data.oprType : oprType;
+            bool is_read_after_write_for_checksum = (effective_oprType == PUT_OPR) && !(data.open_mode & std::ios_base::out);
+            if (effective_oprType != GET_OPR && effective_oprType != -1 && !is_read_after_write_for_checksum) {
 
                 std::string shmem_key = get_shmem_key(_ctx, file_obj);
                 named_shared_memory_object shm_obj{shmem_key,
