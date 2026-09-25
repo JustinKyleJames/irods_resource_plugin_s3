@@ -98,8 +98,12 @@ def download_and_start_rustfs_server():
     path_to_rustfs = '/rustfs'
     rustfs_zip_path = '/tmp/rustfs.zip'
 
+    # Use the musl build, not gnu: the gnu build is dynamically linked against a glibc
+    # newer than what ships on several supported distros (e.g. glibc 2.38+ vs. the 2.34-2.36
+    # available on RockyLinux 9 / Ubuntu 22.04 / Debian 12), so it fails to even start there.
+    # The musl build is statically linked and has no such dependency.
     subprocess.check_output(['wget', '-q', '--no-check-certificate', '-O', rustfs_zip_path,
-                             'https://github.com/rustfs/rustfs/releases/download/{0}/rustfs-linux-x86_64-gnu-v{0}.zip'
+                             'https://github.com/rustfs/rustfs/releases/download/{0}/rustfs-linux-x86_64-musl-v{0}.zip'
                                 .format(rustfs_version)])
 
     with zipfile.ZipFile(rustfs_zip_path) as zip_file:
