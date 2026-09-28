@@ -1133,7 +1133,12 @@ namespace irods_s3 {
 
             int fd = file_obj->file_descriptor();
 
+            // TEMPORARY DIAGNOSTIC - remove before committing
+            logger::error("DIAG CLOSE-ENTRY shm=[{}] thread_id={} fd={}", get_shmem_key(_ctx, file_obj), thread_id, fd);
+
             if (fd == 0) {
+                // TEMPORARY DIAGNOSTIC - remove before committing
+                logger::error("DIAG CLOSE-EARLY-RETURN shm=[{}] thread_id={} reason=fd_is_zero", get_shmem_key(_ctx, file_obj), thread_id);
                 return SUCCESS();
             }
 
@@ -1141,6 +1146,8 @@ namespace irods_s3 {
             std::shared_ptr<s3_transport> s3_transport_ptr;
 
             if (!fd_data.exists(fd)) {
+                // TEMPORARY DIAGNOSTIC - remove before committing
+                logger::error("DIAG CLOSE-EARLY-RETURN shm=[{}] thread_id={} fd={} reason=fd_data_does_not_exist", get_shmem_key(_ctx, file_obj), thread_id, fd);
                 return ERROR(UNIX_FILE_CLOSE_ERR,
                         fmt::format("[resource_name={}] {} "
                                 "fd_data does not have an entry for fd={}.  "
@@ -1160,13 +1167,24 @@ namespace irods_s3 {
             int oprType;
             irods::error result = get_number_of_threads_data_size_and_opr_type(_ctx, number_of_threads, data_size, oprType, data.open_mode);
             if (!result.ok()) {
+                // TEMPORARY DIAGNOSTIC - remove before committing
+                logger::error("DIAG CLOSE-EARLY-RETURN shm=[{}] thread_id={} fd={} reason=get_number_of_threads_failed result={}",
+                        get_shmem_key(_ctx, file_obj), thread_id, fd, result.result());
                 return result;
             }
             logger::debug("{}:{} ({}) [[{}]] oprType returned is = {}", __FILE__, __LINE__, __FUNCTION__, thread_id, oprType);
 
+            // TEMPORARY DIAGNOSTIC - remove before committing
+            logger::error("DIAG CLOSE-PRE-FORCED-WRITE shm=[{}] thread_id={} fd={} has_dstream_ptr={} oprType={} data.open_mode_out={}",
+                    get_shmem_key(_ctx, file_obj), thread_id, fd, static_cast<bool>(data.dstream_ptr), oprType,
+                    static_cast<bool>(data.open_mode & std::ios_base::out));
+
             if (!data.dstream_ptr && oprType != REPLICATE_SRC && oprType != COPY_SRC && oprType != GET_OPR) {
                 char buff[1];
 			    if (const auto err = s3_file_write_operation(_ctx, buff, 0); !err.ok()) {
+			    	// TEMPORARY DIAGNOSTIC - remove before committing
+			    	logger::error("DIAG CLOSE-EARLY-RETURN shm=[{}] thread_id={} fd={} reason=forced_zero_byte_write_failed result={}",
+			    	        get_shmem_key(_ctx, file_obj), thread_id, fd, err.result());
 			    	return PASS(err);
 			    }
 			    data = fd_data.get(fd);
