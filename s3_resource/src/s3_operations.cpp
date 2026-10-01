@@ -1188,7 +1188,7 @@ namespace irods_s3 {
                     // brought to zero elsewhere (e.g. a late/duplicate close), and letting it
                     // go negative would prevent it from ever cleanly reaching zero again.
                     if (data.threads_remaining_to_close > 0) {
-                        --(data.threads_remaining_to_close);
+                        --data.threads_remaining_to_close;
                     }
                     return std::make_pair(data.threads_remaining_to_close, data.ref_count);
                 });
@@ -2369,16 +2369,10 @@ namespace irods_s3 {
                     DEFAULT_SHARED_MEMORY_TIMEOUT_IN_SECONDS,
                     SHMEM_SIZE};
 
-                // Issue 2319 (follow-up): do NOT touch threads_remaining_to_close here. This
+                // Issue 2319: Do NOT touch threads_remaining_to_close here. This
                 // hierarchy-resolution/redirect vote can be called multiple times per logical
-                // operation (retries, redirects) with no corresponding close or decrement. If it
-                // ran after the real close had already brought threads_remaining_to_close to zero
-                // (the object legitimately done and its shmem segment eligible for cleanup), this
-                // unconditional write would stomp it back up with nothing left to ever decrement
-                // it again - a permanent leak. number_of_threads alone is safe to cache here since
-                // it is only read as a hint (see get_number_of_threads_data_size_and_opr_type()),
-                // never used to decide when the segment can be deleted; threads_remaining_to_close
-                // is correctly (and only) seeded, with a guard, at actual open time.
+                // operation. This can mess up the counting used for determining when shared
+                // memory can be cleaned up.
                 shm_obj.atomic_exec([number_of_threads](auto& data) {
                     data.number_of_threads = number_of_threads;
                 });

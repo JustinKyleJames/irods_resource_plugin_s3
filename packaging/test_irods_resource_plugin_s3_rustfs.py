@@ -67,7 +67,6 @@ class Test_Compound_With_S3_Resource_EU_Central_1(Test_S3_Cache_Base, unittest.T
 
 
 class Test_S3_NoCache_V4(Test_S3_NoCache_Large_File_Tests_Base, unittest.TestCase):
-
     def __init__(self, *args, **kwargs):
         """Set up the test."""
         self.proto = 'HTTP'

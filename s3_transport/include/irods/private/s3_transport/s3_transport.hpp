@@ -1859,7 +1859,7 @@ namespace irods::experimental::io::s3_transport
             }
         } // end mpu_cancel
 
-        public:
+    public:
         error_codes complete_multipart_upload()
         {
             namespace bi = boost::interprocess;
@@ -2003,7 +2003,7 @@ namespace irods::experimental::io::s3_transport
 
             return result;
         } // end complete_multipart_upload
-        private:
+    private:
 
 
         // download the part from the S3 object
