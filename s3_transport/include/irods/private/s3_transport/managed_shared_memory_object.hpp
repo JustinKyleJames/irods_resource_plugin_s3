@@ -94,6 +94,9 @@ namespace irods::experimental::interprocess
                     object_->thing.ref_count = 1;
                 }
                 object_->last_access_time_in_seconds = now;
+
+                // TEMPORARY DIAGNOSTIC - remove before committing
+                logger::error("DIAG ctor shm=[{}] ref_count={} shmem_has_expired={}", shm_name_, object_->thing.ref_count, shmem_has_expired);
             }
 
             ~named_shared_memory_object()
@@ -106,7 +109,13 @@ namespace irods::experimental::interprocess
 
                     bool can_delete = object_->thing.can_delete();
 
+                    // TEMPORARY DIAGNOSTIC - remove before committing
+                    logger::error("DIAG dtor shm=[{}] ref_count={} can_delete={}", shm_name_, object_->thing.ref_count, can_delete);
+
                     if (object_->thing.ref_count == 0 && can_delete) {
+
+                        // TEMPORARY DIAGNOSTIC - remove before committing
+                        logger::error("DIAG dtor REMOVING shm=[{}]", shm_name_);
 
                         object_->thing.~T();
                         object_ = nullptr;
