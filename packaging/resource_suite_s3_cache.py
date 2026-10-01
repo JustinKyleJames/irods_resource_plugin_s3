@@ -112,7 +112,7 @@ class Test_S3_Cache_Base(ResourceSuite, ChunkyDevTest):
             irods_config = IrodsConfig()
             admin_session.assert_icommand("iadmin modresc demoResc name origResc", 'STDOUT_SINGLELINE', 'rename', input='yes\n')
             admin_session.assert_icommand("iadmin mkresc demoResc compound", 'STDOUT_SINGLELINE', 'compound')
-            admin_session.assert_icommand("iadmin mkresc cacheResc 'unixfilesystem' " + hostname + ":" + irods_config.irods_directory + "/cacheRescVault", 'STDOUT_SINGLELINE', 'cacheResc')
+            admin_session.assert_icommand("iadmin mkresc cacheResc 'unixfilesystem' " + hostname + ":" + irods_config.irods_directory + "/Vault/cacheRescVault", 'STDOUT_SINGLELINE', 'cacheResc')
             admin_session.assert_icommand('iadmin mkresc archiveResc s3 '+hostname+':/'+self.s3bucketname+'/irods/Vault "'+s3params+'"', 'STDOUT_SINGLELINE', 'archiveResc')
             admin_session.assert_icommand("iadmin addchildtoresc demoResc cacheResc cache")
             admin_session.assert_icommand("iadmin addchildtoresc demoResc archiveResc archive")
@@ -158,7 +158,7 @@ class Test_S3_Cache_Base(ResourceSuite, ChunkyDevTest):
             admin_session.assert_icommand("iadmin rmresc demoResc")
             admin_session.assert_icommand("iadmin modresc origResc name demoResc", 'STDOUT_SINGLELINE', 'rename', input='yes\n')
 
-        shutil.rmtree(IrodsConfig().irods_directory + "/cacheRescVault", ignore_errors=True)
+        shutil.rmtree(IrodsConfig().irods_directory + "/Vault/cacheRescVault", ignore_errors=True)
 
     def read_aws_keys(self):
         # read access keys from keypair file
@@ -949,7 +949,7 @@ class Test_S3_Cache_Glacier_Base(session.make_sessions_mixin([('otherrods', 'rod
             irods_config = IrodsConfig()
             admin_session.assert_icommand("iadmin modresc demoResc name origResc", 'STDOUT_SINGLELINE', 'rename', input='yes\n')
             admin_session.assert_icommand("iadmin mkresc demoResc compound", 'STDOUT_SINGLELINE', 'compound')
-            admin_session.assert_icommand("iadmin mkresc cacheResc 'unixfilesystem' " + hostname + ":" + irods_config.irods_directory + "/cacheRescVault", 'STDOUT_SINGLELINE', 'cacheResc')
+            admin_session.assert_icommand("iadmin mkresc cacheResc 'unixfilesystem' " + hostname + ":" + irods_config.irods_directory + "/Vault/cacheRescVault", 'STDOUT_SINGLELINE', 'cacheResc')
             admin_session.assert_icommand('iadmin mkresc archiveResc s3 '+hostname+':/'+self.s3bucketname+'/irods/Vault "'+s3params+'"', 'STDOUT_SINGLELINE', 'archiveResc')
             admin_session.assert_icommand("iadmin addchildtoresc demoResc cacheResc cache")
             admin_session.assert_icommand("iadmin addchildtoresc demoResc archiveResc archive")
@@ -993,7 +993,7 @@ class Test_S3_Cache_Glacier_Base(session.make_sessions_mixin([('otherrods', 'rod
             admin_session.assert_icommand("iadmin rmresc demoResc")
             admin_session.assert_icommand("iadmin modresc origResc name demoResc", 'STDOUT_SINGLELINE', 'rename', input='yes\n')
 
-        shutil.rmtree(IrodsConfig().irods_directory + "/cacheRescVault", ignore_errors=True)
+        shutil.rmtree(IrodsConfig().irods_directory + "/Vault/cacheRescVault", ignore_errors=True)
 
     def get_resource_context(self, resc_name):
 
