@@ -169,12 +169,12 @@ def main():
     parser.add_option('--built_packages_root_directory')
     parser.add_option('--test', metavar='dotted name')
     parser.add_option('--skip-setup', action='store_false', dest='do_setup', default=True)
-    parser.add_option('--teardown-minio', action='store_true', dest='do_teardown', default=False)
+    parser.add_option('--teardown-rustfs', action='store_true', dest='do_teardown', default=False)
     options, _ = parser.parse_args()
 
     if not options.do_setup and options.do_teardown:
-        # TODO: if a client can shut down the server, this will not be true
-        print('--skip-setup and --teardown-minio are incompatible')
+        # TODO(#2327): if a client can shut down the server, this will not be true
+        print('--skip-setup and --teardown-rustfs are incompatible')
         exit(1)
 
     built_packages_root_directory = options.built_packages_root_directory
