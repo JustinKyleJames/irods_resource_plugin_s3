@@ -27,7 +27,7 @@ try:
     from minio import Minio
 except ImportError:
     print('This test requires minio: perhaps try pip install minio')
-    exit()
+    sys.exit(1)
 
 try:
     from minio.error import InvalidResponseError as ResponseError
@@ -36,7 +36,7 @@ except ImportError:
         from minio.error import ResponseError
     except ImportError:
         print('Failed to import InvalidResponseError or ResponseError')
-        exit()
+        sys.exit(1)
 
 IRODS_SUPPORTS_CRC64NVME = IrodsConfig().version_tuple > (5, 0, 2)
 
@@ -659,7 +659,7 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
         with open(datafilename, 'wt') as f:
             print("TESTFILE -- [" + datafilename + "]", file=f, end='')
         # assertions
-        fullpath = IrodsConfig().irods_directory + "/newphysicalpath.txt"
+        fullpath = "/tmp/newphysicalpath.txt"
         self.admin.assert_icommand("iput -p " + fullpath + " " + datafilename)  # should complete
         self.admin.assert_icommand("ils -L " + datafilename, 'STDOUT_SINGLELINE', datafilename)  # should be listed
         self.admin.assert_icommand("ils -L " + datafilename, 'STDOUT_SINGLELINE', fullpath)  # should be listed
@@ -1486,7 +1486,6 @@ OUTPUT ruleExecOut
             # small reads should not read entire file, make sure the read took less than three seconds
             # (should be much lower than that)
             self.assertLess(after_read_time - before_read_time, 3)
-
 
         finally:
 

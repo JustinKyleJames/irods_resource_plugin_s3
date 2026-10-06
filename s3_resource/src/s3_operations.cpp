@@ -186,6 +186,7 @@ namespace irods_s3 {
                                                       int& number_of_threads,
                                                       int64_t& data_size,
                                                       int& oprType,
+                                                      std::ios_base::openmode open_mode,
                                                       bool query_metadata = true) -> irods::error
     {
         using logger_config = irods::experimental::log::logger_config<s3_plugin_logging_category>;
@@ -207,7 +208,7 @@ namespace irods_s3 {
 
         // wrapping this in an atomic_exec so only one thread/process for a specific data object is executed at a time
         std::string func(__func__);
-        auto ret_value = shm_obj.atomic_exec([&number_of_threads, &data_size, &oprType, &_ctx, thread_id, file_obj, func](auto& data) {
+        auto ret_value = shm_obj.atomic_exec([&number_of_threads, &data_size, &oprType, &_ctx, thread_id, file_obj, func, open_mode](auto& data) {
 
             oprType = -1;
             int requested_number_of_threads = 0;
@@ -401,7 +402,12 @@ namespace irods_s3 {
             // If this is GET_OPR, we do not need the shared memory. Set the threads_remaining_to_close to 0 so the shmem will be
             // deleted immediately. Note that for GET_OPR we don't necessarily know the number of threads (nor do we need it) and
             // this makes it hard to determine when the shared memory can be deleted.
-            if (oprType == GET_OPR) {
+            //
+            // The same applies to a read-after-write for a checksum operation. In that case oprType is still PUT_OPR
+            // (iRODS does not update it) but open_mode shows this is actually a single read, not the original
+            // multi-threaded PUT.
+            bool is_read_after_write_for_checksum = (oprType == PUT_OPR) && !(open_mode & std::ios_base::out);
+            if (oprType == GET_OPR || is_read_after_write_for_checksum) {
                 data.threads_remaining_to_close = 0;
             }
 
@@ -647,7 +653,7 @@ namespace irods_s3 {
             return std::make_tuple(PASS(ret), data.dstream_ptr, data.s3_transport_ptr);
         }
 
-        ret = get_number_of_threads_data_size_and_opr_type(_ctx, number_of_threads, data_size, oprType);
+        ret = get_number_of_threads_data_size_and_opr_type(_ctx, number_of_threads, data_size, oprType, data.open_mode);
         if (!ret.ok()) {
             return std::make_tuple(PASS(ret), data.dstream_ptr, data.s3_transport_ptr);
         }
@@ -1137,7 +1143,7 @@ namespace irods_s3 {
             int number_of_threads; // not used but needed for the following call
             int64_t data_size;     // not used but needed for the following call
             int oprType;
-            irods::error result = get_number_of_threads_data_size_and_opr_type(_ctx, number_of_threads, data_size, oprType);
+            irods::error result = get_number_of_threads_data_size_and_opr_type(_ctx, number_of_threads, data_size, oprType, data.open_mode);
             if (!result.ok()) {
                 return result;
             }
@@ -1166,7 +1172,10 @@ namespace irods_s3 {
 
             // Decrement the threads_remaining_to_close counter in shared memory.
             // Not necessary for GET_OPR as the shared memory is not created in that instance.
-            if (irods_s3::oprType != GET_OPR) {
+            // Issue 2319: If oprType is -1 (unknown) do not run this code as it will recreate
+            //   shared memory and decrement threads_remaining_to_close to -1.
+            bool is_read_after_write_for_checksum = (oprType == PUT_OPR) && !(data.open_mode & std::ios_base::out);
+            if (oprType != GET_OPR && oprType != -1 && !is_read_after_write_for_checksum) {
 
                 std::string shmem_key = get_shmem_key(_ctx, file_obj);
                 named_shared_memory_object shm_obj{shmem_key,
@@ -1174,8 +1183,14 @@ namespace irods_s3 {
                     SHMEM_SIZE};
 
                 auto [open_count, ref_count] = shm_obj.atomic_exec([](auto& data) {
-                    // shmem freed when threads_remaining_to_close is zero
-                    return std::make_pair(--(data.threads_remaining_to_close), data.ref_count);
+                    // shmem freed when threads_remaining_to_close is zero.
+                    // Floor at zero - this can be reached after the counter has already been
+                    // brought to zero elsewhere (e.g. a late/duplicate close), and letting it
+                    // go negative would prevent it from ever cleanly reaching zero again.
+                    if (data.threads_remaining_to_close > 0) {
+                        --data.threads_remaining_to_close;
+                    }
+                    return std::make_pair(data.threads_remaining_to_close, data.ref_count);
                 });
                 logger::trace("{}:{} ({}) [[{}]] shmem_key={} hashed_string={} open_count={} ref_coun={}", __FILE__, __LINE__, __func__, thread_id, shmem_key, get_resource_name(_ctx.prop_map()) + file_obj->logical_path(), open_count, ref_count);
             }
@@ -2354,9 +2369,12 @@ namespace irods_s3 {
                     DEFAULT_SHARED_MEMORY_TIMEOUT_IN_SECONDS,
                     SHMEM_SIZE};
 
+                // Issue 2319: Do NOT touch threads_remaining_to_close here. This
+                // hierarchy-resolution/redirect vote can be called multiple times per logical
+                // operation. This can mess up the counting used for determining when shared
+                // memory can be cleaned up.
                 shm_obj.atomic_exec([number_of_threads](auto& data) {
                     data.number_of_threads = number_of_threads;
-                    data.threads_remaining_to_close = number_of_threads;
                 });
 
             } catch (const boost::bad_lexical_cast &) {
