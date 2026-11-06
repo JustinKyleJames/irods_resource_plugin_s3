@@ -191,6 +191,12 @@ namespace irods::experimental::io::s3_transport
         unsigned int non_data_transfer_timeout_seconds;
         std::string  s3_storage_class;
         bool         trailing_checksum_on_upload_enabled;
+
+        // The transfer layout sent by the client, as the length of each client thread's part in
+        // offset order (the parts are contiguous and start at offset 0).  Empty if the client did
+        // not send one.  When set, it replaces the assumption above that the parts are split in the
+        // same manner as parallel iput, and number_of_client_transfer_threads must equal its size.
+        std::vector<std::int64_t> client_part_lengths;
     };
 
 
@@ -669,9 +675,13 @@ namespace irods::experimental::io::s3_transport
                         // initiates the upload, so a later finalizing close (which may be a distinct
                         // coordinator open/close with its own local config) can reliably know how many
                         // parts to wait for. See total_parts_expected in multipart_shared_data.hpp.
-                        data.total_parts_expected = total_number_of_parts_for_object(
+                        data.total_parts_expected = this->config_.client_part_lengths.empty()
+                            ? total_number_of_parts_for_object(
                                 this->config_.object_size,
                                 this->config_.number_of_client_transfer_threads,
+                                static_cast<std::int64_t>(this->config_.circular_buffer_size))
+                            : total_number_of_parts_for_layout(
+                                this->config_.client_part_lengths,
                                 static_cast<std::int64_t>(this->config_.circular_buffer_size));
                     }
                 }
@@ -681,6 +691,12 @@ namespace irods::experimental::io::s3_transport
             if (return_value == false) {
                 this->set_error(ERROR(S3_PUT_ERROR, "Initiate multipart failed."));
                 return 0;
+            }
+
+            // if the client sent a transfer layout, the bytes for this thread is the length of the part
+            // containing the offset.  only needed before the upload thread starts as that is where it is read.
+            if (!begin_part_upload_thread_ptr_ && !config_.client_part_lengths.empty()) {
+                set_bytes_this_thread(client_part_length_for_offset(config_.client_part_lengths, get_file_offset()));
             }
 
             // if config_.bytes_this_thread is 0 then bail
@@ -937,6 +953,87 @@ namespace irods::experimental::io::s3_transport
                 part_sizes.push_back(bytes_this_part);
             }
             assert(total_bytes == bytes_this_thread);
+        }
+
+        // Same as total_number_of_parts_for_object but for a client-provided transfer layout,
+        // where each client part is split into parts of at most part_size bytes.
+        static std::int64_t total_number_of_parts_for_layout(
+                const std::vector<std::int64_t>& client_part_lengths,
+                std::int64_t part_size)
+        {
+            std::int64_t number_of_parts = 0;
+            for (auto length : client_part_lengths) {
+                number_of_parts += (length + part_size - 1) / part_size;
+            }
+            return number_of_parts;
+        }
+
+        // Same as determine_start_and_end_part_from_offset_and_bytes_this_thread but for a
+        // client-provided transfer layout.  The thread is the one whose part starts at file_offset.
+        // Returns false if no part starts at file_offset.
+        static bool determine_start_and_end_part_from_layout(
+                const std::vector<std::int64_t>& client_part_lengths,
+                std::int64_t file_offset,
+                std::int64_t circular_buffer_size,
+                unsigned int& start_part_number,
+                unsigned int& end_part_number,
+                std::vector<std::int64_t>& part_sizes)
+        {
+            std::int64_t part_offset = 0;
+            start_part_number = 1;
+
+            for (auto length : client_part_lengths) {
+                const std::int64_t number_of_parts = (length + circular_buffer_size - 1) / circular_buffer_size;
+
+                if (part_offset == file_offset && length > 0) {
+                    end_part_number = start_part_number + number_of_parts - 1;
+
+                    // put the part sizes on the vector, splitting remaining bytes among first few parts
+                    const std::int64_t part_size = length / number_of_parts;
+                    const std::int64_t remaining_bytes = length % number_of_parts;
+                    for (std::int64_t part_cntr = 0; part_cntr < number_of_parts; ++part_cntr) {
+                        part_sizes.push_back(part_size + (remaining_bytes > part_cntr ? 1 : 0));
+                    }
+                    return true;
+                }
+
+                part_offset += length;
+                start_part_number += number_of_parts;
+            }
+
+            return false;
+        }
+
+        // Returns the length of the part in the client-provided transfer layout containing file_offset,
+        // or 0 if no part contains it.
+        static std::int64_t client_part_length_for_offset(
+                const std::vector<std::int64_t>& client_part_lengths,
+                std::int64_t file_offset)
+        {
+            std::int64_t part_offset = 0;
+            for (auto length : client_part_lengths) {
+                if (file_offset >= part_offset && file_offset < part_offset + length) {
+                    return length;
+                }
+                part_offset += length;
+            }
+            return 0;
+        }
+
+        // Returns true if every S3 part produced from the client-provided transfer layout meets the
+        // minimum part size.  Only the last part of an upload may be smaller.  Each client part is
+        // split into parts of at most circular_buffer_size bytes, which is at least twice the minimum
+        // part size, so it is enough that every client part except the last meets the minimum.
+        static bool layout_meets_minimum_part_size(
+                const std::vector<std::int64_t>& client_part_lengths,
+                std::int64_t minimum_part_size)
+        {
+            for (std::size_t i = 0; i + 1 < client_part_lengths.size(); ++i) {
+                if (client_part_lengths[i] < minimum_part_size) {
+                    return false;
+                }
+            }
+            return true;
         }
 
         std::int64_t get_existing_object_size() {
@@ -1350,12 +1447,26 @@ namespace irods::experimental::io::s3_transport
                 use_cache_ = false;
                 object_must_exist_ = false;
 
+                // When the client sent a transfer layout we know exactly how it splits the upload.
+                // Use cache only if the layout breaks the S3 multipart rules:
+                //   1. The file is empty.
+                //   2. There is > 1 part and multipart is disabled.
+                //   3. A part other than the last is smaller than the minimum part size.
+                if (!config_.client_part_lengths.empty()) {
+                    if ( config_.object_size <= 0 ||
+                            ( config_.client_part_lengths.size() > 1 && !config_.multipart_enabled ) ||
+                            !layout_meets_minimum_part_size(config_.client_part_lengths,
+                                static_cast<std::int64_t>(config_.minimum_part_size))) {
+                        use_cache_ = true;
+                    }
+                }
+
                 // override for cases where we must use cache
                 //   1. If we don't know the file size.
                 //   2. If we don't know the # of threads.
                 //   3. If we have > 1 thread and multipart is disabled
                 //   4. If doing multipart upload file size < #threads * minimum part size
-                if ( config_.object_size == 0 || config_.object_size == config::UNKNOWN_OBJECT_SIZE ||
+                else if ( config_.object_size == 0 || config_.object_size == config::UNKNOWN_OBJECT_SIZE ||
                         ( config_.number_of_client_transfer_threads <= 0 ) ||
                         ( config_.number_of_client_transfer_threads > 1 && !config_.multipart_enabled ) ||
                         ( config_.number_of_client_transfer_threads > 1 &&
@@ -1480,11 +1591,14 @@ namespace irods::experimental::io::s3_transport
             // For the streaming (non-cache) multipart path, part size is fixed at
             // the circular buffer size.  If the object needs more than 10000 parts,
             // the open needs to be rejected.
+            const std::int64_t streaming_number_of_parts = config_.client_part_lengths.empty()
+                ? total_number_of_parts_for_object(config_.object_size,
+                        config_.number_of_client_transfer_threads,
+                        static_cast<std::int64_t>(config_.circular_buffer_size))
+                : total_number_of_parts_for_layout(config_.client_part_lengths,
+                        static_cast<std::int64_t>(config_.circular_buffer_size));
             if (!use_cache_ && config_.multipart_enabled &&
-                    total_number_of_parts_for_object(config_.object_size,
-                            config_.number_of_client_transfer_threads,
-                            static_cast<std::int64_t>(config_.circular_buffer_size))
-                        > constants::MAXIMUM_NUMBER_ETAGS_PER_UPLOAD) {
+                    streaming_number_of_parts > constants::MAXIMUM_NUMBER_ETAGS_PER_UPLOAD) {
                 this->set_error(ERROR(S3_PUT_ERROR, fmt::format(
                         "Object [{}] of size [{}] bytes cannot be uploaded via S3 multipart upload. It would "
                         "require more than [{}] parts at the configured circular buffer size "
@@ -2280,8 +2394,23 @@ namespace irods::experimental::io::s3_transport
                 // determine the part number from the offset, file size, and buffer size
                 // the last page might be larger so doing a little trick to handle that case (second term)
                 //  Note:  We bailed early if bytes_this_thread == 0
-                determine_start_and_end_part_from_offset_and_bytes_this_thread(bytes_this_thread, file_offset_,
-                        config_.circular_buffer_size, start_part_number, end_part_number, part_sizes);
+                if (!config_.client_part_lengths.empty()) {
+                    // the client told us how it split the upload
+                    if (!determine_start_and_end_part_from_layout(config_.client_part_lengths, file_offset_,
+                            config_.circular_buffer_size, start_part_number, end_part_number, part_sizes)) {
+                        logger::error("{}:{} ({}) [[{}]] no part in the transfer layout starts at offset {}",
+                                __FILE__, __LINE__, __func__, get_thread_identifier(), file_offset_);
+                        this->set_error(ERROR(S3_PUT_ERROR, "No part in the transfer layout starts at this offset"));
+                        shm_obj.atomic_exec([](auto& data) {
+                            data.last_error_code = error_codes::UPLOAD_FILE_ERROR;
+                        });
+                        return;
+                    }
+                }
+                else {
+                    determine_start_and_end_part_from_offset_and_bytes_this_thread(bytes_this_thread, file_offset_,
+                            config_.circular_buffer_size, start_part_number, end_part_number, part_sizes);
+                }
 
             }
 

@@ -24,6 +24,8 @@
 #include <string_view>
 #include <fmt/format.h>
 #include <filesystem>
+#include <numeric>
+#include <vector>
 
 // to run the following unit tests, the aws command line utility needs to be available in
 // the path and "aws configure" needs to be run to set up the keys
@@ -1199,3 +1201,109 @@ TEST_CASE("test_part_splits", "[part_splits]")
     }
 }
 
+
+TEST_CASE("test_transfer_layout_part_splits", "[part_splits][transfer_layout]")
+{
+    using s3_transport = irods::experimental::io::s3_transport::s3_transport<char>;
+
+    const std::int64_t mb = 1024 * 1024;
+    const std::int64_t circular_buffer_size = 10 * mb;
+
+    SECTION("an iput-style layout gives the same parts as the existing split")
+    {
+        const std::int64_t object_size = 100 * mb + 7;
+        const int number_of_threads = 3;
+        const std::int64_t bytes_per_thread = object_size / number_of_threads;
+
+        const std::vector<std::int64_t> client_part_lengths{
+            bytes_per_thread, bytes_per_thread, object_size - 2 * bytes_per_thread};
+
+        REQUIRE(s3_transport::total_number_of_parts_for_layout(client_part_lengths, circular_buffer_size) ==
+                s3_transport::total_number_of_parts_for_object(object_size, number_of_threads, circular_buffer_size));
+
+        for (int thread = 0; thread < number_of_threads; ++thread) {
+            const std::int64_t file_offset = thread * bytes_per_thread;
+
+            unsigned int expected_start = 0;
+            unsigned int expected_end = 0;
+            std::vector<std::int64_t> expected_part_sizes;
+            s3_transport::determine_start_and_end_part_from_offset_and_bytes_this_thread(
+                client_part_lengths[thread], file_offset, circular_buffer_size,
+                expected_start, expected_end, expected_part_sizes);
+
+            unsigned int start = 0;
+            unsigned int end = 0;
+            std::vector<std::int64_t> part_sizes;
+            REQUIRE(s3_transport::determine_start_and_end_part_from_layout(
+                client_part_lengths, file_offset, circular_buffer_size, start, end, part_sizes));
+
+            CHECK(start == expected_start);
+            CHECK(end == expected_end);
+            CHECK(part_sizes == expected_part_sizes);
+        }
+    }
+
+    SECTION("an uneven layout gives contiguous part numbers that cover every byte")
+    {
+        const std::vector<std::int64_t> client_part_lengths{12 * mb, 30 * mb, 5 * mb, 1 * mb + 3};
+
+        unsigned int next_part_number = 1;
+        std::int64_t file_offset = 0;
+
+        for (auto length : client_part_lengths) {
+            unsigned int start = 0;
+            unsigned int end = 0;
+            std::vector<std::int64_t> part_sizes;
+            REQUIRE(s3_transport::determine_start_and_end_part_from_layout(
+                client_part_lengths, file_offset, circular_buffer_size, start, end, part_sizes));
+
+            CHECK(start == next_part_number);
+            CHECK(part_sizes.size() == end - start + 1);
+            CHECK(std::accumulate(part_sizes.begin(), part_sizes.end(), std::int64_t{0}) == length);
+            for (auto part_size : part_sizes) {
+                CHECK(part_size <= circular_buffer_size);
+            }
+
+            next_part_number = end + 1;
+            file_offset += length;
+        }
+
+        CHECK(s3_transport::total_number_of_parts_for_layout(client_part_lengths, circular_buffer_size) ==
+              next_part_number - 1);
+    }
+
+    SECTION("an offset that does not start a part is rejected")
+    {
+        const std::vector<std::int64_t> client_part_lengths{12 * mb, 30 * mb};
+
+        unsigned int start = 0;
+        unsigned int end = 0;
+        std::vector<std::int64_t> part_sizes;
+        CHECK_FALSE(s3_transport::determine_start_and_end_part_from_layout(
+            client_part_lengths, 1, circular_buffer_size, start, end, part_sizes));
+        CHECK_FALSE(s3_transport::determine_start_and_end_part_from_layout(
+            client_part_lengths, 42 * mb, circular_buffer_size, start, end, part_sizes));
+    }
+
+    SECTION("only the last part may be smaller than the minimum part size")
+    {
+        const std::int64_t minimum_part_size = 5 * mb;
+
+        CHECK(s3_transport::layout_meets_minimum_part_size({5 * mb, 5 * mb, 1}, minimum_part_size));
+        CHECK(s3_transport::layout_meets_minimum_part_size({1}, minimum_part_size));
+        CHECK_FALSE(s3_transport::layout_meets_minimum_part_size({4 * mb, 6 * mb}, minimum_part_size));
+        CHECK_FALSE(s3_transport::layout_meets_minimum_part_size({6 * mb, 4 * mb, 6 * mb}, minimum_part_size));
+    }
+
+    SECTION("bytes for a thread is the length of the part containing the offset")
+    {
+        const std::vector<std::int64_t> client_part_lengths{10 * mb, 20 * mb, 12 * mb};
+
+        CHECK(s3_transport::client_part_length_for_offset(client_part_lengths, 0) == 10 * mb);
+        CHECK(s3_transport::client_part_length_for_offset(client_part_lengths, 10 * mb - 1) == 10 * mb);
+        CHECK(s3_transport::client_part_length_for_offset(client_part_lengths, 10 * mb) == 20 * mb);
+        CHECK(s3_transport::client_part_length_for_offset(client_part_lengths, 41 * mb) == 12 * mb);
+        CHECK(s3_transport::client_part_length_for_offset(client_part_lengths, 42 * mb) == 0);
+        CHECK(s3_transport::client_part_length_for_offset({}, 0) == 0);
+    }
+}

@@ -45,6 +45,7 @@
 // =-=-=-=-=-=-=-
 // other includes
 #include <string>
+#include <string_view>
 #include <sstream>
 #include <iomanip>
 #include <fcntl.h>
@@ -57,7 +58,10 @@
 #include <assert.h>
 #include <curl/curl.h>
 #include <fmt/format.h>
+#include <nlohmann/json.hpp>
 #include <filesystem>
+#include <numeric>
+#include <vector>
 
 extern std::size_t g_retry_count;
 extern std::size_t g_retry_wait;
@@ -190,6 +194,36 @@ namespace irods_s3 {
     irods::error s3_file_stat_operation_with_flag_for_retry_on_not_found(irods::plugin_context& _ctx,
             struct stat* _statbuf, bool retry_on_not_found );
 
+    // Returns the transfer layout the client sent for this replica, as the length of each client
+    // thread's part in offset order, or an empty vector if the client did not send one.  See
+    // irods/transfer_layout.hpp in iRODS.
+    auto get_client_part_lengths(const irods::file_object_ptr& _file_obj) -> std::vector<std::int64_t>
+    {
+        std::vector<std::int64_t> client_part_lengths;
+#ifdef IRODS_LIBRARY_FEATURE_TRANSFER_LAYOUT
+        for (const auto& l1desc : L1desc) {
+            if (l1desc.inuseFlag && l1desc.dataObjInp && l1desc.dataObjInfo &&
+                    l1desc.dataObjInp->objPath == _file_obj->logical_path() &&
+                    l1desc.dataObjInfo->filePath == _file_obj->physical_path() &&
+                    !l1desc.transfer_layout.empty()) {
+                // the server stores the layout in only one L1desc entry
+                try {
+                    const auto layout = nlohmann::json::parse(l1desc.transfer_layout);
+                    for (const auto& part : layout.at("parts")) {
+                        client_part_lengths.push_back(part.at("length").get<std::int64_t>());
+                    }
+                }
+                catch (const nlohmann::json::exception& e) {
+                    logger::warn("{}:{} ({}) ignoring invalid transfer layout: {}", __FILE__, __LINE__, __func__, e.what());
+                    client_part_lengths.clear();
+                }
+                break;
+            }
+        }
+#endif
+        return client_part_lengths;
+    } // get_client_part_lengths
+
     // determines the data size and number of threads, stores them, and returns them
     auto get_number_of_threads_data_size_and_opr_type(irods::plugin_context& _ctx,
                                                       int& number_of_threads,
@@ -232,11 +266,16 @@ namespace irods_s3 {
                        int thread_count = L1desc[i].dataObjInp->numThreads;
                        int oprType = L1desc[i].dataObjInp->oprType;
                        std::int64_t data_size = L1desc[i].dataSize;
+                       std::string_view transfer_layout;
+#ifdef IRODS_LIBRARY_FEATURE_TRANSFER_LAYOUT
+                       transfer_layout = L1desc[i].transfer_layout;
+#endif
                        logger::debug("{}:{} ({}) [[{}]] [{}][objPath={}][filePath={}][oprType={}]"
-                               "[requested_number_of_threads={}][dataSize={}][dataObjInfo->dataSize={}][srcL1descInx={}]",
+                               "[requested_number_of_threads={}][dataSize={}][dataObjInfo->dataSize={}][srcL1descInx={}]"
+                               "[transfer_layout={}]",
                                __FILE__, __LINE__, func, thread_id, i, L1desc[i].dataObjInp->objPath,
                                L1desc[i].dataObjInfo->filePath, oprType, thread_count, data_size,
-                               L1desc[i].dataObjInfo->dataSize, L1desc[i].srcL1descInx);
+                               L1desc[i].dataObjInfo->dataSize, L1desc[i].srcL1descInx, transfer_layout);
                     }
                 }
                 logger::debug("{}:{} ({}) [[{}]] ------------------------------------",
@@ -299,6 +338,14 @@ namespace irods_s3 {
                 } else if (found) {
                     break;
                 }
+            }
+
+            // Prefer the transfer layout sent by the client over everything else.
+            if (const auto client_part_lengths = get_client_part_lengths(file_obj); !client_part_lengths.empty()) {
+                number_of_threads = static_cast<int>(client_part_lengths.size());
+                data_size = std::accumulate(client_part_lengths.begin(), client_part_lengths.end(), std::int64_t{0});
+                logger::debug("{}:{} ({}) [[{}]] using transfer layout from client: number_of_threads={} data_size={}",
+                        __FILE__, __LINE__, func, thread_id, number_of_threads, data_size);
             }
 
             // special treatment for replication
@@ -728,6 +775,9 @@ namespace irods_s3 {
         s3_config.non_data_transfer_timeout_seconds = get_non_data_transfer_timeout_seconds(_ctx.prop_map());
         s3_config.s3_storage_class = s3_get_storage_class_from_configuration(_ctx.prop_map());
         s3_config.trailing_checksum_on_upload_enabled = s3_trailing_checksum_on_upload_enabled(_ctx.prop_map());
+        if (oprType == PUT_OPR) {
+            s3_config.client_part_lengths = get_client_part_lengths(file_obj);
+        }
 
         auto sts_date_setting = s3GetSTSDate(_ctx.prop_map());
         s3_config.s3_sts_date_str = sts_date_setting == S3STSAmzOnly ? "amz" : sts_date_setting == S3STSAmzAndDate ? "both" : "date";

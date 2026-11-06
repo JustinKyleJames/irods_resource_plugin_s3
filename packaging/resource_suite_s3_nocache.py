@@ -515,6 +515,36 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
             # Reload server configuration to put things back how they were.
             IrodsController().reload_configuration()
 
+    @unittest.skipIf(IrodsConfig().version_tuple < (5, 1, 90), 'iRODS server does not support transfer layouts')
+    def test_iput_with_client_single_buffer_smaller_than_server_uses_transfer_layout(self):
+        # The client's single buffer limit (1 MiB) is smaller than the server's, so iput does a
+        # parallel transfer of a file the server would otherwise expect in a single buffer. Without
+        # the transfer layout the plugin assumes one thread. With it, the plugin knows the client
+        # sends four parts smaller than the S3 minimum part size and uses a cache file.
+        filename = 'test_iput_with_client_single_buffer_smaller_than_server_uses_transfer_layout'
+        local_file = os.path.join(self.admin.local_session_dir, filename)
+        retrieved_file = local_file + '.get'
+
+        try:
+            s3plugin_lib.make_arbitrary_file(local_file, 12*1024*1024 + 5)
+
+            session_env_backup = copy.deepcopy(self.admin.environment_file_contents)
+            client_env = copy.deepcopy(session_env_backup)
+            client_env['irods_maximum_size_for_single_buffer_in_megabytes'] = 1
+            self.admin.environment_file_contents = client_env
+            try:
+                self.admin.assert_icommand(['iput', '-N', '4', local_file, filename])
+            finally:
+                self.admin.environment_file_contents = session_env_backup
+
+            self.admin.assert_icommand(['iget', '-f', filename, retrieved_file])
+            self.assertTrue(filecmp.cmp(local_file, retrieved_file, shallow=False))
+
+        finally:
+            self.admin.run_icommand(['irm', '-f', filename])
+            s3plugin_lib.remove_if_exists(local_file)
+            s3plugin_lib.remove_if_exists(retrieved_file)
+
     def test_local_iput_with_really_big_file__ticket_1623(self):
         filename = "reallybigfile.txt"
         # file size larger than 32 bit int
@@ -1919,8 +1949,10 @@ OUTPUT ruleExecOut
             # all: the object is also well over the default 5 GiB single-part upload limit,
             # so the max-upload-size check in resolve_hierarchy rejects it early regardless of -N.
             # In this case the error is sent back to the client and appears in stdout.
+            # Starting with 5.1.90, iput writes each thread's part over its own connection and
+            # reports the plugin's S3_PUT_ERROR. Older iput derives SYS_COPY_LEN_ERR instead.
             if self.s3EnableMPU:
-                expected_error = 'SYS_COPY_LEN_ERR'
+                expected_error = 'S3_PUT_ERROR' if IrodsConfig().version_tuple >= (5, 1, 90) else 'SYS_COPY_LEN_ERR'
                 expected_message = None
             else:
                 expected_error = 'UNIX_FILE_OPEN_ERR'
